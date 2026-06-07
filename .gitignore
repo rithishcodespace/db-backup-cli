@@ -56,3 +56,4 @@ prisma/migrations/
 
 # Understanding
 notes.txt
+/generated/prisma

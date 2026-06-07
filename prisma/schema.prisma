@@ -1,0 +1,33 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model BackupJob{
+  id String @id @default(cuid())
+  dbType String // postgres, mysql, sqlite, mongodb
+  dbName String
+  backupType String // full, incremental, differential
+  status String // pending, running, success, failed
+  filePath String? // if local storage backup
+  fileSize Int? // in bytes
+  checksum String? // stores file hash (for backend integrity)
+  startedAt DateTime @default(now())
+  completedAt DateTime?
+  duration Int? // in secs
+  error String
+  metadata String? // JSON string for additional data
+
+  @@index([status])
+  @@index([startedAt])
+  @@index([dbType])
+}
