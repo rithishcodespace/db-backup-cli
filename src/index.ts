@@ -50,7 +50,7 @@ program
     showHelp(); 
   });
 
-// Handle unknown commands
+// Handle unknown commands - unregistered
 program.on('command:*', (operands) => {
   console.error(chalk.red(`\n✗ Error: Unknown command '${operands[0]}'\n`));
   showHelp();

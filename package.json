@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "A utility to backup databases",
   "main": "index.js",
-  "bin": {
-    "db-backup-cli": "bin/db_backup.js"
+  "bin": { 
+    "db-backup": "bin/db_backup.js"
   },
   "directories": {
     "test": "tests"
