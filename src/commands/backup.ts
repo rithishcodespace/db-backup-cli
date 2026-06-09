@@ -12,7 +12,7 @@ export function registerBackupCommand(program: Command): void {
     .description('Perform a database backup')
     .option('-t, --type <type>', 'Backup type (full, incremental, differential)', 'full')
     .option('-c, --compress', 'Compress backup file', true)
-    .option('-o, --output <path>', 'Output directory', config.get('storage.localPath'))
+    .option('-o, --output <path>', 'Output directory', config.get('storage.localPath')) // if not gave, default will be from config
     .option('-n, --name <name>', 'Custom backup name')
     .option('--no-compress', 'Disable compression')
     .action(async (options) => {
