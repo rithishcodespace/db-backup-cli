@@ -28,7 +28,7 @@ export interface LogConfig {
 
 export interface AppConfig {
   env: string;
-  version: string;
+  version?: string;
   database?: DatabaseConfig;
   storage: StorageConfig;
   logging: LogConfig;
@@ -94,8 +94,11 @@ class ConfigManager {
     };
   }
 
-  get(key: string): any {
-    return key.split('.').reduce((obj, k) => obj?.[k], this.config);
+  get(key: string): any { // object is made generic (any)
+    return key.split('.').reduce(
+    (obj, k) => (obj as any)?.[k],
+    this.config as any
+);
   }
 
   getAll(): AppConfig {
