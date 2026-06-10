@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { config } from '../config';
 import { createModuleLogger } from '../logger';
-import { testConnection } from '../utils/db-connection';
+import { testConnection } from '../utils/db_connection';
 
 const log = createModuleLogger('connect-command');
 

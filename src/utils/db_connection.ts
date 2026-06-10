@@ -1,6 +1,6 @@
 import { createModuleLogger } from '../logger';
 
-const log = createModuleLogger('db-connection');
+const log = createModuleLogger('db_connection');
 
 export interface ConnectionConfig {
   type: string;

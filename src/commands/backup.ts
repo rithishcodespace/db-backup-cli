@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import ora from 'ora';
+import ora, {Ora} from 'ora';
 import { createModuleLogger } from '../logger';
 import { config } from '../config';
 
@@ -65,7 +65,7 @@ export function registerBackupCommand(program: Command): void {
     });
 }
 
-async function simulateBackup(spinner: ora.Ora, options: any): Promise<void> {
+async function simulateBackup(spinner: Ora, options: any): Promise<void> {
   return new Promise((resolve) => {
     let progress = 0;
     const interval = setInterval(() => {
