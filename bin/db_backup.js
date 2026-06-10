@@ -1,3 +1,7 @@
+#!/usr/bin/env node
+// above - tells os to run this file with node.js (shebang)
+// /bin/env - find node in this path
+
 const {spawn} = require("child_process"); // to create new node processes
 const path = require("path"); // to concatenate file paths
 const fs = require("fs"); // to check whether a flie exits

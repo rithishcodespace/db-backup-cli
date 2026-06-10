@@ -56,4 +56,5 @@ prisma/migrations/
 
 # Understanding
 notes.txt
+flow.txt
 /generated/prisma

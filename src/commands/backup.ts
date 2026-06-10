@@ -68,6 +68,7 @@ export function registerBackupCommand(program: Command): void {
 async function simulateBackup(spinner: Ora, options: any): Promise<void> {
   return new Promise((resolve) => {
     let progress = 0;
+    console.log(options);
     const interval = setInterval(() => {
       progress += 10;
       spinner.text = `Backing up database... ${progress}%`;
