@@ -1,3 +1,4 @@
+import {Client, ClientConfig} from 'pg';
 import { createModuleLogger } from '../logger';
 
 const log = createModuleLogger('db_connection');
@@ -16,6 +17,7 @@ export interface ConnectionResult {
   success: boolean;
   error?: string;
   version?: string;
+  details?: any
 }
 
 export async function testConnection(config: ConnectionConfig): Promise<ConnectionResult> {
@@ -52,29 +54,52 @@ export async function testConnection(config: ConnectionConfig): Promise<Connecti
 }
 
 async function testPostgresConnection(config: ConnectionConfig): Promise<ConnectionResult> {
-  // Phase 2: Implement actual PostgreSQL connection using 'pg' library
-  log.info('Testing PostgreSQL connection (simulated)', { 
-    host: config.host, 
-    database: config.database 
-  });
+  const clientConfig: ClientConfig = {
+    host: config.host || 'localhost',
+    port: config.port || 5432,
+    user: config.username,
+    password: config.password,
+    database: config.database,
+    ssl: config.ssl ? { rejectUnauthorized: false } : false,
+  };
+
+  const client = new Client(clientConfig);
   
-  // Simulate connection delay
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  // Simulate successful connection for demo
-  // In Phase 2, this will actually connect to PostgreSQL
-  if (config.host === 'localhost' || config.host === '127.0.0.1') {
+  try {
+    log.debug('Connecting to PostgreSQL...');
+    await client.connect();
+    
+    const result = await client.query('SELECT version() as version, current_database() as db, current_user as user');
+    const version = result.rows[0].version;
+    
+    await client.end();
+    
+    log.info('PostgreSQL connection successful', { 
+      version: version.split(',')[0],
+      database: config.database 
+    });
+    
     return {
       success: true,
-      version: 'PostgreSQL 15.0 (simulated - Phase 2 will implement real connection)',
+      version: version.split(',')[0],
+      details: {
+        database: result.rows[0].db,
+        user: result.rows[0].user,
+      }
     };
+  } catch (error) {
+    log.error('PostgreSQL connection failed', { error });
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    try {
+      await client.end();
+    } catch (e) {
+      // Ignore end errors
+    }
   }
-  
-  // Simulate connection failure for non-localhost (just for demo)
-  return {
-    success: false,
-    error: `Connection refused. Is PostgreSQL running on ${config.host}:${config.port || 5432}? (Simulated - Phase 2 will implement real connection)`,
-  };
 }
 
 async function testMySQLConnection(config: ConnectionConfig): Promise<ConnectionResult> {
@@ -119,4 +144,30 @@ async function testSQLiteConnection(config: ConnectionConfig): Promise<Connectio
     success: true,
     version: 'SQLite 3 (simulated - Phase 2 will implement real connection)',
   };
+}
+
+// Helper function to get database size
+export async function getDatabaseSize(config: ConnectionConfig): Promise<number> {
+  if (config.type === 'postgresql') {
+    const client = new Client({
+      host: config.host,
+      port: config.port,
+      user: config.username,
+      password: config.password,
+      database: config.database,
+    });
+    
+    try {
+      await client.connect();
+      const result = await client.query(`
+        SELECT pg_database_size($1) as size
+      `, [config.database]);
+      
+      return result.rows[0].size;
+    } finally {
+      await client.end();
+    }
+  }
+  
+  return 0;
 }
