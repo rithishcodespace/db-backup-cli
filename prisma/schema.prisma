@@ -19,7 +19,12 @@ model BackupJob{
   backupType String // full, incremental, differential
   status String // pending, running, success, failed
   filePath String? // if local storage backup
+  fileName String?
   fileSize Int? // in bytes
+  compressedSize Int? // size after compression
+  compressionType String? // gzip, zstd, none
+  backupVersion String? // version identifier
+  retryCound Int @default(0)
   checksum String? // stores file hash (for backend integrity)
   startedAt DateTime @default(now())
   completedAt DateTime?
@@ -30,4 +35,17 @@ model BackupJob{
   @@index([status])
   @@index([startedAt])
   @@index([dbType])
+  @@index([dbName])
+}
+
+model BackupLog{
+  id Int @id @default(autoincrement())
+  backupJobId String
+  timestamp DateTime @default(now())
+  level String // info, warn, error
+  message String
+  details String? // JSON string
+
+  @@index([backupJobId])
+  @@index([timestamp])
 }
