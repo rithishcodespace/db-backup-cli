@@ -4,8 +4,7 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
@@ -24,13 +23,14 @@ model BackupJob{
   compressedSize Int? // size after compression
   compressionType String? // gzip, zstd, none
   backupVersion String? // version identifier
-  retryCound Int @default(0)
+  retryCount Int @default(0)
   checksum String? // stores file hash (for backend integrity)
   startedAt DateTime @default(now())
   completedAt DateTime?
   duration Int? // in secs
-  error String
+  error String?
   metadata String? // JSON string for additional data
+  logs BackupLog[]   // <-- relation
 
   @@index([status])
   @@index([startedAt])
@@ -41,6 +41,7 @@ model BackupJob{
 model BackupLog{
   id Int @id @default(autoincrement())
   backupJobId String
+  backupJob BackupJob @relation(fields: [backupJobId], references: [id]) // relation
   timestamp DateTime @default(now())
   level String // info, warn, error
   message String
