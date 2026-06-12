@@ -16,10 +16,10 @@ const log = createModuleLogger('postgres-backup');
 export interface BackupOptions {
   type: 'full' | 'incremental' | 'differential';
   compress: boolean;
-  output?: string;
+  output?: string; // Custom output folder.
   name?: string;
-  tables?: string[];
-  excludeTables?: string[];
+  tables?: string[]; // only backup specific tables
+  excludeTables?: string[]; // skip specific tables
 }
 
 export interface BackupResult {
@@ -174,8 +174,8 @@ export class PostgresBackupService {
     log.debug('Executing pg_dump', { command: command.substring(0, 200) });
     
     try {
-      const { stdout, stderr } = await execAsync(command, {
-        maxBuffer: 50 * 1024 * 1024, // 50MB buffer
+      const { stdout, stderr } = await execAsync(command, { // stdout -> output, stderr -> error
+        maxBuffer: 50 * 1024 * 1024, // 50MB buffer (max output to be stored size)
         env: {
           ...process.env,
           PGPASSWORD: this.dbConfig.password,
@@ -234,11 +234,11 @@ export class PostgresBackupService {
   private async calculateChecksum(filePath: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const hash = createHash('sha256');
-      const stream = createReadStream(filePath);
+      const stream = createReadStream(filePath); // reads file asynchronously
       
-      stream.on('data', data => hash.update(data));
-      stream.on('end', () => resolve(hash.digest('hex')));
-      stream.on('error', reject);
+      stream.on('data', data => hash.update(data)); // This event is fired every time a chunk of data is read from the file.
+      stream.on('end', () => resolve(hash.digest('hex'))); // This event is fired once, when the entire file has been read.
+      stream.on('error', reject); // This event is fired if something goes wrong.
     });
   }
   
