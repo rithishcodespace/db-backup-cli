@@ -2,11 +2,10 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../lib/prisma";
 import { createModuleLogger } from '../logger';
-import { config } from '../config';
+// import { config } from '../config';
 
-const prisma = new PrismaClient();
 const log = createModuleLogger('list-command');
 
 export function registerListCommand(program: Command): void {

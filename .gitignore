@@ -58,3 +58,5 @@ prisma/migrations/
 notes.txt
 flow.txt
 /generated/prisma
+
+/generated/prisma

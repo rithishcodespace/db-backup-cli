@@ -1,16 +1,15 @@
 import { exec } from 'child_process'; // Used to execute shell commands. - exec("pg_dump ...")
 import { promisify } from 'util'; // It converts callback-based functions into Promise-based function
-import { createWriteStream, createReadStream, statSync } from 'fs';
-import { createGzip } from 'zlib'; // Used for compression.
+import { createReadStream, statSync } from 'fs';
+// import { createGzip } from 'zlib'; // Used for compression.
 import path from 'path';
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../lib/prisma";
 import { config } from '../config';
 import { createModuleLogger } from '../logger';
 import { ConnectionConfig } from '../utils/db_connection';
 import { createHash } from 'crypto';
 
 const execAsync = promisify(exec); // now exec, can be used with async/await instead of callbacks
-const prisma = new PrismaClient();
 const log = createModuleLogger('postgres-backup');
 
 export interface BackupOptions {
@@ -52,7 +51,7 @@ export class PostgresBackupService {
     
     try {
       // Create backup job record
-      const job = await prisma.backupJob.create({
+      await prisma.backupJob.create({
         data: {
           id: backupId,
           dbType: 'postgresql',
@@ -174,7 +173,7 @@ export class PostgresBackupService {
     log.debug('Executing pg_dump', { command: command.substring(0, 200) });
     
     try {
-      const { stdout, stderr } = await execAsync(command, { // stdout -> output, stderr -> error
+      const { stderr } = await execAsync(command, { // stdout -> output, stderr -> error
         maxBuffer: 50 * 1024 * 1024, // 50MB buffer (max output to be stored size)
         env: {
           ...process.env,

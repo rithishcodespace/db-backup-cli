@@ -7,7 +7,7 @@ const path = require("path"); // to concatenate file paths
 const fs = require("fs"); // to check whether a flie exits
 
 // check if build files exits
-const distPath = path.join(__dirname, "../dist/index.js");
+const distPath = path.join(__dirname, "../dist/src/index.js");
 if(!fs.existsSync(distPath)){
     console.error('ERROR: build not found, please run "npm run build" first.');
     process.exit(1);
