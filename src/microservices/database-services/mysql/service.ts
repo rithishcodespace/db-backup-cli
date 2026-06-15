@@ -1,8 +1,8 @@
 import express from 'express';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { createWriteStream, statSync } from 'fs';
-import { createGzip } from 'zlib';
+import { statSync } from 'fs';
+// import { createGzip } from 'zlib';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { DatabaseConfig, BackupOptions, BackupResponse } from '../../shared/types';

@@ -5,7 +5,7 @@ import { createGzip } from 'zlib';
 import { pipeline } from 'stream';
 import { promisify } from 'util';
 import { v4 as uuidv4 } from 'uuid';
-import Database from 'better-sqlite3';
+// import Database from 'better-sqlite3';
 import { DatabaseConfig, BackupOptions, BackupResponse } from '../../shared/types';
 import { createModuleLogger } from '../../../logger';
 import { config as appConfig } from '../../../config';
@@ -59,7 +59,7 @@ async function performSQLiteBackup(
   const startTime = Date.now();
   
   // SQLite backup is simple file copy
-  const sourceDb = dbConfig.database;
+  const sourceDb = dbConfig.database; // db name
   
   if (!fs.existsSync(sourceDb)) {
     throw new Error(`SQLite database file not found: ${sourceDb}`);
