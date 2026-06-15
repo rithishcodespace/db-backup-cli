@@ -5,6 +5,7 @@ import { logger } from './logger';
 import { showHelp } from './commands/help';
 import { registerConnectCommand } from './commands/connect';
 import { registerBackupCommand } from './commands/backup';
+import { registerListCommand } from './commands/list';
 
 // Creates CLI object
 const program = new Command();
@@ -41,6 +42,7 @@ program
 // Register commands - now cli knows connect, register command exits
 registerConnectCommand(program);
 registerBackupCommand(program);
+registerListCommand(program);
 
 // Default help - creates help command
 program
