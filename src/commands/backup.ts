@@ -1,169 +1,112 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
+import axios from 'axios';
 import { createModuleLogger } from '../logger';
 import { config } from '../config';
-import { PostgresBackupService } from '../services/postgres-backup.service';
-import { getDatabaseSize } from '../utils/db_connection';
 
 const log = createModuleLogger('backup-command');
+
+const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:3000';
 
 export function registerBackupCommand(program: Command): void {
   program
     .command('backup')
-    .description('Perform a database backup')
+    .description('Perform a database backup using microservices')
     .option('-t, --type <type>', 'Backup type (full, incremental, differential)', 'full')
     .option('-c, --compress', 'Compress backup file', true)
-    .option('-o, --output <path>', 'Output directory', config.get('storage.localPath'))
+    .option('-o, --output <path>', 'Output directory')
     .option('-n, --name <name>', 'Custom backup name')
     .option('--tables <tables>', 'Comma-separated list of tables to backup')
     .option('--exclude-tables <tables>', 'Comma-separated list of tables to exclude')
+    .option('--async', 'Run backup asynchronously (return immediately)', false)
     .option('--no-compress', 'Disable compression')
-    .option('--show-progress', 'Show detailed progress', true)
     .action(async (options) => {
-      const spinner = ora('Initializing backup...').start();
+      const spinner = ora('Preparing backup request...').start();
       
       try {
-        // Check if database is configured
-        const dbConfig = config.get('database');
+        // Get database configuration
+        const dbConfig = config.get('database'); // calls get() in config/index.ts, from this we get entire database config
         if (!dbConfig) {
           spinner.fail('No database configuration found');
-          console.error(chalk.red('\n✗ Please run "db-backup connect" first to configure database connection'));
-          console.error(chalk.dim('\nExample: db-backup connect --type postgresql --host localhost --database mydb'));
-          log.error('Backup attempted without database configuration');
+          console.error(chalk.red('\n✗ Please run "db-backup connect" first'));
           process.exit(1);
-        }
-        
-        // Check if pg_dump is available
-        if (dbConfig.type === 'postgresql' || dbConfig.type === 'postgres') {
-          spinner.text = 'Checking PostgreSQL tools...';
-          await checkPgDump();
-        }
-        
-        // Get database size for estimation
-        spinner.text = 'Analyzing database size...';
-        let dbSize = 0;
-        try {
-          dbSize = await getDatabaseSize(dbConfig);
-          const sizeMB = (dbSize / 1024 / 1024).toFixed(2);
-          spinner.text = `Database size: ${sizeMB} MB. Preparing backup...`;
-          console.log(chalk.dim(`\n📊 Database size: ${sizeMB} MB`));
-        } catch (error) {
-          console.log(chalk.yellow('⚠ Could not determine database size, proceeding anyway'));
         }
         
         // Parse tables options
         const tables = options.tables ? options.tables.split(',') : undefined;
         const excludeTables = options.excludeTables ? options.excludeTables.split(',') : undefined;
         
-        // Generate backup name
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const backupName = options.name || `${dbConfig.database}_${timestamp}`;
+        // Prepare backup request
+        const backupRequest = {
+          dbConfig: {
+            type: dbConfig.type,
+            host: dbConfig.host,
+            port: dbConfig.port,
+            username: dbConfig.username,
+            password: dbConfig.password,
+            database: dbConfig.database,
+            ssl: dbConfig.ssl
+          },
+          backupType: options.type,
+          options: {
+            compress: options.compress,
+            tables,
+            excludeTables,
+            outputPath: options.output || config.get('storage.localPath'),
+            backupName: options.name
+          }
+        };
         
-        spinner.text = 'Starting backup operation...';
-        log.info('Starting backup', { 
-          type: options.type, 
-          compress: options.compress, 
-          dbType: dbConfig.type,
-          tables,
-          excludeTables
-        });
+        spinner.text = 'Sending backup request to orchestrator...';
+        log.debug('Sending backup request', { dbType: dbConfig.type });
         
-        // Perform backup based on database type
-        let result;
+        // Send request to API Gateway
+        const response = await axios.post(`${GATEWAY_URL}/api/backup`, backupRequest); // gateway -> orhestrator -> correct service
         
-        switch (dbConfig.type) {
-          case 'postgresql':
-          case 'postgres':
-            const backupService = new PostgresBackupService(dbConfig);
-            result = await backupService.createBackup({
-              type: options.type,
-              compress: options.compress,
-              output: options.output,
-              name: backupName,
-              tables,
-              excludeTables,
-            });
-            break;
-            
-          default:
-            spinner.fail(`Database type ${dbConfig.type} not yet supported in Phase 2`);
-            console.error(chalk.yellow('\n⚠ Phase 2 currently supports PostgreSQL only'));
-            console.error(chalk.dim('MySQL, MongoDB, and SQLite coming in Phase 3!'));
-            process.exit(1);
-        }
-        
-        if (result.success) {
+        if (response.data.success) {
           spinner.succeed(chalk.green('Backup completed successfully!'));
           
           console.log(chalk.green('\n✓ Backup Details:'));
-          console.log(chalk.dim(`  ID: ${result.backupId}`));
+          console.log(chalk.dim(`  Backup ID: ${response.data.backupId}`));
           console.log(chalk.dim(`  Database: ${dbConfig.type}/${dbConfig.database}`));
           console.log(chalk.dim(`  Type: ${options.type}`));
-          console.log(chalk.dim(`  Compressed: ${options.compress ? 'Yes' : 'No'}`));
-          console.log(chalk.dim(`  File: ${path.basename(result.filePath!)}`));
-          console.log(chalk.dim(`  Location: ${path.dirname(result.filePath!)}`));
           
-          // Show file sizes
-          if (result.fileSize) {
-            const sizeMB = (result.fileSize / 1024 / 1024).toFixed(2);
+          if (response.data.fileSize) {
+            const sizeMB = (response.data.fileSize / 1024 / 1024).toFixed(2);
             console.log(chalk.dim(`  Size: ${sizeMB} MB`));
           }
           
-          if (result.compressedSize && result.compressedSize !== result.fileSize) {
-            const compressionRatio = ((1 - result.compressedSize / result.fileSize!) * 100).toFixed(1);
-            console.log(chalk.dim(`  Compression ratio: ${compressionRatio}%`));
+          if (response.data.duration) {
+            console.log(chalk.dim(`  Duration: ${response.data.duration.toFixed(2)} seconds`));
           }
           
-          if (result.duration) {
-            console.log(chalk.dim(`  Duration: ${result.duration.toFixed(2)} seconds`));
+          if (response.data.filePath) {
+            console.log(chalk.dim(`  Location: ${response.data.filePath}`));
           }
           
-          if (result.checksum) {
-            console.log(chalk.dim(`  Checksum: ${result.checksum.substring(0, 16)}...`));
-          }
-          
-          console.log(chalk.blue('\n💡 Tip: Use "db-backup restore" to restore this backup (coming in Phase 6)'));
-          
-          log.info('Backup completed successfully', { 
-            backupId: result.backupId,
-            duration: result.duration,
-            size: result.fileSize
-          });
+          log.info('Backup completed via microservices', { backupId: response.data.backupId });
         } else {
           spinner.fail(chalk.red('Backup failed'));
-          console.error(chalk.red(`\n✗ Error: ${result.error}`));
-          
-          if (result.error?.includes('pg_dump: not found')) {
-            console.error(chalk.yellow('\n💡 Tip: PostgreSQL client tools are not installed.'));
-            console.error(chalk.dim('  On Ubuntu/Debian: sudo apt-get install postgresql-client'));
-            console.error(chalk.dim('  On macOS: brew install postgresql'));
-            console.error(chalk.dim('  On Windows: Install PostgreSQL from https://www.postgresql.org/download/'));
-          }
-          
-          log.error('Backup failed', { error: result.error, backupId: result.backupId });
+          console.error(chalk.red(`\n✗ Error: ${response.data.error}`));
           process.exit(1);
         }
-      } catch (error) {
-        spinner.fail(chalk.red('Backup failed'));
-        console.error(chalk.red(`\n✗ Unexpected error: ${error instanceof Error ? error.message : String(error)}`));
-        log.error('Unexpected error during backup', { error });
+        
+      } catch (error: any) {
+        spinner.fail(chalk.red('Backup request failed'));
+        
+        if (error.code === 'ECONNREFUSED') {
+          console.error(chalk.red('\n✗ Cannot connect to API Gateway.'));
+          console.error(chalk.yellow('\n💡 Make sure microservices are running:'));
+          console.error(chalk.dim('  npm run services:start'));
+          console.error(chalk.dim('  or'));
+          console.error(chalk.dim('  docker-compose up'));
+        } else {
+          console.error(chalk.red(`\n✗ Error: ${error.response?.data?.error || error.message}`));
+        }
+        
+        log.error('Backup request failed', { error: error.message });
         process.exit(1);
       }
     });
 }
-
-async function checkPgDump(): Promise<void> {
-  const { exec } = require('child_process');
-  const { promisify } = require('util');
-  const execAsync = promisify(exec);
-  
-  try {
-    await execAsync('pg_dump --version');
-  } catch (error) {
-    throw new Error('pg_dump: not found. Please install PostgreSQL client tools.');
-  }
-}
-
-// Helper to import path module
-import path from 'path';

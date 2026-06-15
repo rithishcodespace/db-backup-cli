@@ -114,11 +114,16 @@ class ConfigManager {
     };
   }
 
-  get(key: string): any { // object is made generic (any)
-    return key.split('.').reduce(
-    (obj, k) => (obj as any)?.[k],
-    this.config as any
-);
+  get(key: string): any {
+      let result: any = this.config; //  comes from first line of class
+
+      const keys = key.split('.');
+
+      for(const k of keys) {
+          result = result?.[k];
+      }
+
+    return result;
   }
 
   getAll(): AppConfig {
