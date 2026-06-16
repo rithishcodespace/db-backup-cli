@@ -14,7 +14,7 @@ console.log(chalk.dim(`Detected platform: ${platform}`));
 const scripts = {
   win32: {
     start: 'scripts\\start-services.ps1',
-    stop: 'pm2 stop all && pm2 delete all',
+    stop: 'scripts\\stop-services.ps1',
     kill: 'taskkill /F /IM node.exe'
   },
   linux: {
@@ -22,7 +22,7 @@ const scripts = {
     stop: './scripts/stop-services.sh',
     kill: 'pkill -f "node.*microservices"'
   },
-  darwin: {
+  darwin: { // mac
     start: './scripts/start-services.sh',
     stop: './scripts/stop-services.sh',
     kill: 'pkill -f "node.*microservices"'
@@ -32,6 +32,7 @@ const scripts = {
 const currentScripts = scripts[platform] || scripts.linux;
 
 // Create platform detection in main CLI
+// else -> why not node ? (Assumes executable permission + shebang inside file) so it runs directly
 const cliWrapper = `
 #!/usr/bin/env node
 
@@ -44,7 +45,7 @@ let command;
 if (platform === 'win32') {
   command = 'node';
   args = ['dist/src/index.js', ...process.argv.slice(2)];
-} else {
+} else { 
   command = './dist/src/index.js';
   args = process.argv.slice(1);
 }
