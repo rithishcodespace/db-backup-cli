@@ -64,33 +64,22 @@ Designed as a systems-focused backend project, it demonstrates distributed archi
 
 The system follows a microservices architecture to ensure scalability, maintainability, and separation of concerns.
 
-```text
-CLI Gateway
-     |
-     v
-API Gateway Service
-     |
-     +------------------------+
-     |                        |
-     v                        v
-Backup Service          Restore Service
-     |                        |
-     +------------+-----------+
-                  |
-                  v
-         Database Connectors
-      (Postgres / MySQL /
-       MongoDB / SQLite)
-                  |
-                  v
-          Storage Service
-      (Local / S3 / GCS /
-         Azure Blob)
-                  |
-                  v
-      Notification Service
-      (Slack / Email)
-```
+## Architecture Diagram
+
+```mermaid
+graph TD
+
+A[CLI Gateway] --> B[API Gateway Service]
+
+B --> C[Backup Service]
+B --> D[Restore Service]
+
+C --> E[Database Connectors<br/>Postgres / MySQL / MongoDB / SQLite]
+D --> E
+
+E --> F[Storage Service<br/>Local / S3 / GCS / Azure Blob]
+
+F --> G[Notification Service<br/>Slack / Email]
 
 ## Microservices
 
