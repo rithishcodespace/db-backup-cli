@@ -4,17 +4,17 @@ A production-ready, cross-platform database backup and restore system built usin
 
 Designed as a systems-focused backend project, it demonstrates distributed architecture, service communication, scheduling, security, automation, and cloud integration concepts commonly used in enterprise environments.
 
+---
+
 ## Features
 
 ### Database Support
-
 * PostgreSQL
 * MySQL / MariaDB
 * SQLite
 * MongoDB
 
 ### Backup Operations
-
 * Full backups
 * Incremental backups
 * Differential backups
@@ -23,28 +23,24 @@ Designed as a systems-focused backend project, it demonstrates distributed archi
 * Backup retention policies
 
 ### Restore Operations
-
 * Full database restore
 * Selective table/collection restore
 * Restore validation
 * Dry-run restore mode
 
 ### Storage Support
-
 * Local filesystem
 * AWS S3
 * Google Cloud Storage
 * Azure Blob Storage
 
 ### Security
-
 * AES-256 backup encryption
 * Configuration sanitization
 * Backup integrity verification
 * Checksum validation
 
 ### Monitoring
-
 * Health monitoring
 * Backup status tracking
 * Backup duration metrics
@@ -53,12 +49,13 @@ Designed as a systems-focused backend project, it demonstrates distributed archi
 * Email notifications
 
 ### DevOps
-
 * Docker support
 * CI/CD automation
 * Automated testing
 * Structured logging
 * Environment-based configuration
+
+---
 
 ## Architecture
 
@@ -74,12 +71,14 @@ A[CLI Gateway] --> B[API Gateway Service]
 B --> C[Backup Service]
 B --> D[Restore Service]
 
-C --> E[Database Connectors<br/>Postgres / MySQL / MongoDB / SQLite]
+C --> E[Database Connectors: Postgres / MySQL / MongoDB / SQLite]
 D --> E
 
-E --> F[Storage Service<br/>Local / S3 / GCS / Azure Blob]
+E --> F[Storage Service: Local / S3 / GCS / Azure Blob]
 
-F --> G[Notification Service<br/>Slack / Email]
+F --> G[Notification Service: Slack / Email]
+
+```
 
 ## Microservices
 
