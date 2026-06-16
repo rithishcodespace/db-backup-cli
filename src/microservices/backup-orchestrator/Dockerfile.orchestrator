@@ -1,0 +1,19 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache postgresql-client mysql-client mongodb-tools sqlite
+
+COPY package*.json ./
+RUN npm ci --only=production
+
+COPY dist/src/microservices/backup-orchestrator ./dist/src/microservices/backup-orchestrator
+COPY dist/src/logger ./dist/src/logger
+COPY dist/src/config ./dist/src/config
+COPY prisma ./prisma
+
+RUN npx prisma generate
+
+EXPOSE 3001
+
+CMD ["node", "dist/src/microservices/backup-orchestrator/index.js"]
