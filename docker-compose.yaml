@@ -1,0 +1,138 @@
+version: '3.8'
+
+services:
+  # API Gateway
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - ORCHESTRATOR_URL=http://backup-orchestrator:3001
+    depends_on:
+      - backup-orchestrator
+    networks:
+      - backup-network
+    restart: unless-stopped
+
+  # Backup Orchestrator
+  backup-orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.orchestrator
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - POSTGRES_SERVICE_URL=http://postgres-backup:3010
+      - MYSQL_SERVICE_URL=http://mysql-backup:3011
+      - MONGODB_SERVICE_URL=http://mongodb-backup:3012
+      - SQLITE_SERVICE_URL=http://sqlite-backup:3013
+      - DATABASE_URL=file:/app/data/backup-meta.db
+    depends_on:
+      - postgres-backup
+      - mysql-backup
+      - mongodb-backup
+      - sqlite-backup
+    volumes:
+      - ./backups:/app/backups
+      - ./data:/app/data
+    networks:
+      - backup-network
+    restart: unless-stopped
+
+  # PostgreSQL Backup Service
+  postgres-backup:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    ports:
+      - "3010:3010"
+    environment:
+      - NODE_ENV=production
+      - SERVICE_PORT=3010
+    volumes:
+      - ./backups:/app/backups
+      - ./tmp:/app/tmp
+    networks:
+      - backup-network
+    restart: unless-stopped
+
+  # MySQL Backup Service
+  mysql-backup:
+    build:
+      context: .
+      dockerfile: Dockerfile.mysql
+    ports:
+      - "3011:3011"
+    environment:
+      - NODE_ENV=production
+      - SERVICE_PORT=3011
+    volumes:
+      - ./backups:/app/backups
+      - ./tmp:/app/tmp
+    networks:
+      - backup-network
+    restart: unless-stopped
+
+  # MongoDB Backup Service
+  mongodb-backup:
+    build:
+      context: .
+      dockerfile: Dockerfile.mongodb
+    ports:
+      - "3012:3012"
+    environment:
+      - NODE_ENV=production
+      - SERVICE_PORT=3012
+    volumes:
+      - ./backups:/app/backups
+      - ./tmp:/app/tmp
+    networks:
+      - backup-network
+    restart: unless-stopped
+
+  # SQLite Backup Service
+  sqlite-backup:
+    build:
+      context: .
+      dockerfile: Dockerfile.sqlite
+    ports:
+      - "3013:3013"
+    environment:
+      - NODE_ENV=production
+      - SERVICE_PORT=3013
+    volumes:
+      - ./backups:/app/backups
+      - ./tmp:/app/tmp
+    networks:
+      - backup-network
+    restart: unless-stopped
+
+  # Redis for job queue 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - backup-network
+    restart: unless-stopped
+
+  # RabbitMQ for message queue 
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    networks:
+      - backup-network
+    restart: unless-stopped
+
+networks:
+  backup-network:
+    driver: bridge
