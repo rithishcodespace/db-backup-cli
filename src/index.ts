@@ -28,8 +28,10 @@ program
     }
     
     // Disable colors if requested
-    if (opts.noColor) {
+    if (process.env.NO_COLOR || process.argv.includes('--no-color')) {
       chalk.level = 0;
+    } else {
+      chalk.level = 3;
     }
     
     // logger start information

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-
-const axios = require('axios');
-const chalk = require('chalk');
+import chalk from 'chalk';
+import axios from 'axios';
 
 const SERVICES = {
   gateway: 'http://localhost:3000/health',
@@ -13,7 +12,7 @@ const SERVICES = {
 };
 
 async function testServices() {
-  console.log(chalk.bold.cyan('\n🔍 Testing Microservices Health\n'));
+  console.log(chalk.cyan.bold('\n🔍 Testing Microservices Health\n'));
   
   let allHealthy = true;
   
