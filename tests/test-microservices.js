@@ -41,8 +41,8 @@ async function testServices() {
         type: 'postgresql',
         host: 'localhost',
         port: 5432,
-        username: 'testuser',
-        password: 'test123',
+        username: 'postgres',
+        password: 'Rithish@2006',
         database: 'testdb'
       },
       backupType: 'full',
@@ -50,6 +50,20 @@ async function testServices() {
         compress: true
       }
     };
+    // const backupRequest = {
+    //   dbConfig: {
+    //     type: 'postgresql',
+    //     host: 'localhost',
+    //     port: 5432,
+    //     username: 'testuser',
+    //     password: 'test123',
+    //     database: 'testdb'
+    //   },
+    //   backupType: 'full',
+    //   options: {
+    //     compress: true
+    //   }
+    // };
     
     const response = await axios.post('http://localhost:3000/api/backup', backupRequest);
     

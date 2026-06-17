@@ -36,7 +36,7 @@
     "braces": "^3.0.3",
     "bullmq": "^5.78.1",
     "c12": "^3.3.4",
-    "chalk": "^5.6.2",
+    "chalk": "^4.1.2",
     "chart.js": "^4.5.1",
     "chokidar": "^3.6.0",
     "commander": "^15.0.0",
@@ -201,19 +201,16 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "prepare": "npm run build",
     "postinstall": "prisma generate",
-
     "services:build": "tsc",
     "services:start": "chmod +x scripts/start-services.sh && ./scripts/start-services.sh",
     "services:stop": "chmod +x scripts/stop-services.sh && ./scripts/stop-services.sh",
     "services:restart": "npm run services:stop && npm run services:start",
     "services:logs": "pm2 logs",
     "services:monit": "pm2 monit",
-    
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
     "docker:logs": "docker-compose logs -f",
     "docker:build": "docker-compose build",
-    
     "test:services": "node tests/test-microservices.js",
     "test:all": "npm run test:services"
   },
