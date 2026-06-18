@@ -12,42 +12,138 @@ datasource db {
   provider = "sqlite"
 }
 
-model BackupJob{
-  id String @id @default(cuid())
-  dbType String // postgres, mysql, sqlite, mongodb
-  dbName String
-  backupType String // full, incremental, differential
-  status String // pending, running, success, failed
-  filePath String? // if local storage backup
-  fileName String?
-  fileSize Int? // in bytes
-  compressedSize Int? // size after compression
-  compressionType String? // gzip, zstd, none
-  backupVersion String? // version identifier
-  retryCount Int @default(0)
-  checksum String? // stores file hash (for backend integrity)
-  startedAt DateTime @default(now())
+model BackupJob {
+  id          String   @id @default(cuid())
+  dbType      String
+  dbName      String
+  backupType  String   // full, incremental, differential
+  status      String   // pending, running, success, failed, cancelled
+  
+  // File information
+  filePath    String?
+  fileName    String?
+  fileSize    Int?
+  compressedSize Int?
+  checksum    String?
+  
+  // Backup metadata
+  baseBackupId String?  // For incremental/differential - ID of base backup
+  parentBackupId String? // For incremental chain
+  backupLevel   Int?    // 0=full, 1=incremental, 2=differential
+  
+  // Timing
+  startedAt   DateTime @default(now())
   completedAt DateTime?
-  duration Int? // in secs
-  error String?
-  metadata String? // JSON string for additional data
-  logs BackupLog[]   // <-- relation
-
+  duration    Int?     // in seconds
+  expiresAt   DateTime? // For retention policies
+  
+  // Storage
+  storageType  String  // local, s3
+  storagePath  String?
+  storageRegion String?
+  
+  // Additional
+  compressionType String? // gzip, zstd, none
+  encryptionType  String? // aes256, none
+  backupVersion   String?
+  retryCount     Int @default(0)
+  error          String?
+  metadata       Json?   // JSON for flexible storage
+  
+  // Relationships
+  logs          BackupLog[]
+  notifications Notification[]
+  
   @@index([status])
   @@index([startedAt])
   @@index([dbType])
   @@index([dbName])
+  @@index([baseBackupId])
+  @@index([storageType])
+  @@index([expiresAt])
 }
 
-model BackupLog{
-  id Int @id @default(autoincrement())
-  backupJobId String
-  backupJob BackupJob @relation(fields: [backupJobId], references: [id]) // relation
-  timestamp DateTime @default(now())
-  level String // info, warn, error
-  message String
-  details String? // JSON string
+model BackupSchedule {
+  id          String   @id @default(cuid())
+  name        String
+  dbType      String
+  dbName      String
+  schedule    String   // Cron expression
+  backupType  String   // full, incremental, differential
+  
+  // Options
+  compress    Boolean  @default(true)
+  storageType String   // local, s3,
+  retention   Int?     // Days to keep backups
+  enabled     Boolean  @default(true)
+  
+  // Notification settings
+  notifyOnSuccess Boolean @default(false)
+  notifyOnError   Boolean @default(true)
+  slackWebhook    String?
+  emailRecipients String?  // Comma-separated emails
+  
+  // Metadata
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  lastRunStatus String?
+  error       String?
+  
+  @@index([enabled])
+  @@index([nextRunAt])
+}
 
+model BackupLog {
+  id          Int      @id @default(autoincrement())
+  backupJobId String
+  timestamp   DateTime @default(now())
+  level       String   // info, warn, error, debug
+  message     String
+  details     String?  // JSON string
+  backupJob   BackupJob @relation(fields: [backupJobId], references: [id], onDelete: Cascade)
+  
   @@index([backupJobId])
   @@index([timestamp])
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  backupJobId String?
+  type        String   // slack, email, webhook
+  status      String   // pending, sent, failed
+  recipient   String?
+  subject     String?
+  message     String?
+  sentAt      DateTime?
+  error       String?
+  createdAt   DateTime @default(now())
+  retryCount  Int     @default(0)
+  backupJob   BackupJob? @relation(fields: [backupJobId], references: [id], onDelete: SetNull)
+  
+  @@index([status])
+  @@index([createdAt])
+}
+
+model StorageLocation {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  type        String   // local, s3
+  config      Json?    // Storage-specific configuration
+  
+  // S3 specific
+  bucket      String?
+  region      String?
+  accessKey   String?
+  secretKey   String?
+  
+  enabled     Boolean  @default(true)
+  default     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([type])
+  @@index([enabled])
 }

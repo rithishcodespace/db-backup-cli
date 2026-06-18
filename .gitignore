@@ -29,10 +29,14 @@ tmp/
 temp/
 *.tmp
 
-# Environment and config
+# Environment files
 .env
 .env.local
 .env.*.local
+.env.*
+!.env.example
+
+# Config files
 config.json
 !config.example.json
 
@@ -52,7 +56,6 @@ coverage/
 # Prisma
 prisma/*.db
 prisma/*.db-journal
-prisma/migrations/
 
 # Understanding
 notes.txt
