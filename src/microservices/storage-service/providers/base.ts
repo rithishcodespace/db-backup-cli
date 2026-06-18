@@ -12,7 +12,7 @@ export interface StorageProvider {
   
 export interface StorageConfig { 
   type: string; // Storage type (e.g., "local", "s3", "azure")
-  bucket?: string; // Storage bucket/container name (optional)
+  bucket: string; // Storage bucket/container name 
   region?: string; // Cloud region (optional)
   [key: string]: any;  // Allow any additional configuration properties
 }

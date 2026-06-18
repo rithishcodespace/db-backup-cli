@@ -16,6 +16,8 @@ const startTime = Date.now();
 // Provider cache - stores provider instances based on storage type and config to avoid re-initialization
 const providers = new Map();
 
+// config = { type: 's3', bucket: 'my-bucket', region: 'us-east-1', accessKey: '...', secretKey: '...', localPath: '...', remotePath: '...', backupId: '...' }
+
 async function getStorageProvider(storageType: string, config: any) {
   const key = `${storageType}_${JSON.stringify(config)}`;
   
