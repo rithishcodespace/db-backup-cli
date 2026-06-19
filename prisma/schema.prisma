@@ -75,7 +75,7 @@ model BackupSchedule {
   compress    Boolean  @default(true)
   storageType String   // local, s3,
   retention   Int?     // Days to keep backups
-  enabled     Boolean  @default(true)
+  enabled     Boolean  @default(true) // backup scheduled is active or inactive
   
   // Notification settings
   notifyOnSuccess Boolean @default(false)
@@ -84,6 +84,7 @@ model BackupSchedule {
   emailRecipients String?  // Comma-separated emails
   
   // Metadata
+  metadata    Json?     // JSON for flexible storage
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
