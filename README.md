@@ -71,17 +71,36 @@ The system follows a microservices architecture to ensure scalability, maintaina
 ```mermaid
 graph TD
 
-A[CLI Gateway] --> B[API Gateway Service]
+    A[CLI Commands] --> B[API Gateway :3000]
 
-B --> C[Backup Service]
-B --> D[Restore Service]
+    B --> C[Backup Orchestrator :3001]
+    B --> D[Scheduler Service :3020]
 
-C --> E[Database Connectors: Postgres / MySQL / MongoDB / SQLite]
-D --> E
+    D --> C
 
-E --> F[Storage Service: Local / S3 / GCS / Azure Blob]
+    C --> E[PostgreSQL Service :3010]
+    C --> F[MySQL Service :3011]
+    C --> G[MongoDB Service :3012]
+    C --> H[SQLite Service :3013]
 
-F --> G[Notification Service: Slack / Email]
+    E --> I[(PostgreSQL)]
+    F --> J[(MySQL)]
+    G --> K[(MongoDB)]
+    H --> L[(SQLite)]
+
+    C --> M[Storage Service :3030]
+
+    M --> N[Local Storage]
+    M --> O[S3 Storage]
+    M --> P[GCS Storage]
+    M --> Q[Azure Blob Storage]
+
+    C --> R[Notification Service :3040]
+
+    R --> S[Slack]
+    R --> T[Email]
+
+    C --> U[(Prisma Metadata DB)]
 
 ```
 
