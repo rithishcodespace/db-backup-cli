@@ -18,6 +18,15 @@ pm2 start dist/src/microservices/gateway/index.js --name api-gateway -- --port 3
 Write-Host "Starting Backup Orchestrator..." -ForegroundColor Green
 pm2 start dist/src/microservices/backup-orchestrator/index.js --name backup-orchestrator -- --port 3001
 
+Write-Host "Starting Schedule Service..." -ForegroundColor Green
+pm2 start dist/src/microservices/schedule-service/index.js --name schedule-service -- --port 3020
+
+Write-Host "Starting Storage Service..." -ForegroundColor Green
+pm2 start dist/src/microservices/storage-service/index.js --name storage-service -- --port 3030
+
+Write-Host "Starting Notification Service..." -ForegroundColor Green
+pm2 start dist/src/microservices/notification-service/index.js --name notification-service -- --port 3040
+
 Write-Host "Starting PostgreSQL Backup Service..." -ForegroundColor Green
 pm2 start dist/src/microservices/database-services/postgres/service.js --name postgres-backup -- --port 3010
 
@@ -34,6 +43,9 @@ Write-Host "`nAll services started successfully!" -ForegroundColor Green
 Write-Host "`nService URLs:" -ForegroundColor Yellow
 Write-Host "  API Gateway:       http://localhost:3000"
 Write-Host "  Orchestrator:      http://localhost:3001"
+Write-Host "  Schedule:          http://localhost:3020"
+Write-Host "  Storage:           http://localhost:3030"
+Write-Host "  Notification:      http://localhost:3040"
 Write-Host "  PostgreSQL:        http://localhost:3010"
 Write-Host "  MySQL:             http://localhost:3011"
 Write-Host "  MongoDB:           http://localhost:3012"

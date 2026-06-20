@@ -217,7 +217,8 @@
     "docker:logs": "docker-compose logs -f",
     "docker:build": "docker-compose build",
     "test:services": "node tests/test-microservices.js",
-    "test:all": "npm run test:services"
+    "test:all": "npm run test:services",
+     "test:phase4": "node tests/test-phase4.js"
   },
   "repository": {
     "type": "git",
