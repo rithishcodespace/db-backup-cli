@@ -80,7 +80,7 @@ model BackupSchedule {
   // Notification settings
   notifyOnSuccess Boolean @default(false)
   notifyOnError   Boolean @default(true)
-  slackWebhook    String?
+  slackWebhook    String? // webhook url for each user's workspace
   emailRecipients String?  // Comma-separated emails
   
   // Metadata
