@@ -122,7 +122,7 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
     
     if (options.tables) {
       const tables = options.tables.split(',');
-      tables.forEach(table => { command += ` -t ${table}`; });
+      tables.forEach((table: string) => { command += ` -t ${table}`; });
     }
     
     if (options.dropExisting) {

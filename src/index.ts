@@ -6,7 +6,8 @@ import { showHelp } from './commands/help';
 import { registerConnectCommand } from './commands/connect';
 import { registerBackupCommand } from './commands/backup';
 import { registerListCommand } from './commands/list';
-
+import {registerRestoreCommand} from "./commands/restore";
+import {registerScheduleCommand, registerScheduleListCommand} from "./commands/schedule";
 // Creates CLI object
 const program = new Command();
 
@@ -45,6 +46,9 @@ program
 registerConnectCommand(program);
 registerBackupCommand(program);
 registerListCommand(program);
+registerRestoreCommand(program);
+registerScheduleCommand(program);
+registerScheduleListCommand(program);
 
 // Default help - creates help command
 program
