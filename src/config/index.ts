@@ -130,6 +130,7 @@ class ConfigManager {
     return this.config;
   }
 
+  // called by connect.ts
   setDatabase(config: DatabaseConfig): void {
     this.config.database = config;
     this.saveConfig();
