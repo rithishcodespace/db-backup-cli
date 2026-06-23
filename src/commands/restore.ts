@@ -8,7 +8,6 @@ import { createReadStream, createWriteStream, existsSync } from 'fs';
 import { createGunzip } from 'zlib';
 import { pipeline } from 'stream';
 import { promisify } from 'util';
-import path from 'path';
 
 const streamPipeline = promisify(pipeline);
 const log = createModuleLogger('restore-command');
@@ -22,11 +21,11 @@ export function registerRestoreCommand(program: Command): void {
     .option('-t, --tables <tables>', 'Comma-separated tables to restore (if supported)')
     .option('--drop-existing', 'Drop existing tables before restore', false)
     .option('--dry-run', 'Perform a dry run without actual restore', false)
+    .option('--force', 'Force restore (drop existing tables)', false)
     .action(async (options) => {
       const spinner = ora('Preparing restore...').start();
       
       try {
-        // Get database configuration
         const dbConfig = config.get('database');
         if (!dbConfig) {
           spinner.fail('No database configuration found');
@@ -37,7 +36,6 @@ export function registerRestoreCommand(program: Command): void {
         let backupFile = options.file;
         let backupRecord = null;
         
-        // If backup ID is provided, get backup details using FULL ID
         if (options.id) {
           backupRecord = await prisma.backupJob.findUnique({
             where: { id: options.id }
@@ -46,7 +44,6 @@ export function registerRestoreCommand(program: Command): void {
           if (!backupRecord) {
             spinner.fail(`Backup with ID "${options.id}" not found`);
             console.error(chalk.yellow('\n💡 Use "db-backup list" to see all available backup IDs'));
-            console.error(chalk.dim('   Copy the full ID from the list command output'));
             process.exit(1);
           }
           
@@ -57,7 +54,6 @@ export function registerRestoreCommand(program: Command): void {
           
           backupFile = backupRecord.filePath;
           
-          // Show backup info to user
           spinner.stop();
           console.log(chalk.dim('\n📋 Found backup:'));
           console.log(chalk.dim(`   ID: ${backupRecord.id}`));
@@ -70,15 +66,38 @@ export function registerRestoreCommand(program: Command): void {
         
         if (!backupFile) {
           spinner.fail('Please specify a backup ID or file path');
-          console.error(chalk.dim('\n  Use --id <backup-id> (full ID from list command) or --file <path>'));
+          console.error(chalk.dim('\n  Use --id <backup-id> or --file <path>'));
           console.error(chalk.dim('\n  List available backups: db-backup list'));
           process.exit(1);
         }
         
-        // Check if backup file exists
         if (!existsSync(backupFile)) {
           spinner.fail(`Backup file not found: ${backupFile}`);
           process.exit(1);
+        }
+        
+        // If drop-existing is set, warn user
+        if (options.dropExisting || options.force) {
+          spinner.stop();
+          console.log(chalk.yellow('\n⚠ WARNING: --drop-existing will drop existing tables before restore.'));
+          console.log(chalk.dim('   This will delete all data in the target database.'));
+          
+          const readline = require('readline');
+          const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout
+          });
+          
+          const answer = await new Promise((resolve) => {
+            rl.question(chalk.yellow('\nContinue? (y/N): '), resolve);
+          });
+          rl.close();
+          
+          if (answer.toLowerCase() !== 'y') {
+            console.log(chalk.yellow('\nRestore cancelled'));
+            process.exit(0);
+          }
+          spinner.start('Continuing restore...');
         }
         
         if (options.dryRun) {
@@ -95,7 +114,6 @@ export function registerRestoreCommand(program: Command): void {
         spinner.text = 'Performing restore...';
         log.info('Starting restore', { backupFile, dbType: dbConfig.type });
         
-        // Perform restore based on database type
         let result;
         
         switch (dbConfig.type) {
@@ -120,7 +138,17 @@ export function registerRestoreCommand(program: Command): void {
           log.info('Restore completed', { backupFile, duration: result.duration });
         } else {
           spinner.fail(chalk.red('Restore failed'));
-          console.error(chalk.red(`\n✗ Error: ${result.error}`));
+          console.error(chalk.red(`\n✗ ${result.error}`));
+          
+          // Show helpful tips based on error
+          if (result.error?.includes('already exists')) {
+            console.log(chalk.yellow('\n💡 Tip: Use --drop-existing to drop existing tables before restore'));
+            console.log(chalk.dim('   db-backup restore --id <backup-id> --drop-existing'));
+          }
+          if (result.error?.includes('duplicate key')) {
+            console.log(chalk.yellow('\n💡 Tip: Use --drop-existing to clean the database before restore'));
+            console.log(chalk.dim('   db-backup restore --id <backup-id> --drop-existing'));
+          }
           process.exit(1);
         }
         
@@ -143,32 +171,41 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
   
   try {
     let restoreFile = backupFile;
-    let isCompressed = false;
+    let isGzipped = false;
     
-    // Check if file is compressed (.gz)
+    // Check if file is gzipped (.gz)
+    // For custom format, pg_restore can read .gz directly, but we need to handle it properly
     if (backupFile.endsWith('.gz')) {
-      isCompressed = true;
-      const decompressedFile = backupFile.replace('.gz', '');
-      
-      // Check if decompressed file already exists
-      if (!fs.existsSync(decompressedFile)) {
-        console.log(chalk.dim(`\n🔄 Decompressing backup file...`));
-        
-        try {
-          const readStream = createReadStream(backupFile);
-          const gunzipStream = createGunzip();
-          const writeStream = createWriteStream(decompressedFile);
+      // Check if it's a custom format dump (pg_dump -Fc) that was gzipped
+      // Try to read the first few bytes to check if it's a valid gzip
+      try {
+        const fileBuffer = fs.readFileSync(backupFile, { encoding: null, length: 2 });
+        // Gzip magic number is 0x1f 0x8b
+        if (fileBuffer[0] === 0x1f && fileBuffer[1] === 0x8b) {
+          isGzipped = true;
+          const decompressedFile = backupFile.replace('.gz', '');
           
-          await streamPipeline(readStream, gunzipStream, writeStream);
-          console.log(chalk.dim(`✅ Decompressed to: ${decompressedFile}`));
-        } catch (decompError: any) {
-          throw new Error(`Failed to decompress backup: ${decompError.message}`);
+          if (!fs.existsSync(decompressedFile)) {
+            console.log(chalk.dim(`\n🔄 Decompressing backup file...`));
+            
+            const readStream = createReadStream(backupFile);
+            const gunzipStream = createGunzip();
+            const writeStream = createWriteStream(decompressedFile);
+            
+            await streamPipeline(readStream, gunzipStream, writeStream);
+            console.log(chalk.dim(`✅ Decompressed to: ${decompressedFile}`));
+          }
+          
+          restoreFile = decompressedFile;
+        } else {
+          // It's a custom format dump with .gz extension but not actually gzipped
+          console.log(chalk.dim(`\n📦 Using custom format dump directly (not actually gzipped)`));
+          restoreFile = backupFile;
         }
-      } else {
-        console.log(chalk.dim(`\n✅ Using existing decompressed file: ${decompressedFile}`));
+      } catch (e) {
+        // If can't read, assume it's a custom format dump
+        restoreFile = backupFile;
       }
-      
-      restoreFile = decompressedFile;
     }
     
     // Build pg_restore command
@@ -179,27 +216,84 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
       tables.forEach((table: string) => { command += ` -t ${table}`; });
     }
     
-    if (options.dropExisting) {
+    // Always use --clean and --if-exists when drop-existing is true
+    if (options.dropExisting || options.force) {
       command += ' --clean --if-exists';
     }
+    
+    // Add verbose option for better error messages
+    command += ' --verbose';
     
     command += ` "${restoreFile}"`;
     
     console.log(chalk.dim(`\n🔄 Restoring database...`));
     
-    await execAsync(command, {
-      env: { ...process.env, PGPASSWORD: dbConfig.password }
-    });
+    try {
+      await execAsync(command, {
+        env: { ...process.env, PGPASSWORD: dbConfig.password },
+        maxBuffer: 50 * 1024 * 1024
+      });
+    } catch (pgError: any) {
+      // Parse and format the error message
+      let errorMessage = pgError.message;
+      
+      // Extract the most relevant error
+      const errorLines = errorMessage.split('\n');
+      let userFriendlyError = '';
+      
+      for (const line of errorLines) {
+        if (line.includes('ERROR:')) {
+          userFriendlyError = line.trim();
+          break;
+        }
+        if (line.includes('already exists')) {
+          userFriendlyError = 'Database objects already exist. Use --drop-existing to clean the database first.';
+          break;
+        }
+        if (line.includes('duplicate key')) {
+          userFriendlyError = 'Duplicate data found. Use --drop-existing to clean the database first.';
+          break;
+        }
+        if (line.includes('permission denied')) {
+          userFriendlyError = 'Permission denied. Check your database credentials.';
+          break;
+        }
+      }
+      
+      if (!userFriendlyError) {
+        // Get the last few lines of the error
+        const lastLines = errorLines.slice(-5).join('\n');
+        userFriendlyError = `Restore failed:\n${lastLines}`;
+      }
+      
+      // Clean up decompressed file if it was created
+      if (isGzipped && backupFile.endsWith('.gz')) {
+        const decompressedFile = backupFile.replace('.gz', '');
+        if (fs.existsSync(decompressedFile)) {
+          try {
+            fs.unlinkSync(decompressedFile);
+          } catch (cleanupError) {
+            // Ignore
+          }
+        }
+      }
+      
+      return {
+        success: false,
+        error: userFriendlyError,
+        duration: (Date.now() - startTime) / 1000
+      };
+    }
     
     // Clean up decompressed file if it was created
-    if (isCompressed && backupFile.endsWith('.gz')) {
+    if (isGzipped && backupFile.endsWith('.gz')) {
       const decompressedFile = backupFile.replace('.gz', '');
       if (fs.existsSync(decompressedFile)) {
         try {
           fs.unlinkSync(decompressedFile);
           console.log(chalk.dim(`\n🧹 Cleaned up temporary file: ${decompressedFile}`));
         } catch (cleanupError) {
-          // Ignore cleanup errors
+          // Ignore
         }
       }
     }
@@ -225,34 +319,35 @@ async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Pr
   
   try {
     let restoreFile = backupFile;
-    let isCompressed = false;
+    let isGzipped = false;
     
-    // Check if file is compressed (.gz)
     if (backupFile.endsWith('.gz')) {
-      isCompressed = true;
-      const decompressedFile = backupFile.replace('.gz', '');
-      
-      if (!fs.existsSync(decompressedFile)) {
-        console.log(chalk.dim(`\n🔄 Decompressing backup file...`));
-        
-        try {
-          const readStream = createReadStream(backupFile);
-          const gunzipStream = createGunzip();
-          const writeStream = createWriteStream(decompressedFile);
+      try {
+        const fileBuffer = fs.readFileSync(backupFile, { encoding: null, length: 2 });
+        if (fileBuffer[0] === 0x1f && fileBuffer[1] === 0x8b) {
+          isGzipped = true;
+          const decompressedFile = backupFile.replace('.gz', '');
           
-          await streamPipeline(readStream, gunzipStream, writeStream);
-          console.log(chalk.dim(`✅ Decompressed to: ${decompressedFile}`));
-        } catch (decompError: any) {
-          throw new Error(`Failed to decompress backup: ${decompError.message}`);
+          if (!fs.existsSync(decompressedFile)) {
+            console.log(chalk.dim(`\n🔄 Decompressing backup file...`));
+            
+            const readStream = createReadStream(backupFile);
+            const gunzipStream = createGunzip();
+            const writeStream = createWriteStream(decompressedFile);
+            
+            await streamPipeline(readStream, gunzipStream, writeStream);
+            console.log(chalk.dim(`✅ Decompressed to: ${decompressedFile}`));
+          }
+          
+          restoreFile = decompressedFile;
+        } else {
+          restoreFile = backupFile;
         }
-      } else {
-        console.log(chalk.dim(`\n✅ Using existing decompressed file: ${decompressedFile}`));
+      } catch (e) {
+        restoreFile = backupFile;
       }
-      
-      restoreFile = decompressedFile;
     }
     
-    // Build MySQL restore command
     let command = `mysql -h ${dbConfig.host} -P ${dbConfig.port || 3306} -u ${dbConfig.username}`;
     
     if (dbConfig.password) {
@@ -261,9 +356,7 @@ async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Pr
     
     command += ` ${dbConfig.database}`;
     
-    if (options.dropExisting) {
-      // For MySQL, we need to handle this differently
-      // Might need to drop tables first
+    if (options.dropExisting || options.force) {
       command += ' --force';
     }
     
@@ -271,17 +364,34 @@ async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Pr
     
     console.log(chalk.dim(`\n🔄 Restoring database...`));
     
-    await execAsync(command);
+    try {
+      await execAsync(command, { maxBuffer: 50 * 1024 * 1024 });
+    } catch (mysqlError: any) {
+      let userFriendlyError = mysqlError.message;
+      
+      if (mysqlError.message.includes('Access denied')) {
+        userFriendlyError = 'Access denied. Check your database credentials.';
+      } else if (mysqlError.message.includes('Unknown database')) {
+        userFriendlyError = `Database '${dbConfig.database}' does not exist. Please create it first.`;
+      } else if (mysqlError.message.includes('already exists')) {
+        userFriendlyError = 'Tables already exist. Use --drop-existing to clean the database first.';
+      }
+      
+      return {
+        success: false,
+        error: userFriendlyError,
+        duration: (Date.now() - startTime) / 1000
+      };
+    }
     
-    // Clean up decompressed file if it was created
-    if (isCompressed && backupFile.endsWith('.gz')) {
+    if (isGzipped && backupFile.endsWith('.gz')) {
       const decompressedFile = backupFile.replace('.gz', '');
       if (fs.existsSync(decompressedFile)) {
         try {
           fs.unlinkSync(decompressedFile);
           console.log(chalk.dim(`\n🧹 Cleaned up temporary file: ${decompressedFile}`));
         } catch (cleanupError) {
-          // Ignore cleanup errors
+          // Ignore
         }
       }
     }
