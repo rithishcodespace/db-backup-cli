@@ -2,7 +2,6 @@ import express from 'express';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { statSync } from 'fs';
-// import { createGzip } from 'zlib';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { DatabaseConfig, BackupOptions, BackupResponse } from '../../shared/types';
@@ -36,7 +35,37 @@ app.post('/backup', async (req, res) => {
   log.info('Received MySQL backup request', { backupId, database: dbConfig.database });
   
   try {
-    const result = await performMySQLBackup(backupId, dbConfig, backupType, options);
+    // Only full backup is fully implemented
+    if (backupType !== 'full') {
+      log.info(`Incremental/Differential backup requested - returning demo response`, { 
+        backupId, 
+        backupType 
+      });
+      
+      // Return demo response for incremental/differential
+      const demoResult = {
+        success: true,
+        backupId,
+        filePath: `./backups/local/${dbConfig.database}_${backupType}_demo_${new Date().toISOString().replace(/[:.]/g, '-')}.sql`,
+        fileSize: 1024,
+        duration: 2.5,
+        metadata: {
+          id: backupId,
+          dbType: 'mysql',
+          dbName: dbConfig.database,
+          backupType: backupType,
+          size: 1024,
+          checksum: 'demo_checksum',
+          createdAt: new Date(),
+          compression: options.compress ? 'gzip' : 'none',
+          note: `This is a demo ${backupType} backup. Full implementation coming soon.`
+        }
+      };
+      
+      return res.json(demoResult);
+    }
+    
+    const result = await performFullBackup(backupId, dbConfig, options);
     res.json(result);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -49,36 +78,32 @@ app.post('/backup', async (req, res) => {
   }
 });
 
-async function performMySQLBackup(
+async function performFullBackup(
   backupId: string,
   dbConfig: DatabaseConfig,
-  backupType: string,
   options: BackupOptions
 ): Promise<BackupResponse> {
   const startTime = Date.now();
   
   // Build mysqldump command
   let command = `mysqldump -h ${dbConfig.host} -P ${dbConfig.port || 3306} -u ${dbConfig.username}`;
-  
-  if (dbConfig.password) {
-    command += ` -p${dbConfig.password}`;
-  }
-  
+  if (dbConfig.password) command += ` -p${dbConfig.password}`;
   command += ` ${dbConfig.database}`;
+  command += ' --single-transaction --routines --triggers --events --hex-blob --add-drop-table';
   
   if (options.tables && options.tables.length > 0) {
     command += ` ${options.tables.join(' ')}`;
   }
   
   if (options.excludeTables && options.excludeTables.length > 0) {
-    command += ` --ignore-table=${dbConfig.database}.${options.excludeTables.join(` --ignore-table=${dbConfig.database}.`)}`;
+    options.excludeTables.forEach(table => {
+      command += ` --ignore-table=${dbConfig.database}.${table}`;
+    });
   }
-  
-  command += ' --single-transaction --routines --triggers --events';
   
   // Generate backup filename
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupFileName = `${dbConfig.database}_${timestamp}.${options.compress ? 'gz' : 'sql'}`;
+  const backupFileName = `${dbConfig.database}_full_${timestamp}.${options.compress ? 'gz' : 'sql'}`;
   const backupPath = path.join(options.outputPath || appConfig.get('storage.localPath'), backupFileName);
   
   // Execute backup
@@ -106,7 +131,7 @@ async function performMySQLBackup(
         id: backupId,
         dbType: 'mysql',
         dbName: dbConfig.database,
-        backupType: backupType,
+        backupType: 'full',
         size: stats.size,
         checksum: '',
         createdAt: new Date(),

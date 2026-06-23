@@ -1,9 +1,7 @@
-// acts like reverse proxy -> routes to correct serivce api's
-
 import express from 'express';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import {prisma} from "../../lib/prisma";
+import { prisma } from "../../lib/prisma";
 import { createModuleLogger } from '../../logger';
 import { BackupRequest, BackupResponse, BackupStatus } from '../shared/types';
 
@@ -48,7 +46,10 @@ app.post('/backup', async (req, res) => {
       throw new Error(`Unsupported database type: ${dbConfig.type}`);
     }
     
-    // Create backup job record
+    // Store backup name from options if provided
+    const backupName = options?.backupName || null;
+    
+    // Create backup job record with full metadata
     await prisma.backupJob.create({
       data: {
         id: backupId,
@@ -57,7 +58,12 @@ app.post('/backup', async (req, res) => {
         backupType: backupType,
         status: BackupStatus.RUNNING,
         startedAt: new Date(),
-        metadata: JSON.stringify({ options })
+        fileName: backupName, // Store the backup name
+        metadata: JSON.stringify({ 
+          options,
+          backupName,
+          requestedAt: new Date().toISOString()
+        })
       }
     });
     
@@ -71,7 +77,7 @@ app.post('/backup', async (req, res) => {
     
     const result: BackupResponse = response.data;
     
-    // Update job record
+    // Update job record with full results
     if (result.success) {
       await prisma.backupJob.update({
         where: { id: backupId },
@@ -81,7 +87,13 @@ app.post('/backup', async (req, res) => {
           fileSize: result.fileSize,
           duration: result.duration,
           completedAt: new Date(),
-          metadata: JSON.stringify(result.metadata)
+          fileName: result.metadata?.backupName || backupName || result.fileName,
+          metadata: JSON.stringify({
+            ...result.metadata,
+            backupName: result.metadata?.backupName || backupName,
+            requestedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString()
+          })
         }
       });
       
@@ -133,7 +145,8 @@ app.get('/backup/:id/status', async (req, res) => {
     duration: job.duration,
     error: job.error,
     createdAt: job.startedAt,
-    completedAt: job.completedAt
+    completedAt: job.completedAt,
+    backupName: job.fileName || 'N/A'
   });
 });
 

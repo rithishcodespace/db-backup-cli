@@ -15,6 +15,7 @@ export interface BackupResponse {
   duration?: number;
   error?: string;
   metadata?: BackupMetadata;
+  fileName?: string;  // Add this
 }
 
 export interface DatabaseConfig {
@@ -43,6 +44,8 @@ export interface BackupMetadata {
   checksum: string;
   createdAt: Date;
   compression: string;
+  backupName?: string; // Add this optional field
+  note?: string;       // Add this for demo responses
 }
 
 export interface ServiceHealth {
