@@ -19,6 +19,8 @@ export class LocalStorageProvider implements StorageProvider { // implements Sto
     }
   }
 
+  // localPath  = where the file currently exists
+  // remotePath = where you want it stored in the storage system
   // Copies file from local machine into storage.
   async upload(localPath: string, remotePath: string): Promise<any> {
     const destPath = path.join(this.basePath, remotePath);

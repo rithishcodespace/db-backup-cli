@@ -93,7 +93,7 @@ export function registerRestoreCommand(program: Command): void {
           });
           rl.close();
           
-          if (answer.toLowerCase() !== 'y') {
+          if (typeof answer === 'string' && answer.toLowerCase() !== 'y') {
             console.log(chalk.yellow('\nRestore cancelled'));
             process.exit(0);
           }
