@@ -4,6 +4,7 @@ import ora from 'ora';
 import axios from 'axios';
 import { createModuleLogger } from '../logger';
 import { config } from '../config';
+import { prisma } from "../lib/prisma";
 
 const log = createModuleLogger('backup-command');
 
@@ -21,23 +22,77 @@ export function registerBackupCommand(program: Command): void {
     .option('--exclude-tables <tables>', 'Comma-separated list of tables to exclude')
     .option('--async', 'Run backup asynchronously (return immediately)', false)
     .option('--no-compress', 'Disable compression')
+    // NEW: Storage options - use storage name instead of raw config
+    .option('--storage <name>', 'Storage name (from db-backup storage list)')
     .action(async (options) => {
       const spinner = ora('Preparing backup request...').start();
       
       try {
-        // Get database configuration
-        const dbConfig = config.get('database'); // calls get() in config/index.ts, from this we get entire database config
+        const dbConfig = config.get('database');
         if (!dbConfig) {
           spinner.fail('No database configuration found');
           console.error(chalk.red('\n✗ Please run "db-backup connect" first'));
           process.exit(1);
         }
         
-        // Parse tables options
         const tables = options.tables ? options.tables.split(',') : undefined;
         const excludeTables = options.excludeTables ? options.excludeTables.split(',') : undefined;
         
-        // Prepare backup request
+        // Get storage configuration
+        let storageConfig = null;
+        let storageName = options.storage || 'default';
+        
+        if (storageName) {
+          // Try to find storage by name
+          let storage = await prisma.storageLocation.findUnique({
+            where: { name: storageName }
+          });
+          
+          // If not found, try to find default
+          if (!storage) {
+            storage = await prisma.storageLocation.findFirst({
+              where: { default: true }
+            });
+            
+            if (storage) {
+              spinner.text = `Using default storage: ${storage.name}`;
+            } else {
+              // No storage found, use local as fallback
+              spinner.text = 'No storage configured, using local...';
+              storage = {
+                name: 'local',
+                type: 'local',
+                config: { basePath: options.output || config.get('storage.localPath') },
+                bucket: null,
+                region: null,
+                accessKey: null,
+                secretKey: null
+              };
+            }
+          }
+          
+          // Build storage config from stored location
+          if (storage.type === 's3') {
+            storageConfig = {
+              type: 's3',
+              name: storage.name,
+              bucket: storage.bucket,
+              region: storage.region,
+              accessKey: storage.accessKey,
+              secretKey: storage.secretKey,
+              prefix: storage.config?.prefix || ''
+            };
+          } else {
+            storageConfig = {
+              type: 'local',
+              name: storage.name,
+              basePath: storage.config?.basePath || options.output || config.get('storage.localPath')
+            };
+          }
+          
+          console.log(chalk.dim(`\n📦 Using storage: ${storage.name} (${storage.type})`));
+        }
+        
         const backupRequest = {
           dbConfig: {
             type: dbConfig.type,
@@ -54,15 +109,15 @@ export function registerBackupCommand(program: Command): void {
             tables,
             excludeTables,
             outputPath: options.output || config.get('storage.localPath'),
-            backupName: options.name
+            backupName: options.name,
+            storage: storageConfig
           }
         };
         
         spinner.text = 'Sending backup request to orchestrator...';
-        log.debug('Sending backup request', { dbType: dbConfig.type });
+        log.debug('Sending backup request', { dbType: dbConfig.type, storage: storageConfig?.type });
         
-        // Send request to API Gateway
-        const response = await axios.post(`${GATEWAY_URL}/api/backup`, backupRequest); // gateway -> orhestrator -> correct service
+        const response = await axios.post(`${GATEWAY_URL}/api/backup`, backupRequest);
         
         if (response.data.success) {
           spinner.succeed(chalk.green('Backup completed successfully!'));
@@ -71,6 +126,10 @@ export function registerBackupCommand(program: Command): void {
           console.log(chalk.dim(`  Backup ID: ${response.data.backupId}`));
           console.log(chalk.dim(`  Database: ${dbConfig.type}/${dbConfig.database}`));
           console.log(chalk.dim(`  Type: ${options.type}`));
+          console.log(chalk.dim(`  Storage: ${storageConfig?.type || 'local'}`));
+          if (storageConfig?.name) {
+            console.log(chalk.dim(`  Storage Name: ${storageConfig.name}`));
+          }
           
           if (response.data.fileSize) {
             const sizeMB = (response.data.fileSize / 1024 / 1024).toFixed(2);
@@ -99,10 +158,10 @@ export function registerBackupCommand(program: Command): void {
           console.error(chalk.red('\n✗ Cannot connect to API Gateway.'));
           console.error(chalk.yellow('\n💡 Make sure microservices are running:'));
           console.error(chalk.dim('  npm run services:start'));
-          console.error(chalk.dim('  or'));
-          console.error(chalk.dim('  docker-compose up'));
+        } else if (error.response?.data?.error) {
+          console.error(chalk.red(`\n✗ ${error.response.data.error}`));
         } else {
-          console.error(chalk.red(`\n✗ Error: ${error.response?.data?.error || error.message}`));
+          console.error(chalk.red(`\n✗ Error: ${error.message}`));
         }
         
         log.error('Backup request failed', { error: error.message });
