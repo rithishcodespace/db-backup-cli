@@ -15,7 +15,7 @@ export interface BackupResponse {
   duration?: number;
   error?: string;
   metadata?: BackupMetadata;
-  fileName?: string;  // Add this
+  fileName?: string;
 }
 
 export interface DatabaseConfig {
@@ -25,27 +25,80 @@ export interface DatabaseConfig {
   password?: string;
   database: string;
   ssl?: boolean;
-  connectionString?: string;  // For MongoDB
+  connectionString?: string; // MongoDB
 }
 
+/**
+ * Storage configuration
+ */
+export interface StorageOptions {
+  type: 'local' | 's3';
+
+  // Common
+  name?: string;
+
+  // Local storage
+  basePath?: string;
+
+  // S3 storage
+  bucket?: string;
+  region?: string;
+  accessKey?: string;
+  secretKey?: string;
+  prefix?: string;
+}
+
+/**
+ * Backup options
+ */
 export interface BackupOptions {
   compress: boolean;
+
   tables?: string[];
   excludeTables?: string[];
+
   outputPath?: string;
+  backupName?: string;
+
+  // NEW
+  storage?: StorageOptions;
 }
 
 export interface BackupMetadata {
   id: string;
+
   dbType: string;
   dbName: string;
   backupType: string;
+
   size: number;
   checksum: string;
+
   createdAt: Date;
+
   compression: string;
-  backupName?: string; // Add this optional field
-  note?: string;       // Add this for demo responses
+
+  backupName?: string;
+  note?: string;
+
+  // NEW
+  storageType?: 'local' | 's3';
+  storagePath?: string;
+
+  storage?: {
+    name?: string;
+    type: 'local' | 's3';
+
+    // local
+    path?: string;
+
+    // s3
+    bucket?: string;
+    region?: string;
+    key?: string;
+    etag?: string;
+    versionId?: string;
+  };
 }
 
 export interface ServiceHealth {
