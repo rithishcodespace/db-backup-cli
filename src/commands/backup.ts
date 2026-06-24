@@ -40,57 +40,61 @@ export function registerBackupCommand(program: Command): void {
         
         // Get storage configuration
         let storageConfig = null;
-        let storageName = options.storage || 'default';
-        
+        const storageName = options.storage || 'default';
+
         if (storageName) {
-          // Try to find storage by name
-          let storage = await prisma.storageLocation.findUnique({
+        // Find storage by name
+        let storage = await prisma.storageLocation.findUnique({
             where: { name: storageName }
-          });
-          
-          // If not found, try to find default
-          if (!storage) {
+        });
+
+        // If not found, use default storage
+        if (!storage) {
             storage = await prisma.storageLocation.findFirst({
-              where: { default: true }
+            where: { default: true }
             });
-            
+
             if (storage) {
-              spinner.text = `Using default storage: ${storage.name}`;
-            } else {
-              // No storage found, use local as fallback
-              spinner.text = 'No storage configured, using local...';
-              storage = {
-                name: 'local',
-                type: 'local',
-                config: { basePath: options.output || config.get('storage.localPath') },
-                bucket: null,
-                region: null,
-                accessKey: null,
-                secretKey: null
-              };
+            spinner.text = `Using default storage: ${storage.name}`;
             }
-          }
-          
-          // Build storage config from stored location
-          if (storage.type === 's3') {
+        }
+
+        // No storage found at all
+        if (!storage) {
+            throw new Error(
+            'No storage configured. Run "db-backup storage add ..." first.'
+            );
+        }
+
+        const storageJson = storage.config as any;
+
+        // Build storage config
+        if (storage.type === 's3') {
             storageConfig = {
-              type: 's3',
-              name: storage.name,
-              bucket: storage.bucket,
-              region: storage.region,
-              accessKey: storage.accessKey,
-              secretKey: storage.secretKey,
-              prefix: storage.config?.prefix || ''
+            type: 's3',
+            name: storage.name,
+            bucket: storage.bucket,
+            region: storage.region,
+            accessKey: storage.accessKey,
+            secretKey: storage.secretKey,
+            prefix: storageJson?.prefix || ''
             };
-          } else {
+        } else {
             storageConfig = {
-              type: 'local',
-              name: storage.name,
-              basePath: storage.config?.basePath || options.output || config.get('storage.localPath')
+            type: 'local',
+            name: storage.name,
+            basePath:
+                storageJson?.basePath ||
+                options.output ||
+                config.get('storage.localPath')
             };
-          }
-          
-          console.log(chalk.dim(`\n📦 Using storage: ${storage.name} (${storage.type})`));
+        }
+
+        console.log(
+            chalk.dim(
+            `\n📦 Using storage: ${storage.name} (${storage.type})`
+            )
+        );
         }
         
         const backupRequest = {
