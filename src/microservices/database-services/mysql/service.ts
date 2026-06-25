@@ -1,12 +1,14 @@
 import express from 'express';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { statSync } from 'fs';
+import { statSync, existsSync, unlinkSync, mkdirSync } from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { DatabaseConfig, BackupOptions, BackupResponse } from '../../shared/types';
 import { createModuleLogger } from '../../../logger';
 import { config as appConfig } from '../../../config';
+import { S3StorageProvider } from '../../storage-service/providers/s3';
+import { LocalStorageProvider } from '../../storage-service/providers/local';
 
 const execAsync = promisify(exec);
 const log = createModuleLogger('mysql-backup-service');
@@ -35,37 +37,7 @@ app.post('/backup', async (req, res) => {
   log.info('Received MySQL backup request', { backupId, database: dbConfig.database });
   
   try {
-    // Only full backup is fully implemented
-    if (backupType !== 'full') {
-      log.info(`Incremental/Differential backup requested - returning demo response`, { 
-        backupId, 
-        backupType 
-      });
-      
-      // Return demo response for incremental/differential
-      const demoResult = {
-        success: true,
-        backupId,
-        filePath: `./backups/local/${dbConfig.database}_${backupType}_demo_${new Date().toISOString().replace(/[:.]/g, '-')}.sql`,
-        fileSize: 1024,
-        duration: 2.5,
-        metadata: {
-          id: backupId,
-          dbType: 'mysql',
-          dbName: dbConfig.database,
-          backupType: backupType,
-          size: 1024,
-          checksum: 'demo_checksum',
-          createdAt: new Date(),
-          compression: options.compress ? 'gzip' : 'none',
-          note: `This is a demo ${backupType} backup. Full implementation coming soon.`
-        }
-      };
-      
-      return res.json(demoResult);
-    }
-    
-    const result = await performFullBackup(backupId, dbConfig, options);
+    const result = await performBackup(backupId, dbConfig, backupType, options);
     res.json(result);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -78,12 +50,14 @@ app.post('/backup', async (req, res) => {
   }
 });
 
-async function performFullBackup(
+async function performBackup(
   backupId: string,
   dbConfig: DatabaseConfig,
+  backupType: string,
   options: BackupOptions
 ): Promise<BackupResponse> {
   const startTime = Date.now();
+  let localBackupPath: string | null = null;
   
   // Build mysqldump command
   let command = `mysqldump -h ${dbConfig.host} -P ${dbConfig.port || 3306} -u ${dbConfig.username}`;
@@ -103,43 +77,143 @@ async function performFullBackup(
   
   // Generate backup filename
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupFileName = `${dbConfig.database}_full_${timestamp}.${options.compress ? 'gz' : 'sql'}`;
-  const backupPath = path.join(options.outputPath || appConfig.get('storage.localPath'), backupFileName);
+  const backupFileName = `${dbConfig.database}_${timestamp}.${options.compress ? 'gz' : 'sql'}`;
   
-  // Execute backup
+  // Get storage config from options
+  const storageConfig = options.storage || { type: 'local', basePath: './backups' };
+  
+  // Determine local temp path
+  const localTempPath = appConfig.get('storage.tempPath') || './tmp';
+  localBackupPath = path.join(localTempPath, backupFileName);
+  
+  // Ensure temp directory exists
+  if (!existsSync(localTempPath)) {
+    mkdirSync(localTempPath, { recursive: true });
+  }
+  
+  // Execute backup to temp location
   const finalCommand = options.compress 
-    ? `${command} | gzip > "${backupPath}"`
-    : `${command} > "${backupPath}"`;
+    ? `${command} | gzip > "${localBackupPath}"`
+    : `${command} > "${localBackupPath}"`;
   
   log.debug('Executing mysqldump', { backupId });
   
   try {
-    await execAsync(finalCommand, { maxBuffer: 50 * 1024 * 1024 });
+    // Step 1: Create backup locally
+    await execAsync(finalCommand, {
+      maxBuffer: 50 * 1024 * 1024,
+      env: { ...process.env }
+    });
     
-    const stats = statSync(backupPath);
+    const stats = statSync(localBackupPath);
+    const fileSize = stats.size;
+    
+    // Step 2: Determine final storage path
+    let finalPath: string;
+    let storageType: string;
+    let metadata: any = {
+      id: backupId,
+      dbType: 'mysql',
+      dbName: dbConfig.database,
+      backupType: backupType,
+      size: fileSize,
+      checksum: '',
+      createdAt: new Date(),
+      compression: options.compress ? 'gzip' : 'none'
+    };
+    
+    // Step 3: Upload to storage
+    if (storageConfig.type === 's3') {
+      // Validate S3 config
+      if (!storageConfig.bucket) {
+        throw new Error('S3 bucket is required for s3 storage type');
+      }
+      if (!storageConfig.accessKey || !storageConfig.secretKey) {
+        throw new Error('S3 accessKey and secretKey are required for s3 storage type');
+      }
+      
+      log.info('Uploading backup to S3', { backupId, bucket: storageConfig.bucket });
+      
+      const s3Provider = new S3StorageProvider({
+        type: 's3',
+        bucket: storageConfig.bucket,
+        region: storageConfig.region || 'us-east-1',
+        accessKey: storageConfig.accessKey,
+        secretKey: storageConfig.secretKey
+      });
+      
+      await s3Provider.initialize();
+      
+      const prefix = storageConfig.prefix || '';
+      const remotePath = prefix ? `${prefix}/${backupFileName}` : backupFileName;
+      
+      const uploadResult = await s3Provider.upload(localBackupPath, remotePath);
+      
+      finalPath = `s3://${storageConfig.bucket}/${remotePath}`;
+      storageType = 's3';
+      
+      metadata.storage = {
+        name: storageConfig.name || 's3-storage',
+        type: 's3',
+        bucket: storageConfig.bucket,
+        region: storageConfig.region || 'us-east-1',
+        key: remotePath,
+        etag: uploadResult.etag,
+        versionId: uploadResult.versionId
+      };
+      
+      log.info('Upload to S3 completed', { backupId, remotePath });
+      
+    } else {
+      // Local storage
+      const localPath = storageConfig.basePath || options.outputPath || appConfig.get('storage.localPath');
+      if (!existsSync(localPath)) {
+        mkdirSync(localPath, { recursive: true });
+      }
+      
+      const destPath = path.join(localPath, backupFileName);
+      
+      // Copy file to final destination
+      const fs = require('fs');
+      fs.copyFileSync(localBackupPath, destPath);
+      
+      finalPath = destPath;
+      storageType = 'local';
+      
+      metadata.storage = {
+        name: storageConfig.name || 'local-storage',
+        type: 'local',
+        path: localPath
+      };
+    }
+    
     const duration = (Date.now() - startTime) / 1000;
     
-    log.info('MySQL backup completed', { backupId, size: stats.size, duration });
+    log.info('MySQL backup completed', { backupId, size: fileSize, duration, storageType });
     
     return {
       success: true,
       backupId,
-      filePath: backupPath,
-      fileSize: stats.size,
+      filePath: finalPath,
+      fileSize: fileSize,
       duration,
-      metadata: {
-        id: backupId,
-        dbType: 'mysql',
-        dbName: dbConfig.database,
-        backupType: 'full',
-        size: stats.size,
-        checksum: '',
-        createdAt: new Date(),
-        compression: options.compress ? 'gzip' : 'none'
-      }
+      metadata
     };
+    
   } catch (error) {
-    throw new Error(`mysqldump failed: ${error instanceof Error ? error.message : String(error)}`);
+    log.error('MySQL backup failed', { backupId, error });
+    throw new Error(`MySQL backup failed: ${error instanceof Error ? error.message : String(error)}`);
+    
+  } finally {
+    // Step 4: Cleanup temp file (always runs)
+    if (localBackupPath && existsSync(localBackupPath)) {
+      try {
+        unlinkSync(localBackupPath);
+        log.debug('Temporary file cleaned up', { path: localBackupPath });
+      } catch (cleanupError) {
+        log.warn('Failed to cleanup temp file', { path: localBackupPath, error: cleanupError });
+      }
+    }
   }
 }
 
