@@ -50,6 +50,10 @@ model BackupJob {
   storageType  String @default("local") // local, s3
   storagePath  String?
   storageRegion String?
+
+  // Storage relation
+  storageLocationId  String?           @map("storageLocationId")
+  storageLocation    StorageLocation?  @relation(fields: [storageLocationId], references: [id], onDelete: SetNull)
   
   // Additional
   compressionType String? // gzip, zstd, none
@@ -153,6 +157,9 @@ model StorageLocation {
   default     Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  // Relations
+  backupJobs  BackupJob[]
   
   @@index([type])
   @@index([enabled])

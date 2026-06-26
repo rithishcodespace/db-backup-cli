@@ -49,7 +49,70 @@ app.post('/backup', async (req, res) => {
     // Store backup name from options if provided
     const backupName = options?.backupName || null;
     
-    // Create backup job record with full metadata
+    // ============================================================
+    // ✅ PATCH: Get storage location ID from options
+    // ============================================================
+    let storageLocationId: string | null = null;
+    const storageConfig = options?.storage || null;
+    
+    if (storageConfig && storageConfig.name) {
+      // Find storage by name
+      const storage = await prisma.storageLocation.findUnique({
+        where: { name: storageConfig.name }
+      });
+      
+      if (storage) {
+        storageLocationId = storage.id;
+        log.debug('Using storage location', { 
+          name: storage.name, 
+          id: storageLocationId 
+        });
+      } else {
+        // Storage not found - create it if it has all required fields
+        if (storageConfig.type === 's3' && storageConfig.bucket) {
+          const newStorage = await prisma.storageLocation.create({
+            data: {
+              name: storageConfig.name,
+              type: 's3',
+              bucket: storageConfig.bucket,
+              region: storageConfig.region || 'us-east-1',
+              accessKey: storageConfig.accessKey,
+              secretKey: storageConfig.secretKey,
+              config: {
+                prefix: storageConfig.prefix || ''
+              },
+              enabled: true,
+              default: false
+            }
+          });
+          storageLocationId = newStorage.id;
+          log.debug('Created new storage location', { 
+            name: newStorage.name, 
+            id: storageLocationId 
+          });
+        } else {
+          // Local storage
+          const newStorage = await prisma.storageLocation.create({
+            data: {
+              name: storageConfig.name,
+              type: 'local',
+              config: {
+                basePath: storageConfig.basePath || './backups'
+              },
+              enabled: true,
+              default: false
+            }
+          });
+          storageLocationId = newStorage.id;
+          log.debug('Created new storage location', { 
+            name: newStorage.name, 
+            id: storageLocationId 
+          });
+        }
+      }
+    }
+    
+    // Create backup job record with storage location relation
     await prisma.backupJob.create({
       data: {
         id: backupId,
@@ -58,10 +121,13 @@ app.post('/backup', async (req, res) => {
         backupType: backupType,
         status: BackupStatus.RUNNING,
         startedAt: new Date(),
-        fileName: backupName, // Store the backup name
+        fileName: backupName,
+        // ✅ PATCH: Save storage location relation
+        storageLocationId: storageLocationId,
         metadata: JSON.stringify({ 
           options,
           backupName,
+          storageLocationId,
           requestedAt: new Date().toISOString()
         })
       }
@@ -87,17 +153,23 @@ app.post('/backup', async (req, res) => {
           fileSize: result.fileSize,
           duration: result.duration,
           completedAt: new Date(),
-          fileName: result.metadata?.backupName || backupName || result.fileName,
+          fileName: backupName || result.fileName,
+          // ✅ Keep storageLocationId if already set
           metadata: JSON.stringify({
             ...result.metadata,
-            backupName: result.metadata?.backupName || backupName,
+            backupName: backupName,
+            storageLocationId: storageLocationId,
             requestedAt: new Date().toISOString(),
             completedAt: new Date().toISOString()
           })
         }
       });
       
-      log.info('Backup orchestration completed', { backupId, duration: result.duration });
+      log.info('Backup orchestration completed', { 
+        backupId, 
+        duration: result.duration,
+        storageLocationId 
+      });
       res.json(result);
     } else {
       throw new Error(result.error);
@@ -128,7 +200,10 @@ app.get('/backup/:id/status', async (req, res) => {
   const { id } = req.params;
   
   const job = await prisma.backupJob.findUnique({
-    where: { id }
+    where: { id },
+    include: {
+      storageLocation: true  // ✅ Include storage location in response
+    }
   });
   
   if (!job) {
@@ -146,7 +221,11 @@ app.get('/backup/:id/status', async (req, res) => {
     error: job.error,
     createdAt: job.startedAt,
     completedAt: job.completedAt,
-    backupName: job.fileName || 'N/A'
+    backupName: job.fileName || 'N/A',
+    storage: job.storageLocation ? {
+      name: job.storageLocation.name,
+      type: job.storageLocation.type
+    } : null
   });
 });
 
