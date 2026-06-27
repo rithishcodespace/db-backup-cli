@@ -1,5 +1,3 @@
-// src/commands/notification.ts
-
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
@@ -10,21 +8,21 @@ import axios from 'axios';
 
 const log = createModuleLogger('notification-command');
 
-// ==================== Types ====================
+// Types
 
 interface EmailConfig {
-  smtpHost: string;
-  smtpPort: number;
-  smtpUser: string;
-  smtpPassword: string;
-  from: string;
+  smtpHost: string; // gmail servers
+  smtpPort: number; // gmail server port (tls)
+  smtpUser: string; // username to login
+  smtpPassword: string; // password to login
+  from: string; // sender email
 }
 
 interface SlackConfig {
-  webhook: string;
+  webhook: string; // webhook created for specific channel
 }
 
-// ==================== Helper Functions ====================
+// Helper Functions
 
 function maskString(str: string): string {
   if (!str) return 'Not Set';
@@ -112,15 +110,14 @@ async function deleteSlackConfig(): Promise<void> {
   });
 }
 
-// ==================== Notification Command Registration ====================
+// Notification Command Registration
 
 export function registerNotificationCommand(program: Command): void {
   const notificationCmd = program
     .command('notification')
     .description('Configure notification providers for backup alerts');
 
-  // ==================== EMAIL SUBCOMMANDS ====================
-
+  // email sub-commands
   const emailCmd = notificationCmd
     .command('email')
     .description('Configure email notifications');
@@ -227,17 +224,17 @@ export function registerNotificationCommand(program: Command): void {
           to: options.to,
           subject: 'DB Backup CLI - Test Email',
           text: `
-This is a test email from DB Backup CLI.
+            This is a test email from DB Backup CLI.
 
-If you received this message, your email notification configuration is working correctly.
+            If you received this message, your email notification configuration is working correctly.
 
-Sent at: ${new Date().toISOString()}
-          `,
-          html: `
-<h2>DB Backup CLI - Test Email</h2>
-<p>This is a test email from DB Backup CLI.</p>
-<p>If you received this message, your email notification configuration is working correctly.</p>
-<p><strong>Sent at:</strong> ${new Date().toISOString()}</p>
+            Sent at: ${new Date().toISOString()}
+                    `,
+                    html: `
+            <h2>DB Backup CLI - Test Email</h2>
+            <p>This is a test email from DB Backup CLI.</p>
+            <p>If you received this message, your email notification configuration is working correctly.</p>
+            <p><strong>Sent at:</strong> ${new Date().toISOString()}</p>
           `
         });
 
@@ -341,7 +338,7 @@ Sent at: ${new Date().toISOString()}
       }
     });
 
-  // ==================== SLACK SUBCOMMANDS ====================
+  // SLACK SUBCOMMANDS
 
   const slackCmd = notificationCmd
     .command('slack')
