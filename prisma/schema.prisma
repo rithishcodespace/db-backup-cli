@@ -27,27 +27,27 @@ model BackupJob {
   checksum    String?
   
   // Backup metadata
-  baseBackupId String?  // For incremental/differential - ID of base backup
-  parentBackupId String? // For incremental chain
-  backupLevel   Int?    // 0=full, 1=incremental, 2=differential
+  baseBackupId String?
+  parentBackupId String?
+  backupLevel   Int?
   
-  // NEW: Database-specific tracking (for future incremental implementation)
-  walPosition    String?  // PostgreSQL WAL position
-  binlogFile     String?  // MySQL binlog file
-  binlogPosition Int?     // MySQL binlog position
-  oplogTimestamp String?  // MongoDB oplog timestamp
+  // Database-specific tracking
+  walPosition    String?
+  binlogFile     String?
+  binlogPosition Int?
+  oplogTimestamp String?
   
-  // NEW: Backup name for easier identification
-  backupName    String?   // User-friendly backup name
+  // Backup name
+  backupName    String?
   
   // Timing
   startedAt   DateTime @default(now())
   completedAt DateTime?
-  duration    Int?     // in seconds
-  expiresAt   DateTime? // For retention policies
+  duration    Int?
+  expiresAt   DateTime?
   
   // Storage
-  storageType  String @default("local") // local, s3
+  storageType  String @default("local")
   storagePath  String?
   storageRegion String?
 
@@ -56,12 +56,12 @@ model BackupJob {
   storageLocation    StorageLocation?  @relation(fields: [storageLocationId], references: [id], onDelete: SetNull)
   
   // Additional
-  compressionType String? // gzip, zstd, none
-  encryptionType  String? // aes256, none
+  compressionType String?
+  encryptionType  String?
   backupVersion   String?
   retryCount     Int @default(0)
   error          String?
-  metadata       Json?   // JSON for flexible storage
+  metadata       Json?
   
   // Relationships
   logs          BackupLog[]
@@ -87,17 +87,17 @@ model BackupSchedule {
   // Options
   compress    Boolean  @default(true)
   storageType String   // local, s3,
-  retention   Int?     // Days to keep backups
-  enabled     Boolean  @default(true) // backup scheduled is active or inactive
+  retention   Int?
+  enabled     Boolean  @default(true)
   
   // Notification settings
   notifyOnSuccess Boolean @default(false)
   notifyOnError   Boolean @default(true)
-  slackWebhook    String? // webhook url for each user's workspace
-  emailRecipients String?  // Comma-separated emails
+  slackWebhook    String?
+  emailRecipients String?
   
   // Metadata
-  metadata    Json?     // JSON for flexible storage
+  metadata    Json?
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -114,9 +114,9 @@ model BackupLog {
   id          Int      @id @default(autoincrement())
   backupJobId String
   timestamp   DateTime @default(now())
-  level       String   // info, warn, error, debug
+  level       String
   message     String
-  details     String?  // JSON string
+  details     String?
   backupJob   BackupJob @relation(fields: [backupJobId], references: [id], onDelete: Cascade)
   
   @@index([backupJobId])
@@ -126,8 +126,8 @@ model BackupLog {
 model Notification {
   id          String   @id @default(cuid())
   backupJobId String?
-  type        String   // slack, email, webhook
-  status      String   // pending, sent, failed
+  type        String
+  status      String
   recipient   String?
   subject     String?
   message     String?
@@ -145,7 +145,7 @@ model StorageLocation {
   id          String   @id @default(cuid())
   name        String   @unique
   type        String   // local, s3
-  config      Json?    // Storage-specific configuration
+  config      Json?
   
   // S3 specific
   bucket      String?
@@ -161,6 +161,29 @@ model StorageLocation {
   // Relations
   backupJobs  BackupJob[]
   
+  @@index([type])
+  @@index([enabled])
+}
+
+// Notification Configuration Model
+model NotificationConfig {
+  id          String   @id @default(cuid())
+  type        String   // email, slack
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Email specific
+  smtpHost    String?
+  smtpPort    Int?
+  smtpUser    String?
+  smtpPassword String?
+  from        String?
+  
+  // Slack specific
+  webhook     String?
+  
+  @@unique([type])
   @@index([type])
   @@index([enabled])
 }
