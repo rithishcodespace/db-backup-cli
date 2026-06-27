@@ -4,6 +4,7 @@ import ora from 'ora';
 import axios from 'axios';
 import { createModuleLogger } from '../logger';
 import { config } from '../config';
+import { prisma } from "../lib/prisma";
 
 const log = createModuleLogger('schedule-command');
 
@@ -18,8 +19,7 @@ export function registerScheduleCommand(program: Command): void {
     .option('-n, --name <name>', 'Schedule name')
     .option('--storage <type>', 'Storage type (local, s3)', 'local')
     .option('--retention <days>', 'Retention period in days', '30')
-    .option('--slack <url>', 'Slack webhook URL for notifications')
-    .option('--email <emails>', 'Email addresses for notifications (comma-separated)')
+    .option('--notify', 'Enable notifications for this schedule', true)
     .action(async (options) => {
       const spinner = ora('Creating backup schedule...').start();
       
@@ -43,6 +43,46 @@ export function registerScheduleCommand(program: Command): void {
           process.exit(1);
         }
         
+        // Get notification configuration from stored settings
+        let notificationConfig = null;
+        
+        if (options.notify) {
+          // Check for Slack configuration
+          const slackConfig = await prisma.notificationConfig.findUnique({
+            where: { type: 'slack', enabled: true }
+          });
+          
+          // Check for Email configuration
+          const emailConfig = await prisma.notificationConfig.findUnique({
+            where: { type: 'email', enabled: true }
+          });
+          
+          // Prefer Slack if configured, otherwise Email
+          if (slackConfig) {
+            notificationConfig = {
+              type: 'slack',
+              details: {
+                webhookUrl: slackConfig.webhook
+              }
+            };
+            console.log(chalk.dim('\n📢 Notifications will be sent via Slack'));
+          } else if (emailConfig) {
+            notificationConfig = {
+              type: 'email',
+              details: {
+                to: emailConfig.from || process.env.SMTP_TO,
+                from: emailConfig.from || process.env.SMTP_FROM
+              }
+            };
+            console.log(chalk.dim('\n📧 Notifications will be sent via Email'));
+          } else {
+            console.log(chalk.yellow('\n⚠️  No notification configuration found.'));
+            console.log(chalk.dim('   Configure notifications with:'));
+            console.log(chalk.dim('   db-backup notification email configure ...'));
+            console.log(chalk.dim('   db-backup notification slack configure ...'));
+          }
+        }
+        
         const scheduleConfig = {
           schedule: options.cron,
           dbConfig,
@@ -50,17 +90,11 @@ export function registerScheduleCommand(program: Command): void {
           options: {
             compress: true,
             storageType: options.storage,
-            name: options.name || `${dbConfig.database}_backup`
+            name: options.name || `${dbConfig.database}_backup`,
+            retention: parseInt(options.retention)
           },
           storageType: options.storage,
-          notification: {
-            type: options.slack ? 'slack' : options.email ? 'email' : null,
-            details: {
-              webhookUrl: options.slack,
-              to: options.email,
-              from: 'backup@system.local'
-            }
-          },
+          notification: notificationConfig,
           retention: parseInt(options.retention)
         };
         
@@ -80,6 +114,12 @@ export function registerScheduleCommand(program: Command): void {
           console.log(chalk.dim(`  Retention: ${options.retention} days`));
           console.log(chalk.dim(`  Next Run: ${response.data.nextRun || 'Calculating...'}`));
           
+          if (notificationConfig) {
+            console.log(chalk.dim(`  Notifications: ${notificationConfig.type}`));
+          } else {
+            console.log(chalk.dim(`  Notifications: Disabled`));
+          }
+          
           log.info('Schedule created', { scheduleId: response.data.scheduleId });
         } else {
           spinner.fail(chalk.red('Failed to create schedule'));
@@ -93,7 +133,7 @@ export function registerScheduleCommand(program: Command): void {
           console.error(chalk.red(`\n✗ ${error.response.data.error}`));
         } else if (error.code === 'ECONNREFUSED') {
           console.error(chalk.red('\n✗ Cannot connect to Scheduler Service.'));
-          console.error(chalk.yellow('\n Make sure microservices are running:'));
+          console.error(chalk.yellow('\n💡 Make sure microservices are running:'));
           console.error(chalk.dim('  npm run services:start'));
         } else {
           console.error(chalk.red(`\n✗ Error: ${error.message}`));
@@ -124,6 +164,7 @@ export function registerScheduleListCommand(program: Command): void {
         response.data.schedules.forEach((schedule: any, index: number) => {
           const statusColor = schedule.enabled ? chalk.green : chalk.red;
           const statusText = schedule.enabled ? 'Active' : 'Disabled';
+          const notificationStatus = schedule.slackWebhook || schedule.emailRecipients ? '✅' : '❌';
           
           console.log(`${chalk.bold.white(`${index + 1}.`)} ${chalk.bold(schedule.name)}`);
           console.log(`   ${chalk.dim('Status:')} ${statusColor(statusText)}`);
@@ -131,6 +172,7 @@ export function registerScheduleListCommand(program: Command): void {
           console.log(`   ${chalk.dim('Type:')} ${schedule.backupType}`);
           console.log(`   ${chalk.dim('Database:')} ${schedule.dbType}/${schedule.dbName}`);
           console.log(`   ${chalk.dim('Storage:')} ${schedule.storageType}`);
+          console.log(`   ${chalk.dim('Notifications:')} ${notificationStatus}`);
           
           if (schedule.lastRunAt) {
             const lastRun = new Date(schedule.lastRunAt).toLocaleString();
