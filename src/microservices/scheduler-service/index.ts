@@ -20,7 +20,65 @@ const scheduledTasks = new Map();
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://localhost:3001';
 const NOTIFICATION_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3040';
 
-// Health check
+// ==================== Types ====================
+
+interface NotificationProvider {
+  type: 'email' | 'slack';
+  details: Record<string, any>;
+}
+
+interface NotificationPayload {
+  providers: NotificationProvider[];
+}
+
+// ==================== Helper Functions ====================
+
+function normalizeNotification(notification: any): NotificationPayload | null {
+  if (!notification) {
+    return null;
+  }
+
+  // New format: { providers: [...] }
+  if (notification.providers && Array.isArray(notification.providers)) {
+    return notification;
+  }
+
+  // Old format: { type: "email", details: {...} }
+  if (notification.type && notification.details) {
+    return {
+      providers: [{
+        type: notification.type,
+        details: notification.details
+      }]
+    };
+  }
+
+  return null;
+}
+
+function getNotificationProviders(notification: any): NotificationProvider[] {
+  const normalized = normalizeNotification(notification);
+  return normalized?.providers || [];
+}
+
+function hasProvider(notification: any, type: string): boolean {
+  const providers = getNotificationProviders(notification);
+  return providers.some(p => p.type === type);
+}
+
+function getProviderDetails(notification: any, type: string): any | null {
+  const providers = getNotificationProviders(notification);
+  const provider = providers.find(p => p.type === type);
+  return provider?.details || null;
+}
+
+function getProviderTypes(notification: any): string[] {
+  const providers = getNotificationProviders(notification);
+  return providers.map(p => p.type);
+}
+
+// ==================== Health Check ====================
+
 app.get('/health', (req, res) => {
   res.json({
     service: SERVICE_NAME,
@@ -31,7 +89,8 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Schedule a backup
+// ==================== Schedule a Backup ====================
+
 app.post('/api/schedule', async (req, res) => {
   const { schedule, dbConfig, backupType, options, storageType, notification } = req.body;
   
@@ -41,24 +100,23 @@ app.post('/api/schedule', async (req, res) => {
       throw new Error('Invalid cron expression');
     }
     
-    // Get notification configuration if enabled
-    let notificationConfig = null;
-    if (notification && notification.type) {
-      if (notification.type === 'email' && notification.details?.to) {
-        notificationConfig = {
-          type: 'email',
-          details: {
-            to: notification.details.to,
-            from: notification.details.from || 'backup@system.local'
-          }
-        };
-      } else if (notification.type === 'slack' && notification.details?.webhookUrl) {
-        notificationConfig = {
-          type: 'slack',
-          details: {
-            webhookUrl: notification.details.webhookUrl
-          }
-        };
+    // Normalize notification to new format
+    const normalizedNotification = normalizeNotification(notification);
+    const providers = getNotificationProviders(normalizedNotification);
+    
+    // Extract slack webhook and email recipients for backward compatibility
+    let slackWebhook = null;
+    let emailRecipients = null;
+    
+    if (providers.length > 0) {
+      const slackProvider = providers.find(p => p.type === 'slack');
+      if (slackProvider) {
+        slackWebhook = slackProvider.details.webhookUrl || null;
+      }
+      
+      const emailProvider = providers.find(p => p.type === 'email');
+      if (emailProvider) {
+        emailRecipients = emailProvider.details.to || null;
       }
     }
     
@@ -74,38 +132,46 @@ app.post('/api/schedule', async (req, res) => {
         storageType: storageType || 'local',
         retention: options.retention || 30,
         enabled: true,
-        notifyOnSuccess: notificationConfig?.type === 'slack' || notificationConfig?.type === 'email',
+        notifyOnSuccess: providers.length > 0,
         notifyOnError: true,
-        slackWebhook: notificationConfig?.type === 'slack' ? notificationConfig.details.webhookUrl : null,
-        emailRecipients: notificationConfig?.type === 'email' ? notificationConfig.details.to : null,
+        slackWebhook: slackWebhook,
+        emailRecipients: emailRecipients,
         metadata: {
           dbConfig,
           options,
           storageType: storageType || 'local',
-          notification: notificationConfig
-        }
+          notification: normalizedNotification // Store full notification with providers
+        } as any
       }
     });
     
     // Schedule the task
     const task = cron.schedule(schedule, async () => {
-      await executeScheduledBackup(scheduleRecord.id, dbConfig, backupType, options, notificationConfig);
+      await executeScheduledBackup(
+        scheduleRecord.id,
+        dbConfig,
+        backupType,
+        options,
+        normalizedNotification
+      );
     });
     
     scheduledTasks.set(scheduleRecord.id, task);
+    
+    const providerTypes = getProviderTypes(normalizedNotification);
     
     log.info('Backup schedule created', {
       id: scheduleRecord.id,
       schedule: schedule,
       dbType: dbConfig.type,
-      notification: notificationConfig?.type || 'none'
+      notification: providerTypes.length > 0 ? providerTypes : 'none'
     });
     
     res.json({
       success: true,
       scheduleId: scheduleRecord.id,
-      schedule: scheduleRecord
-  });
+      schedule: scheduleRecord,
+    });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     log.error('Failed to create schedule', { error: errorMessage });
@@ -116,7 +182,8 @@ app.post('/api/schedule', async (req, res) => {
   }
 });
 
-// Stop a schedule
+// ==================== Stop a Schedule ====================
+
 app.post('/api/schedule/:id/stop', async (req, res) => {
   const { id } = req.params;
   
@@ -143,7 +210,8 @@ app.post('/api/schedule/:id/stop', async (req, res) => {
   }
 });
 
-// List all schedules
+// ==================== List All Schedules ====================
+
 app.get('/api/schedule', async (req, res) => {
   try {
     const schedules = await prisma.backupSchedule.findMany({
@@ -164,14 +232,20 @@ app.get('/api/schedule', async (req, res) => {
   }
 });
 
+// ==================== Execute Scheduled Backup ====================
+
 async function executeScheduledBackup(
   scheduleId: string,
   dbConfig: any,
   backupType: string,
   options: any,
-  notificationConfig: any
+  notification: NotificationPayload | null
 ) {
-  log.info('Executing scheduled backup', { scheduleId, dbType: dbConfig.type });
+  log.info('Executing scheduled backup', { 
+    scheduleId, 
+    dbType: dbConfig.type,
+    notification: notification ? getProviderTypes(notification) : 'none'
+  });
   
   let backupSuccess = false;
   let backupId = null;
@@ -218,9 +292,9 @@ async function executeScheduledBackup(
         }
       });
       
-      // Send success notification if configured
-      if (notificationConfig) {
-        await sendBackupNotification({
+      // Send success notifications to all providers
+      if (notification) {
+        await sendBackupNotifications({
           success: true,
           backupId,
           scheduleId,
@@ -228,7 +302,7 @@ async function executeScheduledBackup(
           backupType,
           duration,
           fileSize: response.data.fileSize,
-          notificationConfig
+          notification
         });
       }
     } else {
@@ -248,9 +322,9 @@ async function executeScheduledBackup(
       }
     });
     
-    // Send failure notification if configured
-    if (notificationConfig) {
-      await sendBackupNotification({
+    // Send failure notifications to all providers
+    if (notification) {
+      await sendBackupNotifications({
         success: false,
         backupId: null,
         scheduleId,
@@ -258,13 +332,15 @@ async function executeScheduledBackup(
         backupType,
         duration,
         errorMessage,
-        notificationConfig
+        notification
       });
     }
   }
 }
 
-async function sendBackupNotification(params: {
+// ==================== Send Backup Notifications to All Providers ====================
+
+async function sendBackupNotifications(params: {
   success: boolean;
   backupId: string | null;
   scheduleId: string;
@@ -273,113 +349,128 @@ async function sendBackupNotification(params: {
   duration: number;
   fileSize?: number;
   errorMessage?: string;
-  notificationConfig: any;
+  notification: NotificationPayload;
 }) {
-  const { success, backupId, scheduleId, dbConfig, backupType, duration, fileSize, errorMessage, notificationConfig } = params;
+  const { success, backupId, scheduleId, dbConfig, backupType, duration, fileSize, errorMessage, notification } = params;
   
-  try {
-    // Get schedule details for additional context
-    const schedule = await prisma.backupSchedule.findUnique({
-      where: { id: scheduleId }
-    });
-    
-    const message = {
-      subject: success 
-        ? `✅ Backup Completed - ${dbConfig.database}` 
-        : `❌ Backup Failed - ${dbConfig.database}`,
-      text: `
-        Backup ${success ? 'Completed Successfully' : 'Failed'}
+  const providers = getNotificationProviders(notification);
+  
+  if (providers.length === 0) {
+    log.debug('No notification providers configured', { scheduleId });
+    return;
+  }
+  
+  log.info(`Sending notifications to ${providers.length} provider(s)`, {
+    scheduleId,
+    providers: providers.map(p => p.type)
+  });
+  
+  // Get schedule details for additional context
+  const schedule = await prisma.backupSchedule.findUnique({
+    where: { id: scheduleId }
+  });
+  
+  // Build the common message
+  const message = {
+    subject: success 
+      ? `✅ Backup Completed - ${dbConfig.database}` 
+      : `❌ Backup Failed - ${dbConfig.database}`,
+    text: `Backup ${success ? 'Completed Successfully' : 'Failed'}
 
-        Database: ${dbConfig.type}/${dbConfig.database}
-        Type: ${backupType}
-        Schedule: ${schedule?.name || 'Scheduled Backup'}
-        Time: ${new Date().toISOString()}
-        Duration: ${duration.toFixed(2)} seconds
-        ${backupId ? `Backup ID: ${backupId}` : ''}
-        ${fileSize ? `Size: ${(fileSize / 1024 / 1024).toFixed(2)} MB` : ''}
-        ${errorMessage ? `Error: ${errorMessage}` : ''}
-      `,
-      attachments: success ? [
-        {
-          color: '#36a64f',
-          title: '✅ Backup Successful',
-          fields: [
-            { title: 'Database', value: `${dbConfig.type}/${dbConfig.database}`, short: true },
-            { title: 'Type', value: backupType, short: true },
-            { title: 'Duration', value: `${duration.toFixed(2)}s`, short: true },
-            { title: 'Backup ID', value: backupId || 'N/A', short: true },
-            { title: 'Size', value: fileSize ? `${(fileSize / 1024 / 1024).toFixed(2)} MB` : 'N/A', short: true }
-          ],
-          footer: 'DB Backup CLI',
-          ts: Math.floor(Date.now() / 1000)
-        }
-      ] : [
-        {
-          color: '#ff0000',
-          title: '❌ Backup Failed',
-          fields: [
-            { title: 'Database', value: `${dbConfig.type}/${dbConfig.database}`, short: true },
-            { title: 'Type', value: backupType, short: true },
-            { title: 'Duration', value: `${duration.toFixed(2)}s`, short: true },
-            { title: 'Error', value: errorMessage || 'Unknown error', short: false }
-          ],
-          footer: 'DB Backup CLI',
-          ts: Math.floor(Date.now() / 1000)
-        }
-      ]
-    };
-    
-    // Prepare notification config based on type
-    let notifyConfig: any = {};
-    let notifyType = notificationConfig.type;
-    
-    if (notifyType === 'email') {
-      // For email, we need SMTP config from stored settings
-      // Use the notification service to handle sending
-      notifyConfig = {
-        smtpHost: process.env.SMTP_HOST || 'smtp.gmail.com',
-        smtpPort: parseInt(process.env.SMTP_PORT || '587'),
-        username: process.env.SMTP_USER,
-        password: process.env.SMTP_PASS,
-        from: notificationConfig.details?.from || process.env.SMTP_FROM || 'backup@system.local',
-        to: notificationConfig.details?.to || process.env.SMTP_TO
-      };
-    } else if (notifyType === 'slack') {
-      notifyConfig = {
-        webhookUrl: notificationConfig.details?.webhookUrl || process.env.SLACK_WEBHOOK_URL
-      };
-    }
-    
-    // Call notification service
-    const response = await axios.post(`${NOTIFICATION_URL}/api/notify`, {
-      type: notifyType,
-      backupId: backupId || scheduleId,
-      config: notifyConfig,
-      message
-    });
-    
-    if (response.data.success) {
-      log.info('Notification sent for scheduled backup', { 
-        scheduleId, 
-        backupId, 
-        type: notifyType,
-        success 
+Database: ${dbConfig.type}/${dbConfig.database}
+Type: ${backupType}
+Schedule: ${schedule?.name || 'Scheduled Backup'}
+Time: ${new Date().toISOString()}
+Duration: ${duration.toFixed(2)} seconds
+${backupId ? `Backup ID: ${backupId}` : ''}
+${fileSize ? `Size: ${(fileSize / 1024 / 1024).toFixed(2)} MB` : ''}
+${errorMessage ? `Error: ${errorMessage}` : ''}`,
+    attachments: success ? [
+      {
+        color: '#36a64f',
+        title: '✅ Backup Successful',
+        fields: [
+          { title: 'Database', value: `${dbConfig.type}/${dbConfig.database}`, short: true },
+          { title: 'Type', value: backupType, short: true },
+          { title: 'Duration', value: `${duration.toFixed(2)}s`, short: true },
+          { title: 'Backup ID', value: backupId || 'N/A', short: true },
+          { title: 'Size', value: fileSize ? `${(fileSize / 1024 / 1024).toFixed(2)} MB` : 'N/A', short: true }
+        ],
+        footer: 'DB Backup CLI',
+        ts: Math.floor(Date.now() / 1000)
+      }
+    ] : [
+      {
+        color: '#ff0000',
+        title: '❌ Backup Failed',
+        fields: [
+          { title: 'Database', value: `${dbConfig.type}/${dbConfig.database}`, short: true },
+          { title: 'Type', value: backupType, short: true },
+          { title: 'Duration', value: `${duration.toFixed(2)}s`, short: true },
+          { title: 'Error', value: errorMessage || 'Unknown error', short: false }
+        ],
+        footer: 'DB Backup CLI',
+        ts: Math.floor(Date.now() / 1000)
+      }
+    ]
+  };
+  
+  // Send notification to each provider
+  for (const provider of providers) {
+    try {
+      let notifyConfig: any = {};
+      
+      if (provider.type === 'email') {
+        // For email, prepare SMTP config
+        notifyConfig = {
+          smtpHost: process.env.SMTP_HOST || 'smtp.gmail.com',
+          smtpPort: parseInt(process.env.SMTP_PORT || '587'),
+          username: provider.details.smtpUser || process.env.SMTP_USER,
+          password: provider.details.smtpPassword || process.env.SMTP_PASS,
+          from: provider.details.from || process.env.SMTP_FROM || 'backup@system.local',
+          to: provider.details.to || process.env.SMTP_TO
+        };
+      } else if (provider.type === 'slack') {
+        // For Slack, prepare webhook config
+        notifyConfig = {
+          webhookUrl: provider.details.webhookUrl || process.env.SLACK_WEBHOOK_URL
+        };
+      }
+      
+      // Call notification service
+      const response = await axios.post(`${NOTIFICATION_URL}/api/notify`, {
+        type: provider.type,
+        backupId: backupId || scheduleId,
+        config: notifyConfig,
+        message
       });
-    } else {
-      log.warn('Notification service returned error', { 
+      
+      if (response.data.success) {
+        log.info('Notification sent successfully', { 
+          scheduleId, 
+          backupId, 
+          type: provider.type,
+          success 
+        });
+      } else {
+        log.warn('Notification service returned error', { 
+          scheduleId, 
+          type: provider.type,
+          response: response.data 
+        });
+      }
+    } catch (error) {
+      log.error('Failed to send notification', { 
         scheduleId, 
-        response: response.data 
+        type: provider.type,
+        error: error instanceof Error ? error.message : String(error) 
       });
     }
-  } catch (error) {
-    log.error('Failed to send notification for scheduled backup', { 
-      scheduleId, 
-      error: error instanceof Error ? error.message : String(error) 
-    });
   }
 }
 
-// Load existing schedules on startup
+// ==================== Load Existing Schedules ====================
+
 async function loadSchedules() {
   try {
     const schedules = await prisma.backupSchedule.findMany({
@@ -391,7 +482,10 @@ async function loadSchedules() {
     for (const schedule of schedules) {
       if (cron.validate(schedule.schedule)) {
         const metadata = JSON.parse(schedule.metadata as any || '{}');
-        const notificationConfig = metadata.notification || null;
+        
+        // Normalize notification to new format
+        const notification = normalizeNotification(metadata.notification);
+        const providerTypes = getProviderTypes(notification);
         
         const task = cron.schedule(schedule.schedule, async () => {
           await executeScheduledBackup(
@@ -399,7 +493,7 @@ async function loadSchedules() {
             metadata.dbConfig,
             schedule.backupType,
             metadata.options || {},
-            notificationConfig
+            notification
           );
         });
         
@@ -407,7 +501,7 @@ async function loadSchedules() {
         log.info('Schedule loaded', { 
           id: schedule.id,
           name: schedule.name,
-          notification: notificationConfig?.type || 'none'
+          notification: providerTypes.length > 0 ? providerTypes : 'none'
         });
       } else {
         log.warn('Invalid schedule configuration', { id: schedule.id });
@@ -418,7 +512,8 @@ async function loadSchedules() {
   }
 }
 
-// Start the service
+// ==================== Start the Service ====================
+
 app.listen(SERVICE_PORT, async () => {
   log.info(`${SERVICE_NAME} listening on port ${SERVICE_PORT}`);
   await loadSchedules();
