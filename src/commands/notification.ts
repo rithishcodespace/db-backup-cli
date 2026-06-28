@@ -8,21 +8,22 @@ import axios from 'axios';
 
 const log = createModuleLogger('notification-command');
 
-// Types
+// ==================== Types ====================
 
 interface EmailConfig {
-  smtpHost: string; // gmail servers
-  smtpPort: number; // gmail server port (tls)
-  smtpUser: string; // username to login
-  smtpPassword: string; // password to login
-  from: string; // sender email
+  smtpHost: string;
+  smtpPort: number;
+  smtpUser: string;
+  smtpPassword: string;
+  from: string;
+  to: string; // ✅ NEW: Recipient email
 }
 
 interface SlackConfig {
-  webhook: string; // webhook created for specific channel
+  webhook: string;
 }
 
-// Helper Functions
+// ==================== Helper Functions ====================
 
 function maskString(str: string): string {
   if (!str) return 'Not Set';
@@ -37,12 +38,22 @@ async function getEmailConfig(): Promise<EmailConfig | null> {
   
   if (!config || !config.enabled) return null;
   
+  // ✅ Check for backward compatibility - if 'to' field is missing
+  const to = (config as any).to || null;
+  
+  if (!to) {
+    console.warn(chalk.yellow('\n⚠️  Email configuration is missing a recipient email.'));
+    console.warn(chalk.dim('   Please reconfigure email with --to option:'));
+    console.warn(chalk.dim('   db-backup notification email configure --smtp-host ... --to recipient@example.com'));
+  }
+  
   return {
     smtpHost: config.smtpHost!,
     smtpPort: config.smtpPort!,
     smtpUser: config.smtpUser!,
     smtpPassword: config.smtpPassword!,
-    from: config.from!
+    from: config.from!,
+    to: to || ''
   };
 }
 
@@ -67,6 +78,7 @@ async function saveEmailConfig(config: EmailConfig): Promise<void> {
       smtpUser: config.smtpUser,
       smtpPassword: config.smtpPassword,
       from: config.from,
+      to: config.to, // ✅ NEW: Save recipient
       enabled: true,
       updatedAt: new Date()
     },
@@ -77,6 +89,7 @@ async function saveEmailConfig(config: EmailConfig): Promise<void> {
       smtpUser: config.smtpUser,
       smtpPassword: config.smtpPassword,
       from: config.from,
+      to: config.to, // ✅ NEW: Save recipient
       enabled: true
     }
   });
@@ -110,14 +123,15 @@ async function deleteSlackConfig(): Promise<void> {
   });
 }
 
-// Notification Command Registration
+// ==================== Notification Command Registration ====================
 
 export function registerNotificationCommand(program: Command): void {
   const notificationCmd = program
     .command('notification')
     .description('Configure notification providers for backup alerts');
 
-  // email sub-commands
+  // ==================== EMAIL SUBCOMMANDS ====================
+
   const emailCmd = notificationCmd
     .command('email')
     .description('Configure email notifications');
@@ -131,6 +145,7 @@ export function registerNotificationCommand(program: Command): void {
     .requiredOption('--smtp-user <user>', 'SMTP username')
     .requiredOption('--smtp-password <password>', 'SMTP password or app password')
     .requiredOption('--from <email>', 'Sender email address')
+    .requiredOption('--to <email>', 'Default recipient email address') // ✅ NEW: Required recipient
     .action(async (options) => {
       const spinner = ora('Configuring email notification...').start();
 
@@ -140,7 +155,8 @@ export function registerNotificationCommand(program: Command): void {
           smtpPort: options.smtpPort,
           smtpUser: options.smtpUser,
           smtpPassword: options.smtpPassword,
-          from: options.from
+          from: options.from,
+          to: options.to // ✅ NEW: Store recipient
         };
 
         spinner.text = 'Verifying SMTP connection...';
@@ -168,8 +184,13 @@ export function registerNotificationCommand(program: Command): void {
         console.log(chalk.dim(`  SMTP Port: ${config.smtpPort}`));
         console.log(chalk.dim(`  Username: ${config.smtpUser}`));
         console.log(chalk.dim(`  Sender: ${config.from}`));
+        console.log(chalk.dim(`  Recipient: ${config.to}`)); // ✅ NEW: Show recipient
 
-        log.info('Email configured successfully', { host: config.smtpHost, user: config.smtpUser });
+        log.info('Email configured successfully', { 
+          host: config.smtpHost, 
+          user: config.smtpUser,
+          recipient: config.to 
+        });
 
       } catch (error: any) {
         spinner.fail(chalk.red('Email configuration failed'));
@@ -189,11 +210,11 @@ export function registerNotificationCommand(program: Command): void {
       }
     });
 
-  // Email Test
+  // Email Test - ✅ Updated: --to is now optional
   emailCmd
     .command('test')
     .description('Send a test email')
-    .requiredOption('--to <email>', 'Recipient email address')
+    .option('--to <email>', 'Override recipient email (optional)')
     .action(async (options) => {
       const spinner = ora('Sending test email...').start();
 
@@ -203,7 +224,20 @@ export function registerNotificationCommand(program: Command): void {
         if (!config) {
           spinner.fail('Email configuration not found');
           console.error(chalk.yellow('\n💡 Configure email first:'));
-          console.error(chalk.dim('  db-backup notification email configure --smtp-host ...'));
+          console.error(chalk.dim('  db-backup notification email configure --smtp-host ... --to recipient@example.com'));
+          process.exit(1);
+        }
+
+        // ✅ Priority: 1. --to argument, 2. configured recipient
+        const recipient = options.to || config.to;
+        
+        if (!recipient) {
+          spinner.fail('No recipient specified');
+          console.error(chalk.yellow('\n💡 No recipient configured. Either:'));
+          console.error(chalk.dim('  • Configure a default recipient with:'));
+          console.error(chalk.dim('    db-backup notification email configure --smtp-host ... --to recipient@example.com'));
+          console.error(chalk.dim('  • Or provide a recipient with:'));
+          console.error(chalk.dim('    db-backup notification email test --to recipient@example.com'));
           process.exit(1);
         }
 
@@ -221,28 +255,29 @@ export function registerNotificationCommand(program: Command): void {
 
         const info = await transporter.sendMail({
           from: config.from,
-          to: options.to,
+          to: recipient,
           subject: 'DB Backup CLI - Test Email',
           text: `
-            This is a test email from DB Backup CLI.
+This is a test email from DB Backup CLI.
 
-            If you received this message, your email notification configuration is working correctly.
+If you received this message, your email notification configuration is working correctly.
 
-            Sent at: ${new Date().toISOString()}
-                    `,
-                    html: `
-            <h2>DB Backup CLI - Test Email</h2>
-            <p>This is a test email from DB Backup CLI.</p>
-            <p>If you received this message, your email notification configuration is working correctly.</p>
-            <p><strong>Sent at:</strong> ${new Date().toISOString()}</p>
+Sent at: ${new Date().toISOString()}
+          `,
+          html: `
+<h2>DB Backup CLI - Test Email</h2>
+<p>This is a test email from DB Backup CLI.</p>
+<p>If you received this message, your email notification configuration is working correctly.</p>
+<p><strong>Sent at:</strong> ${new Date().toISOString()}</p>
+<p><strong>Recipient:</strong> ${recipient}</p>
           `
         });
 
         spinner.succeed(chalk.green('Test email sent successfully!'));
-        console.log(chalk.dim(`\n  To: ${options.to}`));
+        console.log(chalk.dim(`\n  To: ${recipient}`));
         console.log(chalk.dim(`  Message ID: ${info.messageId}`));
 
-        log.info('Test email sent', { to: options.to, messageId: info.messageId });
+        log.info('Test email sent', { to: recipient, messageId: info.messageId });
 
       } catch (error: any) {
         spinner.fail(chalk.red('Failed to send test email'));
@@ -260,7 +295,7 @@ export function registerNotificationCommand(program: Command): void {
       }
     });
 
-  // Email Show
+  // Email Show - ✅ Updated to show recipient
   emailCmd
     .command('show')
     .description('Show current email configuration')
@@ -271,7 +306,7 @@ export function registerNotificationCommand(program: Command): void {
         if (!config) {
           console.log(chalk.yellow('\n📭 No email configuration found'));
           console.log(chalk.dim('\nConfigure email with:'));
-          console.log(chalk.dim('  db-backup notification email configure --smtp-host ...'));
+          console.log(chalk.dim('  db-backup notification email configure --smtp-host ... --to recipient@example.com'));
           return;
         }
 
@@ -282,8 +317,16 @@ export function registerNotificationCommand(program: Command): void {
         console.log(`${chalk.bold('Username:')} ${config.smtpUser}`);
         console.log(`${chalk.bold('Password:')} ${maskString(config.smtpPassword)}`);
         console.log(`${chalk.bold('Sender:')} ${config.from}`);
+        console.log(`${chalk.bold('Recipient:')} ${config.to || chalk.yellow('Not configured')}`); // ✅ NEW: Show recipient
         console.log(`${chalk.bold('Status:')} ${chalk.green('Configured')}`);
         console.log(chalk.dim('─'.repeat(50)));
+
+        // ✅ Show warning if recipient is missing
+        if (!config.to) {
+          console.log(chalk.yellow('\n⚠️  No default recipient configured.'));
+          console.log(chalk.dim('   Update with:'));
+          console.log(chalk.dim('   db-backup notification email configure --smtp-host ... --to recipient@example.com'));
+        }
 
       } catch (error: any) {
         console.error(chalk.red('\n✗ Failed to load email configuration:'), error.message);
@@ -308,6 +351,7 @@ export function registerNotificationCommand(program: Command): void {
         console.log(chalk.yellow('\n⚠️  This will remove your email configuration:'));
         console.log(chalk.dim(`  SMTP Host: ${config.smtpHost}`));
         console.log(chalk.dim(`  Sender: ${config.from}`));
+        console.log(chalk.dim(`  Recipient: ${config.to || 'Not configured'}`));
 
         const readline = require('readline');
         const rl = readline.createInterface({
@@ -338,7 +382,7 @@ export function registerNotificationCommand(program: Command): void {
       }
     });
 
-  // SLACK SUBCOMMANDS
+  // ==================== SLACK SUBCOMMANDS ====================
 
   const slackCmd = notificationCmd
     .command('slack')
@@ -359,12 +403,10 @@ export function registerNotificationCommand(program: Command): void {
 
         spinner.text = 'Testing Slack webhook...';
 
-        // Send test message
         await axios.post(config.webhook, {
           text: '🔔 DB Backup CLI notification configured successfully.'
         });
 
-        // Save configuration
         await saveSlackConfig(config);
 
         spinner.succeed(chalk.green('Slack configured successfully!'));

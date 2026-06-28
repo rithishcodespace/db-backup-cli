@@ -179,6 +179,7 @@ model NotificationConfig {
   smtpUser    String?
   smtpPassword String?
   from        String?
+  to          String?
   
   // Slack specific
   webhook     String?
