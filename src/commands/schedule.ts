@@ -10,6 +10,138 @@ const log = createModuleLogger('schedule-command');
 
 const SCHEDULER_URL = process.env.SCHEDULER_URL || 'http://localhost:3020';
 
+// ==================== Types ====================
+
+type NotificationProvider = 'email' | 'slack';
+
+interface NotificationProviderConfig {
+  type: NotificationProvider;
+  details: Record<string, any>;
+}
+
+interface NotificationPayload {
+  providers: NotificationProviderConfig[];
+}
+
+// ==================== Helper Functions ====================
+
+function parseNotificationProviders(input: string): NotificationProvider[] {
+  if (!input || input.trim() === '') {
+    return [];
+  }
+
+  const providers = input
+    .split(',')
+    .map(p => p.trim().toLowerCase())
+    .filter(p => p.length > 0);
+
+  // Remove duplicates
+  const uniqueProviders = [...new Set(providers)] as NotificationProvider[];
+
+  const validProviders: NotificationProvider[] = ['email', 'slack'];
+  const invalidProviders = uniqueProviders.filter(p => !validProviders.includes(p as NotificationProvider));
+
+  if (invalidProviders.length > 0) {
+    console.error(chalk.red(`\n❌ Invalid notification provider(s): ${invalidProviders.join(', ')}\n`));
+    console.error(chalk.yellow('Supported providers:'));
+    console.error(chalk.dim('  • email'));
+    console.error(chalk.dim('  • slack'));
+    process.exit(1);
+  }
+
+  return uniqueProviders as NotificationProvider[];
+}
+
+function formatProviderName(provider: NotificationProvider): string {
+  const names: Record<NotificationProvider, string> = {
+    email: 'Email',
+    slack: 'Slack'
+  };
+  return names[provider] || provider;
+}
+
+async function validateAndGetNotificationConfigs(
+  providers: NotificationProvider[]
+): Promise<NotificationProviderConfig[]> {
+  const configs: NotificationProviderConfig[] = [];
+
+  for (const provider of providers) {
+    switch (provider) {
+      case 'email': {
+        const config = await prisma.notificationConfig.findUnique({
+          where: { type: 'email', enabled: true }
+        });
+
+        if (!config) {
+          console.error(chalk.red(`\n❌ Email notification is not configured.\n`));
+          console.error(chalk.yellow('Configure it with:'));
+          console.error(chalk.dim('  db-backup notification email configure \\'));
+          console.error(chalk.dim('    --smtp-host smtp.gmail.com \\'));
+          console.error(chalk.dim('    --smtp-port 587 \\'));
+          console.error(chalk.dim('    --smtp-user your-email@gmail.com \\'));
+          console.error(chalk.dim('    --smtp-password APP_PASSWORD \\'));
+          console.error(chalk.dim('    --from your-email@gmail.com'));
+          process.exit(1);
+        }
+
+        configs.push({
+          type: 'email',
+          details: {
+            smtpHost: config.smtpHost,
+            smtpPort: config.smtpPort,
+            smtpUser: config.smtpUser,
+            smtpPassword: config.smtpPassword,
+            from: config.from
+          }
+        });
+        break;
+      }
+
+      case 'slack': {
+        const config = await prisma.notificationConfig.findUnique({
+          where: { type: 'slack', enabled: true }
+        });
+
+        if (!config) {
+          console.error(chalk.red(`\n❌ Slack notification is not configured.\n`));
+          console.error(chalk.yellow('Configure it with:'));
+          console.error(chalk.dim('  db-backup notification slack configure \\'));
+          console.error(chalk.dim('    --webhook https://hooks.slack.com/services/...'));
+          process.exit(1);
+        }
+
+        configs.push({
+          type: 'slack',
+          details: {
+            webhookUrl: config.webhook
+          }
+        });
+        break;
+      }
+    }
+  }
+
+  return configs;
+}
+
+function formatNotificationDisplay(providers: NotificationProvider[]): string {
+  if (!providers || providers.length === 0) {
+    return 'Disabled';
+  }
+
+  const formatted = providers.map(p => formatProviderName(p));
+  return formatted.join(', ');
+}
+
+function getNotificationEmoji(providers: NotificationProvider[]): string {
+  if (!providers || providers.length === 0) {
+    return '❌';
+  }
+  return '✅';
+}
+
+// ==================== Main Command Registration ====================
+
 export function registerScheduleCommand(program: Command): void {
   program
     .command('schedule')
@@ -19,7 +151,7 @@ export function registerScheduleCommand(program: Command): void {
     .option('-n, --name <name>', 'Schedule name')
     .option('--storage <type>', 'Storage type (local, s3)', 'local')
     .option('--retention <days>', 'Retention period in days', '30')
-    .option('--notify', 'Enable notifications for this schedule', true)
+    .option('--notify <providers>', 'Comma-separated list of notification providers (email, slack)')
     .action(async (options) => {
       const spinner = ora('Creating backup schedule...').start();
       
@@ -43,46 +175,29 @@ export function registerScheduleCommand(program: Command): void {
           process.exit(1);
         }
         
-        // Get notification configuration from stored settings
-        let notificationConfig = null;
-        
+        // ============================================================
+        // Parse notification providers
+        // ============================================================
+        let notificationProviders: NotificationProvider[] = [];
+        let notificationConfigs: NotificationProviderConfig[] = [];
+        let notificationPayload: NotificationPayload | null = null;
+
         if (options.notify) {
-          // Check for Slack configuration
-          const slackConfig = await prisma.notificationConfig.findUnique({
-            where: { type: 'slack', enabled: true }
-          });
+          // Parse providers from comma-separated list
+          notificationProviders = parseNotificationProviders(options.notify);
           
-          // Check for Email configuration
-          const emailConfig = await prisma.notificationConfig.findUnique({
-            where: { type: 'email', enabled: true }
-          });
-          
-          // Prefer Slack if configured, otherwise Email
-          if (slackConfig) {
-            notificationConfig = {
-              type: 'slack',
-              details: {
-                webhookUrl: slackConfig.webhook
-              }
+          if (notificationProviders.length > 0) {
+            // Validate each provider has a configuration
+            notificationConfigs = await validateAndGetNotificationConfigs(notificationProviders);
+            
+            // Build notification payload
+            notificationPayload = {
+              providers: notificationConfigs
             };
-            console.log(chalk.dim('\n📢 Notifications will be sent via Slack'));
-          } else if (emailConfig) {
-            notificationConfig = {
-              type: 'email',
-              details: {
-                to: emailConfig.from || process.env.SMTP_TO,
-                from: emailConfig.from || process.env.SMTP_FROM
-              }
-            };
-            console.log(chalk.dim('\n📧 Notifications will be sent via Email'));
-          } else {
-            console.log(chalk.yellow('\n⚠️  No notification configuration found.'));
-            console.log(chalk.dim('   Configure notifications with:'));
-            console.log(chalk.dim('   db-backup notification email configure ...'));
-            console.log(chalk.dim('   db-backup notification slack configure ...'));
           }
         }
         
+        // Build schedule configuration
         const scheduleConfig = {
           schedule: options.cron,
           dbConfig,
@@ -94,7 +209,7 @@ export function registerScheduleCommand(program: Command): void {
             retention: parseInt(options.retention)
           },
           storageType: options.storage,
-          notification: notificationConfig,
+          notification: notificationPayload,
           retention: parseInt(options.retention)
         };
         
@@ -114,13 +229,20 @@ export function registerScheduleCommand(program: Command): void {
           console.log(chalk.dim(`  Retention: ${options.retention} days`));
           console.log(chalk.dim(`  Next Run: ${response.data.nextRun || 'Calculating...'}`));
           
-          if (notificationConfig) {
-            console.log(chalk.dim(`  Notifications: ${notificationConfig.type}`));
+          // Display notifications
+          if (notificationProviders.length > 0) {
+            console.log(chalk.dim('\n  Notifications:'));
+            notificationProviders.forEach(p => {
+              console.log(chalk.dim(`    • ${formatProviderName(p)}`));
+            });
           } else {
             console.log(chalk.dim(`  Notifications: Disabled`));
           }
           
-          log.info('Schedule created', { scheduleId: response.data.scheduleId });
+          log.info('Schedule created', { 
+            scheduleId: response.data.scheduleId,
+            notifications: notificationProviders 
+          });
         } else {
           spinner.fail(chalk.red('Failed to create schedule'));
           console.error(chalk.red(`\n✗ Error: ${response.data.error}`));
@@ -145,6 +267,8 @@ export function registerScheduleCommand(program: Command): void {
     });
 }
 
+// ==================== Schedule List Command ====================
+
 export function registerScheduleListCommand(program: Command): void {
   program
     .command('schedule:list')
@@ -164,7 +288,33 @@ export function registerScheduleListCommand(program: Command): void {
         response.data.schedules.forEach((schedule: any, index: number) => {
           const statusColor = schedule.enabled ? chalk.green : chalk.red;
           const statusText = schedule.enabled ? 'Active' : 'Disabled';
-          const notificationStatus = schedule.slackWebhook || schedule.emailRecipients ? '✅' : '❌';
+          
+          // Parse notification providers from metadata
+          let notificationProviders: string[] = [];
+          let notificationDisplay = 'Disabled';
+          let notificationEmoji = '❌';
+          
+          try {
+            if (schedule.metadata) {
+              const metadata = typeof schedule.metadata === 'string' 
+                ? JSON.parse(schedule.metadata) 
+                : schedule.metadata;
+              
+              if (metadata?.notification?.providers) {
+                notificationProviders = metadata.notification.providers.map((p: any) => p.type);
+                notificationDisplay = notificationProviders.map((p: string) => 
+                  p.charAt(0).toUpperCase() + p.slice(1)
+                ).join(', ');
+                notificationEmoji = '✅';
+              }
+            }
+          } catch (e) {
+            // Fallback to legacy notification detection
+            if (schedule.slackWebhook || schedule.emailRecipients) {
+              notificationDisplay = 'Legacy (Email/Slack)';
+              notificationEmoji = '✅';
+            }
+          }
           
           console.log(`${chalk.bold.white(`${index + 1}.`)} ${chalk.bold(schedule.name)}`);
           console.log(`   ${chalk.dim('Status:')} ${statusColor(statusText)}`);
@@ -172,7 +322,7 @@ export function registerScheduleListCommand(program: Command): void {
           console.log(`   ${chalk.dim('Type:')} ${schedule.backupType}`);
           console.log(`   ${chalk.dim('Database:')} ${schedule.dbType}/${schedule.dbName}`);
           console.log(`   ${chalk.dim('Storage:')} ${schedule.storageType}`);
-          console.log(`   ${chalk.dim('Notifications:')} ${notificationStatus}`);
+          console.log(`   ${chalk.dim('Notifications:')} ${notificationEmoji} ${notificationDisplay}`);
           
           if (schedule.lastRunAt) {
             const lastRun = new Date(schedule.lastRunAt).toLocaleString();
