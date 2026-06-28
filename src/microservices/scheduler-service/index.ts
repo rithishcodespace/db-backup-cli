@@ -423,11 +423,12 @@ ${errorMessage ? `Error: ${errorMessage}` : ''}`,
       if (provider.type === 'email') {
         // For email, prepare SMTP config
         notifyConfig = {
-          smtpHost: process.env.SMTP_HOST || 'smtp.gmail.com',
-          smtpPort: parseInt(process.env.SMTP_PORT || '587'),
-          username: provider.details.smtpUser || process.env.SMTP_USER,
-          password: provider.details.smtpPassword || process.env.SMTP_PASS,
-          from: provider.details.from || process.env.SMTP_FROM || 'backup@system.local',
+          smtpHost: provider.details.smtpHost || process.env.SMTP_HOST || 'smtp.gmail.com',
+          smtpPort: provider.details.smtpPort || parseInt(process.env.SMTP_PORT || '587'),
+          smtpSecure: provider.details.smtpSecure || process.env.SMTP_SECURE === 'true',
+          smtpUser: provider.details.smtpUser || process.env.SMTP_USER,
+          smtpPassword: provider.details.smtpPassword || process.env.SMTP_PASS,
+          from: provider.details.from || process.env.SMTP_FROM,
           to: provider.details.to || process.env.SMTP_TO
         };
       } else if (provider.type === 'slack') {
