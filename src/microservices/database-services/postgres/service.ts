@@ -10,6 +10,7 @@ import { config as appConfig } from '../../../config';
 import { S3StorageProvider } from '../../storage-service/providers/s3';
 import { LocalStorageProvider } from '../../storage-service/providers/local';
 import { createHash } from 'crypto';
+import { prisma } from '../../../lib/prisma';
 
 const execAsync = promisify(exec);
 const log = createModuleLogger('postgres-backup-service');
@@ -130,7 +131,7 @@ async function performBackup(
             dbName: dbConfig.database,
             backupType: backupType,
             size: fileSize,
-            checksum: checksum, // Store checksum
+            checksum: checksum,
             createdAt: new Date(),
             compression: options.compress ? 'gzip' : 'none'
         };
@@ -200,9 +201,31 @@ async function performBackup(
             };
         }
         
+        // ✅ Step 4: Save backup record to database with checksum
+        await prisma.backupJob.update({
+            where: { id: backupId },
+            data: {
+                status: 'success',
+                filePath: finalPath,
+                fileName: backupFileName,
+                fileSize: fileSize,
+                checksum: checksum, // ✅ Persist checksum to database
+                completedAt: new Date(),
+                duration: (Date.now() - startTime) / 1000,
+                storageType: storageType,
+                metadata: metadata
+            }
+        });
+        
         const duration = (Date.now() - startTime) / 1000;
         
-        log.info('Backup completed', { backupId, size: fileSize, duration, storageType, checksum: checksum.substring(0, 16) + '...' });
+        log.info('Backup completed', { 
+            backupId, 
+            size: fileSize, 
+            duration, 
+            storageType,
+            checksum: checksum.substring(0, 16) + '...'
+        });
         
         return {
             success: true,
@@ -214,11 +237,23 @@ async function performBackup(
         };
         
     } catch (error) {
+        // ✅ Step 5: Mark backup as failed in database
         log.error('Backup failed', { backupId, error });
+        
+        await prisma.backupJob.update({
+            where: { id: backupId },
+            data: {
+                status: 'failed',
+                error: error instanceof Error ? error.message : String(error),
+                completedAt: new Date(),
+                duration: (Date.now() - startTime) / 1000
+            }
+        });
+        
         throw new Error(`Backup failed: ${error instanceof Error ? error.message : String(error)}`);
         
     } finally {
-        // Step 4: Cleanup temp file (always runs)
+        // Step 6: Cleanup temp file (always runs)
         if (localBackupPath && existsSync(localBackupPath)) {
             try {
                 unlinkSync(localBackupPath);
