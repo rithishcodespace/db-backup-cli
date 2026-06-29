@@ -11,6 +11,7 @@ import { promisify } from 'util';
 import path from 'path';
 import os from 'os';
 import { S3Client, GetObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
+import { createHash } from 'crypto';
 
 const streamPipeline = promisify(pipeline);
 const log = createModuleLogger('restore-command');
@@ -29,6 +30,19 @@ interface StorageLocation {
     config: any;
 }
 
+// ==================== Helper: Calculate Checksum ====================
+
+async function calculateChecksum(filePath: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const hash = createHash('sha256');
+        const stream = createReadStream(filePath);
+        
+        stream.on('data', (data) => hash.update(data));
+        stream.on('end', () => resolve(hash.digest('hex')));
+        stream.on('error', (error) => reject(error));
+    });
+}
+
 // ==================== S3 Helper Functions ====================
 
 function isS3Path(filePath: string): boolean {
@@ -36,10 +50,7 @@ function isS3Path(filePath: string): boolean {
 }
 
 function parseS3Uri(uri: string): { bucket: string; key: string } {
-    // Remove s3:// prefix
     const withoutProtocol = uri.replace(/^s3:\/\//, '');
-    
-    // Split by first slash to separate bucket and key
     const firstSlashIndex = withoutProtocol.indexOf('/');
     
     if (firstSlashIndex === -1) {
@@ -48,14 +59,11 @@ function parseS3Uri(uri: string): { bucket: string; key: string } {
     
     const bucket = withoutProtocol.substring(0, firstSlashIndex);
     let key = withoutProtocol.substring(firstSlashIndex + 1);
-    
-    // Normalize key: remove duplicate slashes and trim leading/trailing slashes
     key = key.replace(/\/+/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
     
     if (!bucket) {
         throw new Error(`Invalid S3 URI: ${uri}. Bucket name is missing.`);
     }
-    
     if (!key) {
         throw new Error(`Invalid S3 URI: ${uri}. Key is missing.`);
     }
@@ -69,27 +77,24 @@ async function downloadS3Backup(
 ): Promise<string> {
     const { bucket, key } = parseS3Uri(s3Uri);
     
-    // PATCH 5: Validate StorageLocation before downloading
     if (!storage.region) {
-        throw new Error(`Storage location "${storage.name}" has no region configured. Please update the storage configuration.`);
+        throw new Error(`Storage location "${storage.name}" has no region configured.`);
     }
     if (!storage.bucket) {
-        throw new Error(`Storage location "${storage.name}" has no bucket configured. Please update the storage configuration.`);
+        throw new Error(`Storage location "${storage.name}" has no bucket configured.`);
     }
     if (!storage.accessKey) {
-        throw new Error(`Storage location "${storage.name}" has no access key configured. Please update the storage configuration.`);
+        throw new Error(`Storage location "${storage.name}" has no access key configured.`);
     }
     if (!storage.secretKey) {
-        throw new Error(`Storage location "${storage.name}" has no secret key configured. Please update the storage configuration.`);
+        throw new Error(`Storage location "${storage.name}" has no secret key configured.`);
     }
     
-    // Create temp directory
     const tempDir = path.join(os.tmpdir(), 'db-backup');
     if (!existsSync(tempDir)) {
         mkdirSync(tempDir, { recursive: true });
     }
     
-    // Generate temp file path
     const fileName = path.basename(key);
     const tempFilePath = path.join(tempDir, fileName);
     
@@ -99,7 +104,6 @@ async function downloadS3Backup(
     console.log(chalk.dim(`   Region: ${storage.region}`));
     console.log(chalk.dim(`   Storage: ${storage.name}`));
     
-    // Initialize S3 client with storage credentials (PATCH 4: No process.env)
     let s3Client = new S3Client({
         region: storage.region,
         credentials: {
@@ -108,7 +112,6 @@ async function downloadS3Backup(
         },
     });
     
-    // PATCH 1: Validate bucket with HeadBucketCommand and region retry
     let headBucketError: any = null;
     let correctRegion: string | null = null;
     
@@ -116,7 +119,6 @@ async function downloadS3Backup(
         const headCommand = new HeadBucketCommand({ Bucket: bucket });
         await s3Client.send(headCommand);
     } catch (error: any) {
-        // PATCH 1 & 3: Detect region mismatch and get correct region from AWS
         if (error.name === 'InvalidRegion' || 
             error.message?.includes('InvalidRegion') ||
             error.message?.includes('permanent redirect')) {
@@ -124,7 +126,6 @@ async function downloadS3Backup(
             console.log(chalk.dim(`\n🔄 Region mismatch detected. Determining correct region...`));
             
             try {
-                // Get bucket location using the current region
                 const locationClient = new S3Client({
                     region: storage.region || 'us-east-1',
                     credentials: {
@@ -138,10 +139,8 @@ async function downloadS3Backup(
                 const locationResponse = await locationClient.send(locationCommand);
                 
                 correctRegion = locationResponse.LocationConstraint || 'us-east-1';
-                
                 console.log(chalk.dim(`   Correct region: ${correctRegion}`));
                 
-                // Retry HeadBucket with correct region
                 const retryClient = new S3Client({
                     region: correctRegion,
                     credentials: {
@@ -153,17 +152,13 @@ async function downloadS3Backup(
                 const retryHeadCommand = new HeadBucketCommand({ Bucket: bucket });
                 await retryClient.send(retryHeadCommand);
                 
-                // PATCH 2: Update StorageLocation with correct region
                 await prisma.storageLocation.update({
                     where: { id: storage.id },
                     data: { region: correctRegion }
                 });
                 
                 console.log(chalk.dim(`✅ Updated storage region to: ${correctRegion}`));
-                
-                // Update the client for subsequent operations
                 s3Client = retryClient;
-                
             } catch (retryError: any) {
                 headBucketError = retryError;
             }
@@ -172,12 +167,10 @@ async function downloadS3Backup(
         }
     }
     
-    // PATCH 3: Handle HeadBucket errors with user-friendly messages
     if (headBucketError) {
         const error = headBucketError;
-        
         if (error.name === 'NotFound' || error.name === 'NoSuchBucket') {
-            throw new Error(`Bucket "${bucket}" does not exist. Please verify the bucket name.`);
+            throw new Error(`Bucket "${bucket}" does not exist.`);
         }
         if (error.name === 'AccessDenied') {
             throw new Error(`Invalid AWS credentials or insufficient permissions for bucket "${bucket}".`);
@@ -191,13 +184,9 @@ async function downloadS3Backup(
         if (error.name === 'NetworkingError' || error.name === 'TimeoutError') {
             throw new Error(`Unable to connect to AWS S3. Please check your network connection.`);
         }
-        if (error.message?.includes('InvalidRegion') || error.message?.includes('permanent redirect')) {
-            throw new Error(`Invalid region "${storage.region}" for bucket "${bucket}". Please update the storage configuration.`);
-        }
         throw new Error(`Failed to access bucket "${bucket}": ${error.message}`);
     }
     
-    // Download the object
     const command = new GetObjectCommand({
         Bucket: bucket,
         Key: key,
@@ -205,7 +194,6 @@ async function downloadS3Backup(
     
     try {
         const response = await s3Client.send(command);
-        
         if (!response.Body) {
             throw new Error('No data received from S3');
         }
@@ -218,21 +206,11 @@ async function downloadS3Backup(
         
         return tempFilePath;
     } catch (error: any) {
-        // PATCH 3: Handle GetObject errors with user-friendly messages
         if (error.name === 'NoSuchKey') {
-            throw new Error(`Backup object not found in S3: s3://${bucket}/${key}. The backup file may have been deleted.`);
+            throw new Error(`Backup object not found in S3: s3://${bucket}/${key}.`);
         }
         if (error.name === 'AccessDenied') {
             throw new Error(`Invalid AWS credentials or insufficient permissions for object s3://${bucket}/${key}.`);
-        }
-        if (error.name === 'InvalidAccessKeyId') {
-            throw new Error(`Invalid Access Key configured for storage "${storage.name}".`);
-        }
-        if (error.name === 'SignatureDoesNotMatch') {
-            throw new Error(`Invalid Secret Key configured for storage "${storage.name}".`);
-        }
-        if (error.name === 'NetworkingError' || error.name === 'TimeoutError') {
-            throw new Error(`Unable to connect to AWS S3. Please check your network connection.`);
         }
         throw new Error(`Failed to download from S3: ${error.message}`);
     }
@@ -261,6 +239,7 @@ export function registerRestoreCommand(program: Command): void {
         .option('--drop-existing', 'Drop existing tables before restore', false)
         .option('--dry-run', 'Perform a dry run without actual restore', false)
         .option('--force', 'Force restore (drop existing tables)', false)
+        .option('--skip-checksum', 'Skip checksum verification (use with caution)', false)
         .action(async (options) => {
             const spinner = ora('Preparing restore...').start();
             let tempDownloadedFile: string | null = null;
@@ -278,7 +257,6 @@ export function registerRestoreCommand(program: Command): void {
                 let storageLocation: StorageLocation | null = null;
                 
                 if (options.id) {
-                    // Load backup record with storage location relation
                     backupRecord = await prisma.backupJob.findUnique({
                         where: { id: options.id },
                         include: {
@@ -298,8 +276,6 @@ export function registerRestoreCommand(program: Command): void {
                     }
                     
                     backupFile = backupRecord.filePath;
-                    
-                    // Store storage location reference
                     storageLocation = backupRecord.storageLocation as StorageLocation | null;
                     
                     spinner.stop();
@@ -309,6 +285,9 @@ export function registerRestoreCommand(program: Command): void {
                     console.log(chalk.dim(`   Database: ${backupRecord.dbType}/${backupRecord.dbName}`));
                     console.log(chalk.dim(`   Size: ${backupRecord.fileSize ? (backupRecord.fileSize / 1024 / 1024).toFixed(2) : 'N/A'} MB`));
                     console.log(chalk.dim(`   Created: ${new Date(backupRecord.startedAt).toLocaleString()}`));
+                    if (backupRecord.checksum) {
+                        console.log(chalk.dim(`   Checksum: ${backupRecord.checksum.substring(0, 16)}...`));
+                    }
                     if (storageLocation) {
                         console.log(chalk.dim(`   Storage: ${storageLocation.name} (${storageLocation.type})`));
                     }
@@ -328,25 +307,15 @@ export function registerRestoreCommand(program: Command): void {
                 let restoreFile = backupFile;
                 
                 if (isS3Path(backupFile)) {
-                    // S3 backup - download first
                     spinner.text = 'Downloading backup from S3...';
                     log.info('Downloading from S3', { s3Path: backupFile });
                     
                     try {
-                        // PATCH 9: Check if storageLocation exists
                         if (!storageLocation) {
-                            throw new Error(
-                                'Storage location not found for this backup. ' +
-                                'The backup was created without a storage location reference. ' +
-                                'Please ensure the backup has a valid storage location association.'
-                            );
+                            throw new Error('Storage location not found for this backup.');
                         }
-                        
                         if (storageLocation.type !== 's3') {
-                            throw new Error(
-                                `Storage location "${storageLocation.name}" is type "${storageLocation.type}", ` +
-                                'but the backup path indicates S3. Please check your configuration.'
-                            );
+                            throw new Error(`Storage location "${storageLocation.name}" is type "${storageLocation.type}", but the backup path indicates S3.`);
                         }
                         
                         tempDownloadedFile = await downloadS3Backup(backupFile, storageLocation);
@@ -355,18 +324,55 @@ export function registerRestoreCommand(program: Command): void {
                     } catch (error: any) {
                         spinner.fail(chalk.red('Failed to download backup from S3'));
                         console.error(chalk.red(`\n✗ Error: ${error.message}`));
-                        // PATCH 7: Cleanup on error
                         if (tempDownloadedFile) {
                             cleanupTempFile(tempDownloadedFile);
                         }
                         process.exit(1);
                     }
                 } else {
-                    // Local backup - verify file exists
                     if (!existsSync(backupFile)) {
                         spinner.fail(`Backup file not found: ${backupFile}`);
                         process.exit(1);
                     }
+                }
+                
+                // ============================================================
+                // STEP 2: Verify checksum
+                // ============================================================
+                if (!options.skipChecksum && backupRecord?.checksum) {
+                    spinner.text = 'Verifying backup integrity...';
+                    log.info('Verifying checksum', { backupId: backupRecord.id });
+                    
+                    try {
+                        const calculatedChecksum = await calculateChecksum(restoreFile);
+                        
+                        if (calculatedChecksum !== backupRecord.checksum) {
+                            spinner.fail(chalk.red('Backup integrity verification failed!'));
+                            console.error(chalk.red('\n✗ The backup file is corrupted or has been modified.'));
+                            console.log(chalk.dim(`\n  Expected: ${backupRecord.checksum}`));
+                            console.log(chalk.dim(`  Actual:   ${calculatedChecksum}`));
+                            console.log(chalk.yellow('\n💡 To bypass this check (use with caution):'));
+                            console.log(chalk.dim('  db-backup restore --id <backup-id> --skip-checksum'));
+                            if (tempDownloadedFile) {
+                                cleanupTempFile(tempDownloadedFile);
+                            }
+                            process.exit(1);
+                        }
+                        
+                        console.log(chalk.green(`\n✅ Backup integrity verified`));
+                        log.info('Checksum verification passed', { backupId: backupRecord.id });
+                    } catch (error: any) {
+                        spinner.fail(chalk.red('Failed to verify backup integrity'));
+                        console.error(chalk.red(`\n✗ Error: ${error.message}`));
+                        if (tempDownloadedFile) {
+                            cleanupTempFile(tempDownloadedFile);
+                        }
+                        process.exit(1);
+                    }
+                } else if (backupRecord?.checksum) {
+                    console.log(chalk.yellow('\n⚠️  Skipping checksum verification (--skip-checksum used)'));
+                } else if (!backupRecord?.checksum) {
+                    console.log(chalk.yellow('\n⚠️  No checksum found in backup record. Skipping verification.'));
                 }
                 
                 // If drop-existing is set, warn user
@@ -388,7 +394,6 @@ export function registerRestoreCommand(program: Command): void {
                     
                     if (typeof answer === 'string' && answer.toLowerCase() !== 'y') {
                         console.log(chalk.yellow('\nRestore cancelled'));
-                        // PATCH 7: Cleanup on cancellation
                         if (tempDownloadedFile) {
                             cleanupTempFile(tempDownloadedFile);
                         }
@@ -405,7 +410,6 @@ export function registerRestoreCommand(program: Command): void {
                         console.log(chalk.dim(`  Tables: ${options.tables}`));
                     }
                     console.log(chalk.dim(`  Drop existing: ${options.dropExisting ? 'Yes' : 'No'}`));
-                    // PATCH 7: Cleanup on dry run
                     if (tempDownloadedFile) {
                         cleanupTempFile(tempDownloadedFile);
                     }
@@ -416,7 +420,6 @@ export function registerRestoreCommand(program: Command): void {
                 log.info('Starting restore', { backupFile, dbType: dbConfig.type });
                 
                 let result;
-                
                 switch (dbConfig.type) {
                     case 'postgresql':
                     case 'postgres':
@@ -427,14 +430,12 @@ export function registerRestoreCommand(program: Command): void {
                         break;
                     default:
                         spinner.fail(`Restore not yet implemented for ${dbConfig.type}`);
-                        // PATCH 7: Cleanup on error
                         if (tempDownloadedFile) {
                             cleanupTempFile(tempDownloadedFile);
                         }
                         process.exit(1);
                 }
                 
-                // PATCH 7: Cleanup temporary downloaded file (always runs)
                 if (tempDownloadedFile) {
                     cleanupTempFile(tempDownloadedFile);
                 }
@@ -444,26 +445,18 @@ export function registerRestoreCommand(program: Command): void {
                     console.log(chalk.green('\n✓ Database restored'));
                     console.log(chalk.dim(`  From: ${backupFile}`));
                     console.log(chalk.dim(`  Duration: ${result.duration?.toFixed(2)}s`));
-                    
                     log.info('Restore completed', { backupFile, duration: result.duration });
                 } else {
                     spinner.fail(chalk.red('Restore failed'));
                     console.error(chalk.red(`\n✗ ${result.error}`));
-                    
-                    // Show helpful tips based on error
                     if (result.error?.includes('already exists')) {
                         console.log(chalk.yellow('\n💡 Tip: Use --drop-existing to drop existing tables before restore'));
-                        console.log(chalk.dim('   db-backup restore --id <backup-id> --drop-existing'));
-                    }
-                    if (result.error?.includes('duplicate key')) {
-                        console.log(chalk.yellow('\n💡 Tip: Use --drop-existing to clean the database before restore'));
                         console.log(chalk.dim('   db-backup restore --id <backup-id> --drop-existing'));
                     }
                     process.exit(1);
                 }
                 
             } catch (error: any) {
-                // PATCH 7: Cleanup temporary downloaded file on error
                 if (tempDownloadedFile) {
                     cleanupTempFile(tempDownloadedFile);
                 }
@@ -490,7 +483,6 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
         let restoreFile = backupFile;
         let isGzipped = false;
         
-        // Check if file is gzipped (.gz)
         if (backupFile.endsWith('.gz')) {
             try {
                 const fileBuffer = fs.readFileSync(backupFile, { encoding: null, length: 2 });
@@ -500,15 +492,12 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
                     
                     if (!fs.existsSync(decompressedFile)) {
                         console.log(chalk.dim(`\n🔄 Decompressing backup file...`));
-                        
                         const readStream = createReadStream(backupFile);
                         const gunzipStream = createGunzip();
                         const writeStream = createWriteStream(decompressedFile);
-                        
                         await streamPipeline(readStream, gunzipStream, writeStream);
                         console.log(chalk.dim(`✅ Decompressed to: ${decompressedFile}`));
                     }
-                    
                     restoreFile = decompressedFile;
                 } else {
                     console.log(chalk.dim(`\n📦 Using custom format dump directly (not actually gzipped)`));
@@ -519,7 +508,6 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
             }
         }
         
-        // Build pg_restore command
         let command = `pg_restore -h ${dbConfig.host} -p ${dbConfig.port || 5432} -U ${dbConfig.username} -d ${dbConfig.database}`;
         
         if (options.tables) {
@@ -530,7 +518,6 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
         if (options.dropExisting || options.force) {
             command += ' --clean --if-exists';
         }
-        
         command += ' --verbose';
         command += ` "${restoreFile}"`;
         
@@ -570,7 +557,6 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
                 userFriendlyError = `Restore failed:\n${lastLines}`;
             }
             
-            // PATCH 7: Cleanup decompressed file on error
             if (decompressedFile && fs.existsSync(decompressedFile)) {
                 try {
                     fs.unlinkSync(decompressedFile);
@@ -586,7 +572,6 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
             };
         }
         
-        // PATCH 7: Clean up decompressed file
         if (decompressedFile && fs.existsSync(decompressedFile)) {
             try {
                 fs.unlinkSync(decompressedFile);
@@ -599,7 +584,6 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
         const duration = (Date.now() - startTime) / 1000;
         return { success: true, duration };
     } catch (error: any) {
-        // PATCH 7: Cleanup decompressed file on error
         if (decompressedFile) {
             try {
                 if (fs.existsSync(decompressedFile)) {
@@ -639,15 +623,12 @@ async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Pr
                     
                     if (!fs.existsSync(decompressedFile)) {
                         console.log(chalk.dim(`\n🔄 Decompressing backup file...`));
-                        
                         const readStream = createReadStream(backupFile);
                         const gunzipStream = createGunzip();
                         const writeStream = createWriteStream(decompressedFile);
-                        
                         await streamPipeline(readStream, gunzipStream, writeStream);
                         console.log(chalk.dim(`✅ Decompressed to: ${decompressedFile}`));
                     }
-                    
                     restoreFile = decompressedFile;
                 } else {
                     restoreFile = backupFile;
@@ -658,17 +639,13 @@ async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Pr
         }
         
         let command = `mysql -h ${dbConfig.host} -P ${dbConfig.port || 3306} -u ${dbConfig.username}`;
-        
         if (dbConfig.password) {
             command += ` -p${dbConfig.password}`;
         }
-        
         command += ` ${dbConfig.database}`;
-        
         if (options.dropExisting || options.force) {
             command += ' --force';
         }
-        
         command += ` < "${restoreFile}"`;
         
         console.log(chalk.dim(`\n🔄 Restoring database...`));
@@ -677,7 +654,6 @@ async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Pr
             await execAsync(command, { maxBuffer: 50 * 1024 * 1024 });
         } catch (mysqlError: any) {
             let userFriendlyError = mysqlError.message;
-            
             if (mysqlError.message.includes('Access denied')) {
                 userFriendlyError = 'Access denied. Check your database credentials.';
             } else if (mysqlError.message.includes('Unknown database')) {
@@ -686,7 +662,6 @@ async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Pr
                 userFriendlyError = 'Tables already exist. Use --drop-existing to clean the database first.';
             }
             
-            // PATCH 7: Cleanup decompressed file on error
             if (decompressedFile && fs.existsSync(decompressedFile)) {
                 try {
                     fs.unlinkSync(decompressedFile);
@@ -702,7 +677,6 @@ async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Pr
             };
         }
         
-        // PATCH 7: Clean up decompressed file
         if (decompressedFile && fs.existsSync(decompressedFile)) {
             try {
                 fs.unlinkSync(decompressedFile);
@@ -715,7 +689,6 @@ async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Pr
         const duration = (Date.now() - startTime) / 1000;
         return { success: true, duration };
     } catch (error: any) {
-        // PATCH 7: Cleanup decompressed file on error
         if (decompressedFile) {
             try {
                 if (fs.existsSync(decompressedFile)) {
