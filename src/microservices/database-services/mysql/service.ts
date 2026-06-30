@@ -1,7 +1,9 @@
+// src/microservices/database-services/mysql/service.ts
+
 import express from 'express';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { statSync, existsSync, unlinkSync, mkdirSync, createReadStream } from 'fs';
+import { statSync, existsSync, unlinkSync, mkdirSync, createReadStream, createWriteStream } from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { DatabaseConfig, BackupOptions, BackupResponse } from '../../shared/types';
@@ -9,7 +11,7 @@ import { createModuleLogger } from '../../../logger';
 import { config as appConfig } from '../../../config';
 import { S3StorageProvider } from '../../storage-service/providers/s3';
 import { LocalStorageProvider } from '../../storage-service/providers/local';
-import { createHash } from 'crypto';
+import { createHash, createCipheriv, randomBytes } from 'crypto';
 import { prisma } from '../../../lib/prisma';
 
 const execAsync = promisify(exec);
@@ -22,6 +24,10 @@ const SERVICE_PORT = process.env.MYSQL_SERVICE_PORT || 3011;
 const SERVICE_NAME = 'mysql-backup-service';
 const startTime = Date.now();
 
+// ==================== Encryption Constants ====================
+const ALGORITHM = 'aes-256-gcm';
+const IV_LENGTH = 16;
+
 // ==================== Helper: Calculate Checksum ====================
 async function calculateChecksum(filePath: string): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -31,6 +37,36 @@ async function calculateChecksum(filePath: string): Promise<string> {
         stream.on('data', (data) => hash.update(data));
         stream.on('end', () => resolve(hash.digest('hex')));
         stream.on('error', (error) => reject(error));
+    });
+}
+
+// ==================== Helper: Encrypt File ====================
+async function encryptFile(inputPath: string, outputPath: string, key: string): Promise<{
+    iv: string;
+    tag: string;
+}> {
+    const iv = randomBytes(IV_LENGTH);
+    const keyBuffer = Buffer.from(key, 'hex');
+    const cipher = createCipheriv(ALGORITHM, keyBuffer, iv);
+    
+    const inputStream = createReadStream(inputPath);
+    const outputStream = createWriteStream(outputPath);
+    
+    return new Promise((resolve, reject) => {
+        outputStream.write(iv);
+        inputStream.pipe(cipher).pipe(outputStream);
+        
+        outputStream.on('finish', () => {
+            const tag = cipher.getAuthTag();
+            resolve({
+                iv: iv.toString('base64'),
+                tag: tag.toString('base64')
+            });
+        });
+        
+        inputStream.on('error', reject);
+        cipher.on('error', reject);
+        outputStream.on('error', reject);
     });
 }
 
@@ -68,10 +104,11 @@ async function performBackup(
     backupId: string,
     dbConfig: DatabaseConfig,
     backupType: string,
-    options: BackupOptions
+    options: any
 ): Promise<BackupResponse> {
     const startTime = Date.now();
     let localBackupPath: string | null = null;
+    let encryptedPath: string | null = null;
     
     // Build mysqldump command
     let command = `mysqldump -h ${dbConfig.host} -P ${dbConfig.port || 3306} -u ${dbConfig.username}`;
@@ -84,28 +121,48 @@ async function performBackup(
     }
     
     if (options.excludeTables && options.excludeTables.length > 0) {
-        options.excludeTables.forEach(table => {
+        options.excludeTables.forEach((table: string) => {
             command += ` --ignore-table=${dbConfig.database}.${table}`;
         });
     }
     
     // Generate backup filename
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const backupFileName = `${dbConfig.database}_${timestamp}.${options.compress ? 'gz' : 'sql'}`;
+    const extension = options.compress ? 'gz' : 'sql';
+    let backupFileName = `${dbConfig.database}_${timestamp}.${extension}`;
     
-    // Get storage config from options
     const storageConfig = options.storage || { type: 'local', basePath: './backups' };
-    
-    // Determine local temp path
     const localTempPath = appConfig.get('storage.tempPath') || './tmp';
     localBackupPath = path.join(localTempPath, backupFileName);
     
-    // Ensure temp directory exists
     if (!existsSync(localTempPath)) {
         mkdirSync(localTempPath, { recursive: true });
     }
     
-    // Execute backup to temp location
+    // Handle encryption
+    const isEncrypted = options.encrypt || false;
+    let encryptionKey: string | null = null;
+    let encryptionMetadata: any = null;
+    let finalBackupPath = localBackupPath;
+    let finalFileName = backupFileName;
+    let encryptionType: string | null = null;
+    
+    if (isEncrypted) {
+        encryptionKey = options.encryptionKey || null;
+        if (!encryptionKey) {
+            throw new Error('Encryption enabled but no key provided');
+        }
+        if (encryptionKey.length !== 64) {
+            throw new Error('Encryption key must be 64 hexadecimal characters (32 bytes)');
+        }
+        
+        encryptionType = ALGORITHM;
+        const encryptedFileName = `${dbConfig.database}_${timestamp}_encrypted.enc`;
+        encryptedPath = path.join(localTempPath, encryptedFileName);
+        finalFileName = encryptedFileName;
+        finalBackupPath = encryptedPath;
+    }
+    
     const finalCommand = options.compress 
         ? `${command} | gzip > "${localBackupPath}"`
         : `${command} > "${localBackupPath}"`;
@@ -113,20 +170,33 @@ async function performBackup(
     log.debug('Executing mysqldump', { backupId });
     
     try {
-        // Step 1: Create backup locally
         await execAsync(finalCommand, {
             maxBuffer: 50 * 1024 * 1024,
             env: { ...process.env }
         });
         
-        const stats = statSync(localBackupPath);
-        const fileSize = stats.size;
+        let stats = statSync(localBackupPath);
+        let fileSize = stats.size;
+        let checksum = await calculateChecksum(localBackupPath);
         
-        // Step 2: Calculate checksum
-        const checksum = await calculateChecksum(localBackupPath);
-        log.info('Checksum calculated', { backupId, checksum: checksum.substring(0, 16) + '...' });
+        if (isEncrypted && encryptionKey) {
+            log.info('Encrypting backup', { backupId });
+            
+            const result = await encryptFile(localBackupPath, encryptedPath!, encryptionKey);
+            
+            encryptionMetadata = {
+                iv: result.iv,
+                tag: result.tag,
+                algorithm: ALGORITHM
+            };
+            
+            const encryptedStats = statSync(encryptedPath!);
+            fileSize = encryptedStats.size;
+            checksum = await calculateChecksum(encryptedPath!);
+            
+            log.info('Encryption completed', { backupId });
+        }
         
-        // Step 3: Determine final storage path and upload
         let finalPath: string;
         let storageType: string;
         let metadata: any = {
@@ -137,11 +207,13 @@ async function performBackup(
             size: fileSize,
             checksum: checksum,
             createdAt: new Date(),
-            compression: options.compress ? 'gzip' : 'none'
+            compression: options.compress ? 'gzip' : 'none',
+            encrypted: isEncrypted,
+            encryptionType: isEncrypted ? encryptionType : null,
+            encryptionMetadata: isEncrypted ? encryptionMetadata : null
         };
         
         if (storageConfig.type === 's3') {
-            // Validate S3 config
             if (!storageConfig.bucket) {
                 throw new Error('S3 bucket is required for s3 storage type');
             }
@@ -162,9 +234,9 @@ async function performBackup(
             await s3Provider.initialize();
             
             const prefix = storageConfig.prefix || '';
-            const remotePath = prefix ? `${prefix}/${backupFileName}` : backupFileName;
+            const remotePath = prefix ? `${prefix}/${finalFileName}` : finalFileName;
             
-            const uploadResult = await s3Provider.upload(localBackupPath, remotePath);
+            const uploadResult = await s3Provider.upload(finalBackupPath, remotePath);
             
             finalPath = `s3://${storageConfig.bucket}/${remotePath}`;
             storageType = 's3';
@@ -182,17 +254,14 @@ async function performBackup(
             log.info('Upload to S3 completed', { backupId, remotePath });
             
         } else {
-            // Local storage
             const localPath = storageConfig.basePath || options.outputPath || appConfig.get('storage.localPath');
             if (!existsSync(localPath)) {
                 mkdirSync(localPath, { recursive: true });
             }
             
-            const destPath = path.join(localPath, backupFileName);
-            
-            // Copy file to final destination
+            const destPath = path.join(localPath, finalFileName);
             const fs = require('fs');
-            fs.copyFileSync(localBackupPath, destPath);
+            fs.copyFileSync(finalBackupPath, destPath);
             
             finalPath = destPath;
             storageType = 'local';
@@ -204,18 +273,21 @@ async function performBackup(
             };
         }
         
-        // ✅ Step 4: Save backup record to database with checksum
         await prisma.backupJob.update({
             where: { id: backupId },
             data: {
                 status: 'success',
                 filePath: finalPath,
-                fileName: backupFileName,
+                fileName: finalFileName,
                 fileSize: fileSize,
-                checksum: checksum, // ✅ Persist checksum to database
+                checksum: checksum,
+                encrypted: isEncrypted,
+                encryptionType: isEncrypted ? encryptionType : null,
+                encryptionMetadata: isEncrypted ? encryptionMetadata : null,
                 completedAt: new Date(),
                 duration: (Date.now() - startTime) / 1000,
                 storageType: storageType,
+                compressionType: options.compress ? 'gzip' : 'none',
                 metadata: metadata
             }
         });
@@ -227,7 +299,7 @@ async function performBackup(
             size: fileSize, 
             duration, 
             storageType,
-            checksum: checksum.substring(0, 16) + '...'
+            encrypted: isEncrypted
         });
         
         return {
@@ -236,11 +308,11 @@ async function performBackup(
             filePath: finalPath,
             fileSize: fileSize,
             duration,
-            metadata
+            metadata,
+            fileName: finalFileName
         };
         
     } catch (error) {
-        // ✅ Step 5: Mark backup as failed in database
         log.error('MySQL backup failed', { backupId, error });
         
         await prisma.backupJob.update({
@@ -256,13 +328,18 @@ async function performBackup(
         throw new Error(`MySQL backup failed: ${error instanceof Error ? error.message : String(error)}`);
         
     } finally {
-        // Step 6: Cleanup temp file (always runs)
         if (localBackupPath && existsSync(localBackupPath)) {
             try {
                 unlinkSync(localBackupPath);
-                log.debug('Temporary file cleaned up', { path: localBackupPath });
             } catch (cleanupError) {
                 log.warn('Failed to cleanup temp file', { path: localBackupPath, error: cleanupError });
+            }
+        }
+        if (encryptedPath && existsSync(encryptedPath) && encryptedPath !== localBackupPath) {
+            try {
+                unlinkSync(encryptedPath);
+            } catch (cleanupError) {
+                log.warn('Failed to cleanup temp encrypted file', { path: encryptedPath, error: cleanupError });
             }
         }
     }

@@ -833,7 +833,7 @@ async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Pr
         if (decompressedFile) {
             try {
                 if (fs.existsSync(decompressedFile)) {
-                    fs.unlinkSync(decompressedFile);
+                    fs.unlinkSync(decompressedFile)
                 }
             } catch (e) { /* ignore */ }
         }
