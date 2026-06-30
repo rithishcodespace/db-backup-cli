@@ -1,3 +1,5 @@
+// src/commands/backup.ts
+
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
@@ -23,6 +25,9 @@ export function registerBackupCommand(program: Command): void {
     .option('--async', 'Run backup asynchronously (return immediately)', false)
     .option('--no-compress', 'Disable compression')
     .option('--storage <name>', 'Storage name (from db-backup storage list)')
+    // encryption options
+    .option('--encrypt', 'Enable AES-256-GCM encryption for the backup', false)
+    .option('--key <key>', '32-byte AES-256 encryption key (64 hex characters)')
     .action(async (options) => {
       const spinner = ora('Preparing backup request...').start();
       
@@ -36,16 +41,13 @@ export function registerBackupCommand(program: Command): void {
         
         const tables = options.tables ? options.tables.split(',') : undefined;
         const excludeTables = options.excludeTables ? options.excludeTables.split(',') : undefined;
-        
-        // ============================================================
-        // ✅ Get storage configuration
-        // ============================================================
+
+        // Get storage configurations
         let storageConfig = null;
         let storageName = options.storage || null;
         let storageLocationId: string | null = null;
 
         if (storageName) {
-          // Find storage by name
           const storage = await prisma.storageLocation.findUnique({
             where: { name: storageName }
           });
@@ -68,7 +70,6 @@ export function registerBackupCommand(program: Command): void {
           storageLocationId = storage.id;
           const storageJson = storage.config as any;
 
-          // Build storage config for the service
           if (storage.type === 's3') {
             storageConfig = {
               type: 's3',
@@ -89,7 +90,6 @@ export function registerBackupCommand(program: Command): void {
 
           console.log(chalk.dim(`\n📦 Using storage: ${storage.name} (${storage.type})`));
         } else {
-          // No storage specified - try to use default storage
           const defaultStorage = await prisma.storageLocation.findFirst({
             where: { default: true, enabled: true }
           });
@@ -117,13 +117,36 @@ export function registerBackupCommand(program: Command): void {
             }
             console.log(chalk.dim(`\n📦 Using default storage: ${defaultStorage.name} (${defaultStorage.type})`));
           } else {
-            // Fallback to local storage
             storageConfig = {
               type: 'local',
               name: 'local',
               basePath: options.output || config.get('storage.localPath')
             };
             console.log(chalk.dim(`\n📦 Using local storage (no default configured)`));
+          }
+        }
+        
+        // Handle encryption
+        let encryptionKey: string | null = null;
+        
+        if (options.encrypt) {
+          // If user provided a key, use it
+          if (options.key) {
+            // Validate key length (32 bytes = 64 hex characters)
+            if (options.key.length !== 64) {
+              spinner.fail('Encryption key must be 64 hexadecimal characters (32 bytes)');
+              console.error(chalk.yellow('\n💡 Generate a key with: openssl rand -hex 32'));
+              process.exit(1);
+            }
+            encryptionKey = options.key;
+            console.log(chalk.dim('\n🔑 Using provided encryption key'));
+          } else {
+            // Auto-generate a key if none provided
+            const crypto = require('crypto');
+            encryptionKey = crypto.randomBytes(32).toString('hex');
+            console.log(chalk.yellow('\n🔑 Auto-generated encryption key:'));
+            console.log(chalk.dim(`   ${encryptionKey}`));
+            console.log(chalk.yellow('⚠️  Save this key securely! You\'ll need it for decryption.'));
           }
         }
         
@@ -145,7 +168,10 @@ export function registerBackupCommand(program: Command): void {
             outputPath: options.output || config.get('storage.localPath'),
             backupName: options.name,
             storage: storageConfig,
-            storageLocationId: storageLocationId  // ✅ Pass storage location ID
+            storageLocationId: storageLocationId,
+            // Pass encryption
+            encrypt: options.encrypt,
+            encryptionKey: encryptionKey
           }
         };
         
@@ -153,7 +179,8 @@ export function registerBackupCommand(program: Command): void {
         log.debug('Sending backup request', { 
           dbType: dbConfig.type, 
           storage: storageConfig?.type,
-          storageLocationId 
+          storageLocationId,
+          encrypt: options.encrypt
         });
         
         const response = await axios.post(`${GATEWAY_URL}/api/backup`, backupRequest);
@@ -170,6 +197,10 @@ export function registerBackupCommand(program: Command): void {
             console.log(chalk.dim(`  Storage Name: ${storageConfig.name}`));
           }
           
+          if (options.encrypt) {
+            console.log(chalk.dim(`  Encryption: AES-256-GCM ✅`));
+          }
+          
           if (response.data.fileSize) {
             const sizeMB = (response.data.fileSize / 1024 / 1024).toFixed(2);
             console.log(chalk.dim(`  Size: ${sizeMB} MB`));
@@ -181,6 +212,13 @@ export function registerBackupCommand(program: Command): void {
           
           if (response.data.filePath) {
             console.log(chalk.dim(`  Location: ${response.data.filePath}`));
+          }
+          
+          // Show encryption key warning
+          if (options.encrypt && !options.key) {
+            console.log(chalk.yellow('\n⚠️  Remember to save your encryption key:'));
+            console.log(chalk.dim(`   ${encryptionKey}`));
+            console.log(chalk.dim('   Without this key, you cannot decrypt the backup!'));
           }
           
           log.info('Backup completed via microservices', { backupId: response.data.backupId });

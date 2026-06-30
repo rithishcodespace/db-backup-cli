@@ -141,7 +141,7 @@ async function performBackup(
         mkdirSync(localTempPath, { recursive: true });
     }
     
-    // ✅ Handle encryption
+    // Handle encryption
     const isEncrypted = options.encrypt || false;
     let encryptionKey: string | null = null;
     let encryptionMetadata: any = null;
@@ -186,7 +186,7 @@ async function performBackup(
         let fileSize = stats.size;
         let checksum = await calculateChecksum(localBackupPath);
         
-        // ✅ Step 2: Encrypt if enabled
+        // Step 2: Encrypt if enabled
         if (isEncrypted && encryptionKey) {
             log.info('Encrypting backup', { backupId });
             
@@ -290,7 +290,7 @@ async function performBackup(
             };
         }
         
-        // ✅ Step 5: Save backup record to database
+        // Step 5: Save backup record to database
         await prisma.backupJob.update({
             where: { id: backupId },
             data: {
@@ -332,7 +332,7 @@ async function performBackup(
         };
         
     } catch (error) {
-        // ✅ Step 6: Mark backup as failed in database
+        // Step 6: Mark backup as failed in database
         log.error('Backup failed', { backupId, error });
         
         await prisma.backupJob.update({
