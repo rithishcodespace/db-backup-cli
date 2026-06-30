@@ -1,3 +1,5 @@
+// src/commands/restore.ts
+
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
@@ -11,10 +13,15 @@ import { promisify } from 'util';
 import path from 'path';
 import os from 'os';
 import { S3Client, GetObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
-import { createHash } from 'crypto';
+import { createHash, createDecipheriv } from 'crypto';
 
 const streamPipeline = promisify(pipeline);
 const log = createModuleLogger('restore-command');
+
+// ==================== Encryption Constants ====================
+const ALGORITHM = 'aes-256-gcm';
+const IV_LENGTH = 16;
+const TAG_LENGTH = 16;
 
 // ==================== Types ====================
 
@@ -40,6 +47,29 @@ async function calculateChecksum(filePath: string): Promise<string> {
         stream.on('data', (data) => hash.update(data));
         stream.on('end', () => resolve(hash.digest('hex')));
         stream.on('error', (error) => reject(error));
+    });
+}
+
+// ==================== Helper: Decrypt File ====================
+
+async function decryptFile(inputPath: string, outputPath: string, key: string, ivBase64: string, tagBase64: string): Promise<void> {
+    const keyBuffer = Buffer.from(key, 'hex');
+    const iv = Buffer.from(ivBase64, 'base64');
+    const tag = Buffer.from(tagBase64, 'base64');
+    
+    const decipher = createDecipheriv(ALGORITHM, keyBuffer, iv);
+    decipher.setAuthTag(tag);
+    
+    const inputStream = createReadStream(inputPath);
+    const outputStream = createWriteStream(outputPath);
+    
+    return new Promise((resolve, reject) => {
+        inputStream.pipe(decipher).pipe(outputStream);
+        
+        outputStream.on('finish', () => resolve());
+        inputStream.on('error', reject);
+        decipher.on('error', reject);
+        outputStream.on('error', reject);
     });
 }
 
@@ -240,9 +270,12 @@ export function registerRestoreCommand(program: Command): void {
         .option('--dry-run', 'Perform a dry run without actual restore', false)
         .option('--force', 'Force restore (drop existing tables)', false)
         .option('--skip-checksum', 'Skip checksum verification (use with caution)', false)
+        // Decryption key option
+        .option('--key <key>', 'Decryption key (64 hex characters) for encrypted backups')
         .action(async (options) => {
             const spinner = ora('Preparing restore...').start();
             let tempDownloadedFile: string | null = null;
+            let decryptedFile: string | null = null;
             
             try {
                 const dbConfig = config.get('database');
@@ -255,6 +288,7 @@ export function registerRestoreCommand(program: Command): void {
                 let backupFile = options.file;
                 let backupRecord = null;
                 let storageLocation: StorageLocation | null = null;
+                let decryptionKey: string | null = null;
                 
                 if (options.id) {
                     backupRecord = await prisma.backupJob.findUnique({
@@ -278,6 +312,10 @@ export function registerRestoreCommand(program: Command): void {
                     backupFile = backupRecord.filePath;
                     storageLocation = backupRecord.storageLocation as StorageLocation | null;
                     
+                    // Check if backup is encrypted
+                    const isEncrypted = backupRecord.encrypted || false;
+                    const encryptionMetadata = backupRecord.encryptionMetadata as any;
+                    
                     spinner.stop();
                     console.log(chalk.dim('\n📋 Found backup:'));
                     console.log(chalk.dim(`   ID: ${backupRecord.id}`));
@@ -285,9 +323,30 @@ export function registerRestoreCommand(program: Command): void {
                     console.log(chalk.dim(`   Database: ${backupRecord.dbType}/${backupRecord.dbName}`));
                     console.log(chalk.dim(`   Size: ${backupRecord.fileSize ? (backupRecord.fileSize / 1024 / 1024).toFixed(2) : 'N/A'} MB`));
                     console.log(chalk.dim(`   Created: ${new Date(backupRecord.startedAt).toLocaleString()}`));
+                    
                     if (backupRecord.checksum) {
                         console.log(chalk.dim(`   Checksum: ${backupRecord.checksum.substring(0, 16)}...`));
                     }
+                    
+                    if (isEncrypted) {
+                        console.log(chalk.dim(`   🔐 Encrypted: Yes (${backupRecord.encryptionType || 'AES-256-GCM'})`));
+                        
+                        // Handle decryption key
+                        if (options.key) {
+                            if (options.key.length !== 64) {
+                                spinner.fail('Decryption key must be 64 hexadecimal characters (32 bytes)');
+                                process.exit(1);
+                            }
+                            decryptionKey = options.key;
+                            console.log(chalk.dim(`   🔑 Using provided decryption key`));
+                        } else {
+                            console.log(chalk.yellow(`\n⚠️  This backup is encrypted. Please provide the decryption key:`));
+                            console.log(chalk.dim('   db-backup restore --id <backup-id> --key <64-hex-key>'));
+                            spinner.fail('Encryption key required');
+                            process.exit(1);
+                        }
+                    }
+                    
                     if (storageLocation) {
                         console.log(chalk.dim(`   Storage: ${storageLocation.name} (${storageLocation.type})`));
                     }
@@ -337,9 +396,67 @@ export function registerRestoreCommand(program: Command): void {
                 }
                 
                 // ============================================================
-                // STEP 2: Verify checksum
+                // STEP 2: Decrypt if needed
                 // ============================================================
-                if (!options.skipChecksum && backupRecord?.checksum) {
+                const isEncrypted = backupRecord?.encrypted || false;
+                const encryptionMetadata = backupRecord?.encryptionMetadata as any;
+                let decryptedFilePath: string | null = null;
+                
+                if (isEncrypted && decryptionKey) {
+                    spinner.text = 'Decrypting backup...';
+                    log.info('Decrypting backup', { backupId: backupRecord?.id });
+                    
+                    try {
+                        if (!encryptionMetadata) {
+                            throw new Error('Encryption metadata not found in backup record');
+                        }
+                        
+                        if (!encryptionMetadata.iv || !encryptionMetadata.tag) {
+                            throw new Error('Missing IV or authentication tag in encryption metadata');
+                        }
+                        
+                        // Create decrypted file path
+                        const tempDir = path.join(os.tmpdir(), 'db-backup');
+                        if (!existsSync(tempDir)) {
+                            mkdirSync(tempDir, { recursive: true });
+                        }
+                        
+                        const decryptedFileName = `decrypted_${path.basename(restoreFile)}`;
+                        decryptedFilePath = path.join(tempDir, decryptedFileName);
+                        
+                        // Decrypt the file
+                        await decryptFile(
+                            restoreFile,
+                            decryptedFilePath,
+                            decryptionKey,
+                            encryptionMetadata.iv,
+                            encryptionMetadata.tag
+                        );
+                        
+                        console.log(chalk.green(`\n✅ Backup decrypted successfully`));
+                        
+                        // Update restoreFile to use decrypted file
+                        restoreFile = decryptedFilePath;
+                        decryptedFile = decryptedFilePath;
+                        
+                        log.info('Decryption completed', { backupId: backupRecord?.id });
+                    } catch (error: any) {
+                        spinner.fail(chalk.red('Failed to decrypt backup'));
+                        console.error(chalk.red(`\n✗ Error: ${error.message}`));
+                        if (tempDownloadedFile) {
+                            cleanupTempFile(tempDownloadedFile);
+                        }
+                        if (decryptedFilePath && existsSync(decryptedFilePath)) {
+                            cleanupTempFile(decryptedFilePath);
+                        }
+                        process.exit(1);
+                    }
+                }
+                
+                // ============================================================
+                // STEP 3: Verify checksum (skip for encrypted files)
+                // ============================================================
+                if (!options.skipChecksum && backupRecord?.checksum && !isEncrypted) {
                     spinner.text = 'Verifying backup integrity...';
                     log.info('Verifying checksum', { backupId: backupRecord.id });
                     
@@ -356,6 +473,9 @@ export function registerRestoreCommand(program: Command): void {
                             if (tempDownloadedFile) {
                                 cleanupTempFile(tempDownloadedFile);
                             }
+                            if (decryptedFile && existsSync(decryptedFile)) {
+                                cleanupTempFile(decryptedFile);
+                            }
                             process.exit(1);
                         }
                         
@@ -367,8 +487,13 @@ export function registerRestoreCommand(program: Command): void {
                         if (tempDownloadedFile) {
                             cleanupTempFile(tempDownloadedFile);
                         }
+                        if (decryptedFile && existsSync(decryptedFile)) {
+                            cleanupTempFile(decryptedFile);
+                        }
                         process.exit(1);
                     }
+                } else if (backupRecord?.checksum && isEncrypted) {
+                    console.log(chalk.dim('\n🔐 Skipping checksum verification for encrypted backup (checksum is for encrypted file)'));
                 } else if (backupRecord?.checksum) {
                     console.log(chalk.yellow('\n⚠️  Skipping checksum verification (--skip-checksum used)'));
                 } else if (!backupRecord?.checksum) {
@@ -397,6 +522,9 @@ export function registerRestoreCommand(program: Command): void {
                         if (tempDownloadedFile) {
                             cleanupTempFile(tempDownloadedFile);
                         }
+                        if (decryptedFile && existsSync(decryptedFile)) {
+                            cleanupTempFile(decryptedFile);
+                        }
                         process.exit(0);
                     }
                     spinner.start('Continuing restore...');
@@ -412,6 +540,9 @@ export function registerRestoreCommand(program: Command): void {
                     console.log(chalk.dim(`  Drop existing: ${options.dropExisting ? 'Yes' : 'No'}`));
                     if (tempDownloadedFile) {
                         cleanupTempFile(tempDownloadedFile);
+                    }
+                    if (decryptedFile && existsSync(decryptedFile)) {
+                        cleanupTempFile(decryptedFile);
                     }
                     return;
                 }
@@ -433,11 +564,18 @@ export function registerRestoreCommand(program: Command): void {
                         if (tempDownloadedFile) {
                             cleanupTempFile(tempDownloadedFile);
                         }
+                        if (decryptedFile && existsSync(decryptedFile)) {
+                            cleanupTempFile(decryptedFile);
+                        }
                         process.exit(1);
                 }
                 
+                // Cleanup temp files
                 if (tempDownloadedFile) {
                     cleanupTempFile(tempDownloadedFile);
+                }
+                if (decryptedFile && existsSync(decryptedFile)) {
+                    cleanupTempFile(decryptedFile);
                 }
                 
                 if (result.success) {
@@ -459,6 +597,9 @@ export function registerRestoreCommand(program: Command): void {
             } catch (error: any) {
                 if (tempDownloadedFile) {
                     cleanupTempFile(tempDownloadedFile);
+                }
+                if (decryptedFile && existsSync(decryptedFile)) {
+                    cleanupTempFile(decryptedFile);
                 }
                 spinner.fail(chalk.red('Restore failed'));
                 console.error(chalk.red(`\n✗ Error: ${error.message}`));
