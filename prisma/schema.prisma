@@ -57,7 +57,9 @@ model BackupJob {
   
   // Additional
   compressionType String?
-  encryptionType  String?
+  encryptionType  String?  // aes256-gcm
+  encrypted       Boolean @default(false)
+  encryptionMetadata Json?  // Stores IV, tag, salt for decryption
   backupVersion   String?
   retryCount     Int @default(0)
   error          String?
