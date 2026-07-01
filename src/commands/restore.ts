@@ -14,16 +14,15 @@ import path from 'path';
 import os from 'os';
 import { S3Client, GetObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
 import { createHash, createDecipheriv } from 'crypto';
+import { keyManager } from '../lib/key-manager';
 
 const streamPipeline = promisify(pipeline);
 const log = createModuleLogger('restore-command');
 
-// ==================== Encryption Constants ====================
+// Encryption Constants 
 const ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 16;
-const TAG_LENGTH = 16;
 
-// ==================== Types ====================
+// types
 
 interface StorageLocation {
     id: string;
@@ -37,7 +36,7 @@ interface StorageLocation {
     config: any;
 }
 
-// ==================== Helper: Calculate Checksum ====================
+// Calculate Checksum 
 
 async function calculateChecksum(filePath: string): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -50,7 +49,7 @@ async function calculateChecksum(filePath: string): Promise<string> {
     });
 }
 
-// ==================== Helper: Decrypt File ====================
+// Decrypt File 
 
 async function decryptFile(inputPath: string, outputPath: string, key: string, ivBase64: string, tagBase64: string): Promise<void> {
     const keyBuffer = Buffer.from(key, 'hex');
@@ -73,7 +72,7 @@ async function decryptFile(inputPath: string, outputPath: string, key: string, i
     });
 }
 
-// ==================== S3 Helper Functions ====================
+// S3 Helper Functions
 
 function isS3Path(filePath: string): boolean {
     return filePath.startsWith('s3://');
@@ -257,7 +256,7 @@ function cleanupTempFile(filePath: string): void {
     }
 }
 
-// ==================== Main Restore Command ====================
+// Main Restore Command 
 
 export function registerRestoreCommand(program: Command): void {
     program
@@ -270,7 +269,6 @@ export function registerRestoreCommand(program: Command): void {
         .option('--dry-run', 'Perform a dry run without actual restore', false)
         .option('--force', 'Force restore (drop existing tables)', false)
         .option('--skip-checksum', 'Skip checksum verification (use with caution)', false)
-        // Decryption key option
         .option('--key <key>', 'Decryption key (64 hex characters) for encrypted backups')
         .action(async (options) => {
             const spinner = ora('Preparing restore...').start();
@@ -331,19 +329,27 @@ export function registerRestoreCommand(program: Command): void {
                     if (isEncrypted) {
                         console.log(chalk.dim(`   🔐 Encrypted: Yes (${backupRecord.encryptionType || 'AES-256-GCM'})`));
                         
-                        // Handle decryption key
-                        if (options.key) {
+                        // Try to get key from local keystore first
+                        if (!options.key) {
+                            const storedKey = keyManager.getKey(backupRecord.id);
+                            if (storedKey) {
+                                decryptionKey = storedKey.key;
+                                console.log(chalk.green(`   🔑 Found decryption key in local keystore`));
+                            } else {
+                                console.log(chalk.yellow(`\n⚠️  No decryption key found in local keystore`));
+                                console.log(chalk.dim('   Provide the key manually with:'));
+                                console.log(chalk.dim('   db-backup restore --id <backup-id> --key <64-hex-key>'));
+                                spinner.fail('Encryption key not found');
+                                process.exit(1);
+                            }
+                        } else {
+                            // User provided key manually
                             if (options.key.length !== 64) {
                                 spinner.fail('Decryption key must be 64 hexadecimal characters (32 bytes)');
                                 process.exit(1);
                             }
                             decryptionKey = options.key;
                             console.log(chalk.dim(`   🔑 Using provided decryption key`));
-                        } else {
-                            console.log(chalk.yellow(`\n⚠️  This backup is encrypted. Please provide the decryption key:`));
-                            console.log(chalk.dim('   db-backup restore --id <backup-id> --key <64-hex-key>'));
-                            spinner.fail('Encryption key required');
-                            process.exit(1);
                         }
                     }
                     
@@ -360,9 +366,8 @@ export function registerRestoreCommand(program: Command): void {
                     process.exit(1);
                 }
                 
-                // ============================================================
                 // STEP 1: Check if backup is local or S3
-                // ============================================================
+
                 let restoreFile = backupFile;
                 
                 if (isS3Path(backupFile)) {
@@ -395,9 +400,7 @@ export function registerRestoreCommand(program: Command): void {
                     }
                 }
                 
-                // ============================================================
                 // STEP 2: Decrypt if needed
-                // ============================================================
                 const isEncrypted = backupRecord?.encrypted || false;
                 const encryptionMetadata = backupRecord?.encryptionMetadata as any;
                 let decryptedFilePath: string | null = null;
@@ -415,7 +418,6 @@ export function registerRestoreCommand(program: Command): void {
                             throw new Error('Missing IV or authentication tag in encryption metadata');
                         }
                         
-                        // Create decrypted file path
                         const tempDir = path.join(os.tmpdir(), 'db-backup');
                         if (!existsSync(tempDir)) {
                             mkdirSync(tempDir, { recursive: true });
@@ -424,7 +426,6 @@ export function registerRestoreCommand(program: Command): void {
                         const decryptedFileName = `decrypted_${path.basename(restoreFile)}`;
                         decryptedFilePath = path.join(tempDir, decryptedFileName);
                         
-                        // Decrypt the file
                         await decryptFile(
                             restoreFile,
                             decryptedFilePath,
@@ -435,7 +436,6 @@ export function registerRestoreCommand(program: Command): void {
                         
                         console.log(chalk.green(`\n✅ Backup decrypted successfully`));
                         
-                        // Update restoreFile to use decrypted file
                         restoreFile = decryptedFilePath;
                         decryptedFile = decryptedFilePath;
                         
@@ -452,10 +452,9 @@ export function registerRestoreCommand(program: Command): void {
                         process.exit(1);
                     }
                 }
-                
-                // ============================================================
+
                 // STEP 3: Verify checksum (skip for encrypted files)
-                // ============================================================
+
                 if (!options.skipChecksum && backupRecord?.checksum && !isEncrypted) {
                     spinner.text = 'Verifying backup integrity...';
                     log.info('Verifying checksum', { backupId: backupRecord.id });
@@ -609,7 +608,7 @@ export function registerRestoreCommand(program: Command): void {
         });
 }
 
-// ==================== PostgreSQL Restore ====================
+// PostgreSQL Restore 
 
 async function restorePostgres(backupFile: string, dbConfig: any, options: any): Promise<any> {
     const { exec } = require('child_process');
@@ -740,7 +739,7 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
     }
 }
 
-// ==================== MySQL Restore ====================
+// MySQL Restore 
 
 async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Promise<any> {
     const { exec } = require('child_process');
