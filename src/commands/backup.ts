@@ -7,6 +7,8 @@ import axios from 'axios';
 import { createModuleLogger } from '../logger';
 import { config } from '../config';
 import { prisma } from "../lib/prisma";
+import { keyManager } from '../lib/key-manager';
+import crypto from 'crypto';
 
 const log = createModuleLogger('backup-command');
 
@@ -28,6 +30,7 @@ export function registerBackupCommand(program: Command): void {
     // encryption options
     .option('--encrypt', 'Enable AES-256-GCM encryption for the backup', false)
     .option('--key <key>', '32-byte AES-256 encryption key (64 hex characters)')
+    .option('--no-store-key', 'Do not store the encryption key in local keystore', false)
     .action(async (options) => {
       const spinner = ora('Preparing backup request...').start();
       
@@ -125,14 +128,15 @@ export function registerBackupCommand(program: Command): void {
             console.log(chalk.dim(`\n📦 Using local storage (no default configured)`));
           }
         }
-        
-        // Handle encryption
+
+        // Handle encryption with local keystore
+
         let encryptionKey: string | null = null;
+        let storeKey = true;
         
         if (options.encrypt) {
           // If user provided a key, use it
           if (options.key) {
-            // Validate key length (32 bytes = 64 hex characters)
             if (options.key.length !== 64) {
               spinner.fail('Encryption key must be 64 hexadecimal characters (32 bytes)');
               console.error(chalk.yellow('\n💡 Generate a key with: openssl rand -hex 32'));
@@ -140,13 +144,27 @@ export function registerBackupCommand(program: Command): void {
             }
             encryptionKey = options.key;
             console.log(chalk.dim('\n🔑 Using provided encryption key'));
+            storeKey = !options.noStoreKey;
           } else {
-            // Auto-generate a key if none provided
-            const crypto = require('crypto');
+            // Auto-generate a key
             encryptionKey = crypto.randomBytes(32).toString('hex');
-            console.log(chalk.yellow('\n🔑 Auto-generated encryption key:'));
-            console.log(chalk.dim(`   ${encryptionKey}`));
-            console.log(chalk.yellow('⚠️  Save this key securely! You\'ll need it for decryption.'));
+            console.log(chalk.yellow('\n🔑 Auto-generated encryption key'));
+            storeKey = !options.noStoreKey;
+          }
+          
+          // Store key in local keystore (if not disabled)
+          if (storeKey) {
+            // Store key before backup so it's available if backup succeeds
+            keyManager.addKey(
+              'pending', // Will be updated after backup completes
+              encryptionKey as any,
+              dbConfig.database,
+              dbConfig.type
+            );
+            console.log(chalk.dim('   🔐 Key stored in local keystore'));
+          } else {
+            console.log(chalk.yellow('\n⚠️  Key will NOT be stored in local keystore'));
+            console.log(chalk.dim(`   Save this key securely: ${encryptionKey}`));
           }
         }
         
@@ -169,9 +187,9 @@ export function registerBackupCommand(program: Command): void {
             backupName: options.name,
             storage: storageConfig,
             storageLocationId: storageLocationId,
-            // Pass encryption
             encrypt: options.encrypt,
-            encryptionKey: encryptionKey
+            encryptionKey: encryptionKey,
+            storeKey: storeKey
           }
         };
         
@@ -180,16 +198,31 @@ export function registerBackupCommand(program: Command): void {
           dbType: dbConfig.type, 
           storage: storageConfig?.type,
           storageLocationId,
-          encrypt: options.encrypt
+          encrypt: options.encrypt,
+          storeKey
         });
         
         const response = await axios.post(`${GATEWAY_URL}/api/backup`, backupRequest);
         
         if (response.data.success) {
+          const backupId = response.data.backupId;
+          
+          // Update key store with actual backup ID
+          if (options.encrypt && storeKey && encryptionKey) {
+            // Remove pending entry and add with actual backup ID
+            keyManager.deleteKey('pending');
+            keyManager.addKey(
+              backupId,
+              encryptionKey,
+              dbConfig.database,
+              dbConfig.type
+            );
+          }
+          
           spinner.succeed(chalk.green('Backup completed successfully!'));
           
           console.log(chalk.green('\n✓ Backup Details:'));
-          console.log(chalk.dim(`  Backup ID: ${response.data.backupId}`));
+          console.log(chalk.dim(`  Backup ID: ${backupId}`));
           console.log(chalk.dim(`  Database: ${dbConfig.type}/${dbConfig.database}`));
           console.log(chalk.dim(`  Type: ${options.type}`));
           console.log(chalk.dim(`  Storage: ${storageConfig?.type || 'local'}`));
@@ -199,6 +232,11 @@ export function registerBackupCommand(program: Command): void {
           
           if (options.encrypt) {
             console.log(chalk.dim(`  Encryption: AES-256-GCM ✅`));
+            if (storeKey) {
+              console.log(chalk.dim(`  🔐 Key stored locally for automatic decryption`));
+            } else {
+              console.log(chalk.yellow(`  ⚠️  Key not stored. Save it now: ${encryptionKey}`));
+            }
           }
           
           if (response.data.fileSize) {
@@ -214,21 +252,22 @@ export function registerBackupCommand(program: Command): void {
             console.log(chalk.dim(`  Location: ${response.data.filePath}`));
           }
           
-          // Show encryption key warning
-          if (options.encrypt && !options.key) {
-            console.log(chalk.yellow('\n⚠️  Remember to save your encryption key:'));
-            console.log(chalk.dim(`   ${encryptionKey}`));
-            console.log(chalk.dim('   Without this key, you cannot decrypt the backup!'));
-          }
-          
-          log.info('Backup completed via microservices', { backupId: response.data.backupId });
+          log.info('Backup completed via microservices', { backupId: backupId });
         } else {
+          // Clean up pending key if backup failed
+          if (options.encrypt && storeKey) {
+            keyManager.deleteKey('pending');
+          }
           spinner.fail(chalk.red('Backup failed'));
           console.error(chalk.red(`\n✗ Error: ${response.data.error}`));
           process.exit(1);
         }
         
       } catch (error: any) {
+        // Clean up pending key on error
+        if (options?.encrypt && options?.noStoreKey !== true) {
+          keyManager.deleteKey('pending');
+        }
         spinner.fail(chalk.red('Backup request failed'));
         
         if (error.code === 'ECONNREFUSED') {
