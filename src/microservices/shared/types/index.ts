@@ -16,6 +16,10 @@ export interface BackupResponse {
   error?: string;
   metadata?: BackupMetadata;
   fileName?: string;
+  checksum?: string;
+  encrypted?: boolean;
+  encryptionType?: string | null;
+  encryptionMetadata?: any;
 }
 
 export interface DatabaseConfig {

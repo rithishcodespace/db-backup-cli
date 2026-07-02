@@ -6,7 +6,7 @@ import ora from 'ora';
 import { prisma } from "../lib/prisma";
 import { createModuleLogger } from '../logger';
 import { config } from '../config';
-import { createReadStream, createWriteStream, existsSync, unlinkSync, mkdirSync } from 'fs';
+import { createReadStream, createWriteStream, existsSync, unlinkSync, mkdirSync, readFileSync, openSync, readSync, closeSync } from 'fs';
 import { createGunzip } from 'zlib';
 import { pipeline } from 'stream';
 import { promisify } from 'util';
@@ -19,10 +19,10 @@ import { keyManager } from '../lib/key-manager';
 const streamPipeline = promisify(pipeline);
 const log = createModuleLogger('restore-command');
 
-// Encryption Constants 
+// ==================== Encryption Constants ====================
 const ALGORITHM = 'aes-256-gcm';
 
-// types
+// ==================== Types ====================
 
 interface StorageLocation {
     id: string;
@@ -36,7 +36,7 @@ interface StorageLocation {
     config: any;
 }
 
-// Calculate Checksum 
+// ==================== Helper: Calculate Checksum ====================
 
 async function calculateChecksum(filePath: string): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -49,7 +49,7 @@ async function calculateChecksum(filePath: string): Promise<string> {
     });
 }
 
-// Decrypt File 
+// ==================== Helper: Decrypt File ====================
 
 async function decryptFile(inputPath: string, outputPath: string, key: string, ivBase64: string, tagBase64: string): Promise<void> {
     const keyBuffer = Buffer.from(key, 'hex');
@@ -72,7 +72,69 @@ async function decryptFile(inputPath: string, outputPath: string, key: string, i
     });
 }
 
-// S3 Helper Functions
+// ==================== Helper: Detect Gzip by Magic Bytes ====================
+
+function isGzipFile(filePath: string): boolean {
+    try {
+        const fd = openSync(filePath, 'r');
+
+        const header = Buffer.alloc(2);
+        readSync(fd, header, 0, 2, 0);
+
+        closeSync(fd);
+
+        return header[0] === 0x1f && header[1] === 0x8b;
+    } catch {
+        return false;
+    }
+}
+
+// ==================== Helper: Prepare Restore File ====================
+
+interface PrepareRestoreResult {
+    restoreFile: string;
+    tempDecompressedFile: string | null;
+}
+
+async function prepareRestoreFile(filePath: string): Promise<PrepareRestoreResult> {
+    let restoreFile = filePath;
+    let tempDecompressedFile: string | null = null;
+    
+    // Check if the file is gzipped by magic bytes
+    if (isGzipFile(filePath)) {
+        console.log(chalk.dim(`\n🔄 Detected gzip compressed file (magic: 1F 8B)`));
+        
+        const tempDir = path.dirname(filePath);
+
+        const decompressedFile = path.join(
+            tempDir,
+            `decompressed_${path.basename(filePath)}`
+        );
+        tempDecompressedFile = decompressedFile;
+        
+        if (!existsSync(decompressedFile)) {
+            console.log(chalk.dim(`   Decompressing...`));
+            const readStream = createReadStream(filePath);
+            const gunzipStream = createGunzip();
+            const writeStream = createWriteStream(decompressedFile);
+            await streamPipeline(readStream, gunzipStream, writeStream);
+            console.log(chalk.dim(`✅ Decompressed to: ${decompressedFile}`));
+        } else {
+            console.log(chalk.dim(`✅ Using existing decompressed file: ${decompressedFile}`));
+        }
+        
+        restoreFile = decompressedFile;
+    } else {
+        console.log(chalk.dim(`\n📦 File is not gzipped (no magic header)`));
+    }
+    
+    return {
+        restoreFile,
+        tempDecompressedFile
+    };
+}
+
+// ==================== S3 Helper Functions ====================
 
 function isS3Path(filePath: string): boolean {
     return filePath.startsWith('s3://');
@@ -256,7 +318,7 @@ function cleanupTempFile(filePath: string): void {
     }
 }
 
-// Main Restore Command 
+// ==================== Main Restore Command ====================
 
 export function registerRestoreCommand(program: Command): void {
     program
@@ -274,6 +336,7 @@ export function registerRestoreCommand(program: Command): void {
             const spinner = ora('Preparing restore...').start();
             let tempDownloadedFile: string | null = null;
             let decryptedFile: string | null = null;
+            let decompressedFile: string | null = null;
             
             try {
                 const dbConfig = config.get('database');
@@ -366,8 +429,9 @@ export function registerRestoreCommand(program: Command): void {
                     process.exit(1);
                 }
                 
+                // ============================================================
                 // STEP 1: Check if backup is local or S3
-
+                // ============================================================
                 let restoreFile = backupFile;
                 
                 if (isS3Path(backupFile)) {
@@ -400,7 +464,9 @@ export function registerRestoreCommand(program: Command): void {
                     }
                 }
                 
+                // ============================================================
                 // STEP 2: Decrypt if needed
+                // ============================================================
                 const isEncrypted = backupRecord?.encrypted || false;
                 const encryptionMetadata = backupRecord?.encryptionMetadata as any;
                 let decryptedFilePath: string | null = null;
@@ -452,9 +518,17 @@ export function registerRestoreCommand(program: Command): void {
                         process.exit(1);
                     }
                 }
-
-                // STEP 3: Verify checksum (skip for encrypted files)
-
+                
+                // ============================================================
+                // STEP 3: Prepare restore file (detect gzip by magic bytes)
+                // ============================================================
+                const prepareResult = await prepareRestoreFile(restoreFile);
+                restoreFile = prepareResult.restoreFile;
+                decompressedFile = prepareResult.tempDecompressedFile;
+                
+                // ============================================================
+                // STEP 4: Verify checksum (skip for encrypted files)
+                // ============================================================
                 if (!options.skipChecksum && backupRecord?.checksum && !isEncrypted) {
                     spinner.text = 'Verifying backup integrity...';
                     log.info('Verifying checksum', { backupId: backupRecord.id });
@@ -475,6 +549,9 @@ export function registerRestoreCommand(program: Command): void {
                             if (decryptedFile && existsSync(decryptedFile)) {
                                 cleanupTempFile(decryptedFile);
                             }
+                            if (decompressedFile && existsSync(decompressedFile)) {
+                                cleanupTempFile(decompressedFile);
+                            }
                             process.exit(1);
                         }
                         
@@ -488,6 +565,9 @@ export function registerRestoreCommand(program: Command): void {
                         }
                         if (decryptedFile && existsSync(decryptedFile)) {
                             cleanupTempFile(decryptedFile);
+                        }
+                        if (decompressedFile && existsSync(decompressedFile)) {
+                            cleanupTempFile(decompressedFile);
                         }
                         process.exit(1);
                     }
@@ -524,6 +604,9 @@ export function registerRestoreCommand(program: Command): void {
                         if (decryptedFile && existsSync(decryptedFile)) {
                             cleanupTempFile(decryptedFile);
                         }
+                        if (decompressedFile && existsSync(decompressedFile)) {
+                            cleanupTempFile(decompressedFile);
+                        }
                         process.exit(0);
                     }
                     spinner.start('Continuing restore...');
@@ -542,6 +625,9 @@ export function registerRestoreCommand(program: Command): void {
                     }
                     if (decryptedFile && existsSync(decryptedFile)) {
                         cleanupTempFile(decryptedFile);
+                    }
+                    if (decompressedFile && existsSync(decompressedFile)) {
+                        cleanupTempFile(decompressedFile);
                     }
                     return;
                 }
@@ -566,6 +652,9 @@ export function registerRestoreCommand(program: Command): void {
                         if (decryptedFile && existsSync(decryptedFile)) {
                             cleanupTempFile(decryptedFile);
                         }
+                        if (decompressedFile && existsSync(decompressedFile)) {
+                            cleanupTempFile(decompressedFile);
+                        }
                         process.exit(1);
                 }
                 
@@ -575,6 +664,9 @@ export function registerRestoreCommand(program: Command): void {
                 }
                 if (decryptedFile && existsSync(decryptedFile)) {
                     cleanupTempFile(decryptedFile);
+                }
+                if (decompressedFile && existsSync(decompressedFile)) {
+                    cleanupTempFile(decompressedFile);
                 }
                 
                 if (result.success) {
@@ -600,6 +692,9 @@ export function registerRestoreCommand(program: Command): void {
                 if (decryptedFile && existsSync(decryptedFile)) {
                     cleanupTempFile(decryptedFile);
                 }
+                if (decompressedFile && existsSync(decompressedFile)) {
+                    cleanupTempFile(decompressedFile);
+                }
                 spinner.fail(chalk.red('Restore failed'));
                 console.error(chalk.red(`\n✗ Error: ${error.message}`));
                 log.error('Restore failed', { error: error.message });
@@ -608,7 +703,7 @@ export function registerRestoreCommand(program: Command): void {
         });
 }
 
-// PostgreSQL Restore 
+// ==================== PostgreSQL Restore ====================
 
 async function restorePostgres(backupFile: string, dbConfig: any, options: any): Promise<any> {
     const { exec } = require('child_process');
@@ -617,36 +712,11 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
     const fs = require('fs');
     
     const startTime = Date.now();
-    let decompressedFile: string | null = null;
+    let tempDecompressedFile: string | null = null;
     
     try {
-        let restoreFile = backupFile;
-        let isGzipped = false;
-        
-        if (backupFile.endsWith('.gz')) {
-            try {
-                const fileBuffer = fs.readFileSync(backupFile, { encoding: null, length: 2 });
-                if (fileBuffer[0] === 0x1f && fileBuffer[1] === 0x8b) {
-                    isGzipped = true;
-                    decompressedFile = backupFile.replace('.gz', '');
-                    
-                    if (!fs.existsSync(decompressedFile)) {
-                        console.log(chalk.dim(`\n🔄 Decompressing backup file...`));
-                        const readStream = createReadStream(backupFile);
-                        const gunzipStream = createGunzip();
-                        const writeStream = createWriteStream(decompressedFile);
-                        await streamPipeline(readStream, gunzipStream, writeStream);
-                        console.log(chalk.dim(`✅ Decompressed to: ${decompressedFile}`));
-                    }
-                    restoreFile = decompressedFile;
-                } else {
-                    console.log(chalk.dim(`\n📦 Using custom format dump directly (not actually gzipped)`));
-                    restoreFile = backupFile;
-                }
-            } catch (e) {
-                restoreFile = backupFile;
-            }
-        }
+        // Use the prepareRestoreFile helper
+        const restoreFile = backupFile;
         
         let command = `pg_restore -h ${dbConfig.host} -p ${dbConfig.port || 5432} -U ${dbConfig.username} -d ${dbConfig.database}`;
         
@@ -697,9 +767,9 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
                 userFriendlyError = `Restore failed:\n${lastLines}`;
             }
             
-            if (decompressedFile && fs.existsSync(decompressedFile)) {
+            if (tempDecompressedFile && fs.existsSync(tempDecompressedFile)) {
                 try {
-                    fs.unlinkSync(decompressedFile);
+                    fs.unlinkSync(tempDecompressedFile);
                 } catch (cleanupError) {
                     // Ignore
                 }
@@ -712,10 +782,10 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
             };
         }
         
-        if (decompressedFile && fs.existsSync(decompressedFile)) {
+        if (tempDecompressedFile && fs.existsSync(tempDecompressedFile)) {
             try {
-                fs.unlinkSync(decompressedFile);
-                console.log(chalk.dim(`\n🧹 Cleaned up temporary file: ${decompressedFile}`));
+                fs.unlinkSync(tempDecompressedFile);
+                console.log(chalk.dim(`\n🧹 Cleaned up temporary file: ${tempDecompressedFile}`));
             } catch (cleanupError) {
                 // Ignore
             }
@@ -724,10 +794,10 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
         const duration = (Date.now() - startTime) / 1000;
         return { success: true, duration };
     } catch (error: any) {
-        if (decompressedFile) {
+        if (tempDecompressedFile) {
             try {
-                if (fs.existsSync(decompressedFile)) {
-                    fs.unlinkSync(decompressedFile);
+                if (fs.existsSync(tempDecompressedFile)) {
+                    fs.unlinkSync(tempDecompressedFile);
                 }
             } catch (e) { /* ignore */ }
         }
@@ -739,7 +809,7 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
     }
 }
 
-// MySQL Restore 
+// ==================== MySQL Restore ====================
 
 async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Promise<any> {
     const { exec } = require('child_process');
@@ -748,35 +818,13 @@ async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Pr
     const fs = require('fs');
     
     const startTime = Date.now();
-    let decompressedFile: string | null = null;
+    let tempDecompressedFile: string | null = null;
     
     try {
-        let restoreFile = backupFile;
-        let isGzipped = false;
-        
-        if (backupFile.endsWith('.gz')) {
-            try {
-                const fileBuffer = fs.readFileSync(backupFile, { encoding: null, length: 2 });
-                if (fileBuffer[0] === 0x1f && fileBuffer[1] === 0x8b) {
-                    isGzipped = true;
-                    decompressedFile = backupFile.replace('.gz', '');
-                    
-                    if (!fs.existsSync(decompressedFile)) {
-                        console.log(chalk.dim(`\n🔄 Decompressing backup file...`));
-                        const readStream = createReadStream(backupFile);
-                        const gunzipStream = createGunzip();
-                        const writeStream = createWriteStream(decompressedFile);
-                        await streamPipeline(readStream, gunzipStream, writeStream);
-                        console.log(chalk.dim(`✅ Decompressed to: ${decompressedFile}`));
-                    }
-                    restoreFile = decompressedFile;
-                } else {
-                    restoreFile = backupFile;
-                }
-            } catch (e) {
-                restoreFile = backupFile;
-            }
-        }
+        // Use the prepareRestoreFile helper
+        const prepareResult = await prepareRestoreFile(backupFile);
+        const restoreFile = prepareResult.restoreFile;
+        tempDecompressedFile = prepareResult.tempDecompressedFile;
         
         let command = `mysql -h ${dbConfig.host} -P ${dbConfig.port || 3306} -u ${dbConfig.username}`;
         if (dbConfig.password) {
@@ -802,9 +850,9 @@ async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Pr
                 userFriendlyError = 'Tables already exist. Use --drop-existing to clean the database first.';
             }
             
-            if (decompressedFile && fs.existsSync(decompressedFile)) {
+            if (tempDecompressedFile && fs.existsSync(tempDecompressedFile)) {
                 try {
-                    fs.unlinkSync(decompressedFile);
+                    fs.unlinkSync(tempDecompressedFile);
                 } catch (cleanupError) {
                     // Ignore
                 }
@@ -817,10 +865,10 @@ async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Pr
             };
         }
         
-        if (decompressedFile && fs.existsSync(decompressedFile)) {
+        if (tempDecompressedFile && fs.existsSync(tempDecompressedFile)) {
             try {
-                fs.unlinkSync(decompressedFile);
-                console.log(chalk.dim(`\n🧹 Cleaned up temporary file: ${decompressedFile}`));
+                fs.unlinkSync(tempDecompressedFile);
+                console.log(chalk.dim(`\n🧹 Cleaned up temporary file: ${tempDecompressedFile}`));
             } catch (cleanupError) {
                 // Ignore
             }
@@ -829,10 +877,10 @@ async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Pr
         const duration = (Date.now() - startTime) / 1000;
         return { success: true, duration };
     } catch (error: any) {
-        if (decompressedFile) {
+        if (tempDecompressedFile) {
             try {
-                if (fs.existsSync(decompressedFile)) {
-                    fs.unlinkSync(decompressedFile)
+                if (fs.existsSync(tempDecompressedFile)) {
+                    fs.unlinkSync(tempDecompressedFile);
                 }
             } catch (e) { /* ignore */ }
         }

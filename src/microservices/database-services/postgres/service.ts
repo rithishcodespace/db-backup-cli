@@ -50,8 +50,6 @@ async function encryptFile(inputPath: string, outputPath: string, key: string): 
     const outputStream = createWriteStream(outputPath);
     
     return new Promise((resolve, reject) => {
-        // Write IV as header (16 bytes)
-        outputStream.write(iv);
         
         inputStream.pipe(cipher).pipe(outputStream);
         
@@ -310,7 +308,12 @@ async function performBackup(
             fileSize: fileSize,
             duration,
             metadata,
-            fileName: finalFileName
+            fileName: finalFileName,
+
+            checksum,
+            encrypted: isEncrypted,
+            encryptionType,
+            encryptionMetadata
         };
         
     } catch (error) {

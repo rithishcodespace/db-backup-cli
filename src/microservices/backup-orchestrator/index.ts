@@ -163,6 +163,10 @@ app.post('/backup', async (req, res) => {
           duration: result.duration,
           completedAt: new Date(),
           fileName: backupName || result.fileName,
+          checksum: result.checksum,
+          encrypted: result.encrypted,
+          encryptionType: result.encryptionType,
+          encryptionMetadata: result.encryptionMetadata,
           metadata: JSON.stringify({
             ...result.metadata,
             backupName: backupName,

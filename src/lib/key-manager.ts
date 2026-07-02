@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
+import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 import chalk from 'chalk';
 
 const KEYSTORE_DIR = path.join(os.homedir(), '.db-backup');
@@ -50,8 +50,14 @@ export class KeyManager {
 
         if (fs.existsSync(MASTER_KEY_FILE)) {
             // Read existing master key
-            const masterKeyData = fs.readFileSync(MASTER_KEY_FILE, 'utf-8');
-            this.masterKey = Buffer.from(masterKeyData, 'hex');
+            const masterKeyData = Buffer.from(
+                fs.readFileSync(MASTER_KEY_FILE, 'utf-8'),
+                'hex'
+            );
+
+            // Skip the first 32 bytes (salt)
+            this.masterKey = masterKeyData.subarray(SALT_LENGTH);
+
             return this.masterKey;
         }
 
