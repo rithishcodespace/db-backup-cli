@@ -50,13 +50,12 @@ app.post('/backup', async (req, res) => {
     const backupName = options?.backupName || null;
     
     // ============================================================
-    // ✅ PATCH: Get storage location ID from options
+    // Get storage location ID from options
     // ============================================================
     let storageLocationId: string | null = null;
     const storageConfig = options?.storage || null;
     
     if (storageConfig && storageConfig.name) {
-      // Find storage by name
       const storage = await prisma.storageLocation.findUnique({
         where: { name: storageConfig.name }
       });
@@ -112,8 +111,10 @@ app.post('/backup', async (req, res) => {
       }
     }
     
-    // Create backup job record with storage location relation
-    await prisma.backupJob.create({
+    // ============================================================
+    // CREATE BackupJob record with RUNNING status (Single Owner)
+    // ============================================================
+    const backupJob = await prisma.backupJob.create({
       data: {
         id: backupId,
         dbType: dbConfig.type,
@@ -122,7 +123,6 @@ app.post('/backup', async (req, res) => {
         status: BackupStatus.RUNNING,
         startedAt: new Date(),
         fileName: backupName,
-        // ✅ PATCH: Save storage location relation
         storageLocationId: storageLocationId,
         metadata: JSON.stringify({ 
           options,
@@ -133,17 +133,26 @@ app.post('/backup', async (req, res) => {
       }
     });
     
-    // Forward request to appropriate database service
+    log.info('Backup job created', { backupId, status: BackupStatus.RUNNING });
+    
+    // ============================================================
+    // Forward request to database service
+    // ============================================================
     const serviceUrl = serviceRegistry[dbType];
     const response = await axios.post(`${serviceUrl}/backup`, {
       dbConfig,
       backupType,
-      options
+      options: {
+        ...options,
+        backupId: backupId // Pass backupId for reference
+      }
     });
     
     const result: BackupResponse = response.data;
     
-    // Update job record with full results
+    // ============================================================
+    // UPDATE BackupJob to SUCCESS (Single Owner)
+    // ============================================================
     if (result.success) {
       await prisma.backupJob.update({
         where: { id: backupId },
@@ -154,7 +163,6 @@ app.post('/backup', async (req, res) => {
           duration: result.duration,
           completedAt: new Date(),
           fileName: backupName || result.fileName,
-          // ✅ Keep storageLocationId if already set
           metadata: JSON.stringify({
             ...result.metadata,
             backupName: backupName,
@@ -168,24 +176,33 @@ app.post('/backup', async (req, res) => {
       log.info('Backup orchestration completed', { 
         backupId, 
         duration: result.duration,
-        storageLocationId 
+        storageLocationId,
+        status: BackupStatus.SUCCESS
       });
       res.json(result);
     } else {
-      throw new Error(result.error);
+      throw new Error(result.error || 'Backup failed with unknown error');
     }
     
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     
-    await prisma.backupJob.update({
-      where: { id: backupId },
-      data: {
-        status: BackupStatus.FAILED,
-        error: errorMessage,
-        completedAt: new Date()
-      }
-    });
+    // ============================================================
+    // UPDATE BackupJob to FAILED on error (Single Owner)
+    // ============================================================
+    try {
+      await prisma.backupJob.update({
+        where: { id: backupId },
+        data: {
+          status: BackupStatus.FAILED,
+          error: errorMessage,
+          completedAt: new Date(),
+          duration: (Date.now() - startTime) / 1000
+        }
+      });
+    } catch (updateError) {
+      log.error('Failed to update backup status to FAILED', { backupId, error: updateError });
+    }
     
     log.error('Backup orchestration failed', { backupId, error: errorMessage });
     res.status(500).json({
@@ -202,7 +219,7 @@ app.get('/backup/:id/status', async (req, res) => {
   const job = await prisma.backupJob.findUnique({
     where: { id },
     include: {
-      storageLocation: true  // ✅ Include storage location in response
+      storageLocation: true
     }
   });
   
