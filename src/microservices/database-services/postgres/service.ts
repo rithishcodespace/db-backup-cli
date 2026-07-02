@@ -1,5 +1,3 @@
-// src/microservices/database-services/postgres/service.ts
-
 import express from 'express';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -12,7 +10,6 @@ import { config as appConfig } from '../../../config';
 import { S3StorageProvider } from '../../storage-service/providers/s3';
 import { LocalStorageProvider } from '../../storage-service/providers/local';
 import { createHash, createCipheriv, randomBytes } from 'crypto';
-import { prisma } from '../../../lib/prisma';
 
 const execAsync = promisify(exec);
 const log = createModuleLogger('postgres-backup-service');
@@ -83,8 +80,9 @@ app.get('/health', (req, res) => {
 });
 
 app.post('/backup', async (req, res) => {
-    const backupId = uuidv4();
+    // Backup ID is passed from orchestrator but not used for DB updates
     const { dbConfig, backupType, options } = req.body;
+    const backupId = options?.backupId || uuidv4(); // Fallback for compatibility
     
     log.info('Received backup request', { backupId, dbType: dbConfig.type, backupType });
     
@@ -106,7 +104,7 @@ async function performBackup(
     backupId: string,
     dbConfig: DatabaseConfig,
     backupType: string,
-    options: any  // Extended with encryption options
+    options: any
 ): Promise<BackupResponse> {
     const startTime = Date.now();
     let localBackupPath: string | null = null;
@@ -290,26 +288,6 @@ async function performBackup(
             };
         }
         
-        // Step 5: Save backup record to database
-        await prisma.backupJob.update({
-            where: { id: backupId },
-            data: {
-                status: 'success',
-                filePath: finalPath,
-                fileName: finalFileName,
-                fileSize: fileSize,
-                checksum: checksum,
-                encrypted: isEncrypted,
-                encryptionType: isEncrypted ? encryptionType : null,
-                encryptionMetadata: isEncrypted ? encryptionMetadata : null,
-                completedAt: new Date(),
-                duration: (Date.now() - startTime) / 1000,
-                storageType: storageType,
-                compressionType: options.compress ? 'gzip' : 'none',
-                metadata: metadata
-            }
-        });
-        
         const duration = (Date.now() - startTime) / 1000;
         
         log.info('Backup completed', { 
@@ -321,6 +299,10 @@ async function performBackup(
             checksum: checksum.substring(0, 16) + '...'
         });
         
+        // ============================================================
+        // RETURN RESPONSE WITHOUT UPDATING DATABASE
+        // The orchestrator handles all BackupJob updates
+        // ============================================================
         return {
             success: true,
             backupId,
@@ -332,20 +314,14 @@ async function performBackup(
         };
         
     } catch (error) {
-        // Step 6: Mark backup as failed in database
-        log.error('Backup failed', { backupId, error });
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log.error('Backup execution failed', { backupId, error: errorMessage });
         
-        await prisma.backupJob.update({
-            where: { id: backupId },
-            data: {
-                status: 'failed',
-                error: error instanceof Error ? error.message : String(error),
-                completedAt: new Date(),
-                duration: (Date.now() - startTime) / 1000
-            }
-        });
-        
-        throw new Error(`Backup failed: ${error instanceof Error ? error.message : String(error)}`);
+        // ============================================================
+        // RETURN ERROR WITHOUT UPDATING DATABASE
+        // The orchestrator handles all BackupJob updates
+        // ============================================================
+        throw new Error(`Backup execution failed: ${errorMessage}`);
         
     } finally {
         // Step 7: Cleanup temp files
