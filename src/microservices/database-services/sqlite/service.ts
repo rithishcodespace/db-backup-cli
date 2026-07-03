@@ -14,7 +14,6 @@ import { config as appConfig } from '../../../config';
 import { S3StorageProvider } from '../../storage-service/providers/s3';
 import { LocalStorageProvider } from '../../storage-service/providers/local';
 import { createHash, createCipheriv, randomBytes } from 'crypto';
-import { prisma } from '../../../lib/prisma';
 
 const execAsync = promisify(exec);
 const streamPipeline = promisify(pipeline);
@@ -27,11 +26,11 @@ const SERVICE_PORT = process.env.SQLITE_SERVICE_PORT || 3013;
 const SERVICE_NAME = 'sqlite-backup-service';
 const startTime = Date.now();
 
-// ==================== Encryption Constants ====================
+// Encryption Constants 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 
-// ==================== Helper: Calculate Checksum ====================
+// Calculate Checksum 
 async function calculateChecksum(filePath: string): Promise<string> {
     return new Promise((resolve, reject) => {
         const hash = createHash('sha256');
@@ -43,7 +42,7 @@ async function calculateChecksum(filePath: string): Promise<string> {
     });
 }
 
-// ==================== Helper: Encrypt File ====================
+// Encrypt File 
 async function encryptFile(inputPath: string, outputPath: string, key: string): Promise<{
     iv: string;
     tag: string;
@@ -56,7 +55,6 @@ async function encryptFile(inputPath: string, outputPath: string, key: string): 
     const outputStream = createWriteStream(outputPath);
     
     return new Promise((resolve, reject) => {
-        outputStream.write(iv);
         inputStream.pipe(cipher).pipe(outputStream);
         
         outputStream.on('finish', () => {
@@ -84,8 +82,8 @@ app.get('/health', (req, res) => {
 });
 
 app.post('/backup', async (req, res) => {
-    const backupId = uuidv4();
     const { dbConfig, backupType, options } = req.body;
+    const backupId = options?.backupId || uuidv4();
     
     log.info('Received SQLite backup request', { backupId, database: dbConfig.database });
     
@@ -267,25 +265,6 @@ async function performBackup(
             };
         }
         
-        await prisma.backupJob.update({
-            where: { id: backupId },
-            data: {
-                status: 'success',
-                filePath: finalPath,
-                fileName: finalFileName,
-                fileSize: fileSize,
-                checksum: checksum,
-                encrypted: isEncrypted,
-                encryptionType: isEncrypted ? encryptionType : null,
-                encryptionMetadata: isEncrypted ? encryptionMetadata : null,
-                completedAt: new Date(),
-                duration: (Date.now() - startTime) / 1000,
-                storageType: storageType,
-                compressionType: options.compress ? 'gzip' : 'none',
-                metadata: metadata
-            }
-        });
-        
         const duration = (Date.now() - startTime) / 1000;
         
         log.info('SQLite backup completed', { 
@@ -293,9 +272,13 @@ async function performBackup(
             size: fileSize, 
             duration, 
             storageType,
-            encrypted: isEncrypted
+            encrypted: isEncrypted,
+            checksum: checksum.substring(0, 16) + '...'
         });
         
+        // RETURN RESPONSE WITHOUT UPDATING DATABASE
+        // The orchestrator handles all BackupJob updates
+
         return {
             success: true,
             backupId,
@@ -303,28 +286,23 @@ async function performBackup(
             fileSize: fileSize,
             duration,
             metadata,
-            fileName: finalFileName
+            fileName: finalFileName,
+            checksum,
+            encrypted: isEncrypted,
+            encryptionType,
+            encryptionMetadata
         };
         
     } catch (error) {
-        log.error('SQLite backup failed', { backupId, error });
-        
-        await prisma.backupJob.update({
-            where: { id: backupId },
-            data: {
-                status: 'failed',
-                error: error instanceof Error ? error.message : String(error),
-                completedAt: new Date(),
-                duration: (Date.now() - startTime) / 1000
-            }
-        });
-        
-        throw new Error(`SQLite backup failed: ${error instanceof Error ? error.message : String(error)}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log.error('SQLite backup execution failed', { backupId, error: errorMessage });
+        throw new Error(`SQLite backup execution failed: ${errorMessage}`);
         
     } finally {
         if (localBackupPath && existsSync(localBackupPath)) {
             try {
                 unlinkSync(localBackupPath);
+                log.debug('Temporary file cleaned up', { path: localBackupPath });
             } catch (cleanupError) {
                 log.warn('Failed to cleanup temp file', { path: localBackupPath, error: cleanupError });
             }
@@ -332,6 +310,7 @@ async function performBackup(
         if (encryptedPath && existsSync(encryptedPath) && encryptedPath !== localBackupPath) {
             try {
                 unlinkSync(encryptedPath);
+                log.debug('Temporary encrypted file cleaned up', { path: encryptedPath });
             } catch (cleanupError) {
                 log.warn('Failed to cleanup temp encrypted file', { path: encryptedPath, error: cleanupError });
             }
