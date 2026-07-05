@@ -1,12 +1,11 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createReadStream, createWriteStream } from 'fs'; // read and writes gradually to avoid loading entire file into memory
-import { pipeline } from 'stream';
-import { promisify } from 'util';
 import { StorageProvider, StorageConfig } from './base';
 import { createModuleLogger } from '../../../logger';
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
-const streamPipeline = promisify(pipeline);
 const log = createModuleLogger('s3-storage');
 
 export class S3StorageProvider implements StorageProvider {
@@ -41,6 +40,24 @@ export class S3StorageProvider implements StorageProvider {
     }
   }
 
+  async uploadStream(stream: Readable, remotePath: string): Promise<any> {
+    const command = new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: remotePath,
+        Body: stream,
+    });
+    
+    const result = await this.client.send(command);
+    log.info('Stream uploaded to S3', { key: remotePath, bucket: this.bucket });
+    
+    return {
+        bucket: this.bucket,
+        key: remotePath,
+        etag: result.ETag,
+        versionId: result.VersionId,
+    };
+}
+
   async upload(localPath: string, remotePath: string): Promise<any> {
     const fileStream = createReadStream(localPath);
     
@@ -74,7 +91,10 @@ export class S3StorageProvider implements StorageProvider {
       throw new Error('No data received from S3');
     }
     
-    await streamPipeline(response.Body as any, writeStream);
+    await pipeline(
+    response.Body as Readable,
+    writeStream
+);
     
     log.info('File downloaded from S3', { key: remotePath, bucket: this.bucket });
     return { path: localPath };

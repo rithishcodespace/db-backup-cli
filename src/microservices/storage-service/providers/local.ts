@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { StorageProvider, StorageConfig } from './base';
 import { createModuleLogger } from '../../../logger';
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 const log = createModuleLogger('local-storage');
 
@@ -58,6 +60,23 @@ export class LocalStorageProvider implements StorageProvider { // implements Sto
     
     return { path: localPath, size: stats.size };
   }
+
+  async uploadStream(stream: Readable, remotePath: string): Promise<any> {
+    const destPath = path.join(this.basePath, remotePath);
+    const destDir = path.dirname(destPath);
+    
+    if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+    }
+    
+    const writeStream = fs.createWriteStream(destPath);
+    await pipeline(stream, writeStream);
+    
+    const stats = fs.statSync(destPath);
+    log.info('Stream uploaded to local storage', { path: destPath, size: stats.size });
+    
+    return { path: destPath, size: stats.size };
+}
 
   // Returns all files in basePath (optionally filtered by prefix/folder).
   async list(prefix: string = ''): Promise<string[]> {

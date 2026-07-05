@@ -1,8 +1,11 @@
 // Any class implementing StorageProvider MUST provide these methods.
 
+import { Readable } from "node:stream";
+
 export interface StorageProvider {
   initialize(): Promise<void>; // // Setup connection/resources before using storage
   upload(localPath: string, remotePath: string): Promise<any>;  // Upload file from local machine to storage
+  uploadStream(stream: Readable, remotePath: string): Promise<any>; // for stream uploads
   download(remotePath: string, localPath: string): Promise<any>; // Download file from storage to local machine
   list(prefix?: string): Promise<string[]>; // List all files (optionally filtered by prefix/folder)
   delete(remotePath: string): Promise<void>;  // Delete a file from storage

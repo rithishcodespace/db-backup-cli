@@ -49,9 +49,7 @@ app.post('/backup', async (req, res) => {
     // Store backup name from options if provided
     const backupName = options?.backupName || null;
     
-    // ============================================================
     // Get storage location ID from options
-    // ============================================================
     let storageLocationId: string | null = null;
     const storageConfig = options?.storage || null;
     
@@ -150,9 +148,8 @@ app.post('/backup', async (req, res) => {
     
     const result: BackupResponse = response.data;
     
-    // ============================================================
+
     // UPDATE BackupJob to SUCCESS (Single Owner)
-    // ============================================================
     if (result.success) {
       await prisma.backupJob.update({
         where: { id: backupId },
@@ -190,10 +187,8 @@ app.post('/backup', async (req, res) => {
     
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    
-    // ============================================================
+
     // UPDATE BackupJob to FAILED on error (Single Owner)
-    // ============================================================
     try {
       await prisma.backupJob.update({
         where: { id: backupId },
