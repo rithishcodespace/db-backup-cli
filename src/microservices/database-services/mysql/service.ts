@@ -1,19 +1,19 @@
 // src/microservices/database-services/mysql/service.ts
 
 import express from 'express';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { statSync, existsSync, unlinkSync, mkdirSync, createReadStream, createWriteStream } from 'fs';
-import path from 'path';
+import { spawn } from 'child_process';
+import { createGzip } from 'zlib';
+import { createHash, createCipheriv, randomBytes } from 'crypto';
+import { Readable, PassThrough, Transform } from 'stream';
+import { pipeline } from 'stream/promises';
 import { v4 as uuidv4 } from 'uuid';
 import { DatabaseConfig, BackupOptions, BackupResponse } from '../../shared/types';
 import { createModuleLogger } from '../../../logger';
 import { config as appConfig } from '../../../config';
 import { S3StorageProvider } from '../../storage-service/providers/s3';
 import { LocalStorageProvider } from '../../storage-service/providers/local';
-import { createHash, createCipheriv, randomBytes } from 'crypto';
+import path from 'path';
 
-const execAsync = promisify(exec);
 const log = createModuleLogger('mysql-backup-service');
 
 const app = express();
@@ -23,49 +23,138 @@ const SERVICE_PORT = process.env.MYSQL_SERVICE_PORT || 3011;
 const SERVICE_NAME = 'mysql-backup-service';
 const startTime = Date.now();
 
-// Encryption Constants
+// Encryption Constants 
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 
-// Calculate Checksum
-async function calculateChecksum(filePath: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const hash = createHash('sha256');
-        const stream = createReadStream(filePath);
-        
-        stream.on('data', (data) => hash.update(data));
-        stream.on('end', () => resolve(hash.digest('hex')));
-        stream.on('error', (error) => reject(error));
-    });
+// Custom Transform: SHA-256 Checksum 
+class ChecksumTransform extends Transform {
+    private hash = createHash('sha256');
+    private size = 0;
+
+    _transform(chunk: Buffer, encoding: string, callback: Function) {
+        this.hash.update(chunk);
+        this.size += chunk.length;
+        callback(null, chunk);
+    }
+
+    getChecksum(): string {
+        return this.hash.digest('hex');
+    }
+
+    getSize(): number {
+        return this.size;
+    }
 }
 
-// Helper: Encrypt File
-async function encryptFile(inputPath: string, outputPath: string, key: string): Promise<{
-    iv: string;
-    tag: string;
-}> {
-    const iv = randomBytes(IV_LENGTH);
-    const keyBuffer = Buffer.from(key, 'hex');
-    const cipher = createCipheriv(ALGORITHM, keyBuffer, iv);
-    
-    const inputStream = createReadStream(inputPath);
-    const outputStream = createWriteStream(outputPath);
-    
-    return new Promise((resolve, reject) => {
-        inputStream.pipe(cipher).pipe(outputStream);
+// Custom Transform: AES-256-GCM Encryption 
+class EncryptionTransform extends Transform {
+    private cipher: any;
+    private iv: Buffer;
+    private keyBuffer: Buffer;
+    private tag: Buffer | null = null;
+    private isFinalized: boolean = false;
+
+    constructor(key: string) {
+        super();
+        this.iv = randomBytes(IV_LENGTH);
+        this.keyBuffer = Buffer.from(key, 'hex');
+        this.cipher = createCipheriv(ALGORITHM, this.keyBuffer, this.iv);
         
-        outputStream.on('finish', () => {
-            const tag = cipher.getAuthTag();
-            resolve({
-                iv: iv.toString('base64'),
-                tag: tag.toString('base64')
-            });
+        this.cipher.on('error', (err: Error) => this.emit('error', err));
+    }
+
+    _transform(chunk: Buffer, encoding: string, callback: Function) {
+        try {
+            const encrypted = this.cipher.update(chunk);
+            callback(null, encrypted);
+        } catch (err) {
+            callback(err);
+        }
+    }
+
+    _flush(callback: Function) {
+        try {
+            if (!this.isFinalized) {
+                const final = this.cipher.final();
+                this.tag = this.cipher.getAuthTag();
+                this.isFinalized = true;
+                if (final.length > 0) {
+                    callback(null, final);
+                } else {
+                    callback(null);
+                }
+            } else {
+                callback(null);
+            }
+        } catch (err) {
+            callback(err);
+        }
+    }
+
+    getEncryptionMetadata() {
+        return {
+            iv: this.iv.toString('base64'),
+            tag: this.tag ? this.tag.toString('base64') : null,
+            algorithm: ALGORITHM
+        };
+    }
+}
+
+// Storage Upload Stream Handler 
+interface UploadResult {
+    path: string;
+    size?: number;
+    etag?: string;
+    versionId?: string;
+}
+
+async function uploadStream(
+    stream: Readable,
+    storageConfig: any,
+    fileName: string
+): Promise<UploadResult> {
+    if (storageConfig.type === 's3') {
+        if (!storageConfig.bucket) {
+            throw new Error('S3 bucket is required for s3 storage type');
+        }
+        if (!storageConfig.accessKey || !storageConfig.secretKey) {
+            throw new Error('S3 accessKey and secretKey are required for s3 storage type');
+        }
+
+        log.info('Uploading stream to S3', { bucket: storageConfig.bucket, key: fileName });
+
+        const s3Provider = new S3StorageProvider({
+            type: 's3',
+            bucket: storageConfig.bucket,
+            region: storageConfig.region || 'us-east-1',
+            accessKey: storageConfig.accessKey,
+            secretKey: storageConfig.secretKey
         });
+
+        await s3Provider.initialize();
+        return await s3Provider.uploadStream(stream, fileName);
+    } else {
+        const localPath = storageConfig.basePath || './backups';
+        const fs = require('fs');
         
-        inputStream.on('error', reject);
-        cipher.on('error', reject);
-        outputStream.on('error', reject);
-    });
+        if (!fs.existsSync(localPath)) {
+            fs.mkdirSync(localPath, { recursive: true });
+        }
+
+        const destPath = path.join(localPath, fileName);
+        const writeStream = fs.createWriteStream(destPath);
+
+        await pipeline(stream, writeStream);
+
+        const stats = fs.statSync(destPath);
+        log.info('Stream uploaded to local storage', { path: destPath, size: stats.size });
+
+        return {
+            path: destPath,
+            size: stats.size
+        };
+    }
 }
 
 app.get('/health', (req, res) => {
@@ -105,8 +194,6 @@ async function performBackup(
     options: any
 ): Promise<BackupResponse> {
     const startTime = Date.now();
-    let localBackupPath: string | null = null;
-    let encryptedPath: string | null = null;
     
     // Build mysqldump command
     let command = `mysqldump -h ${dbConfig.host} -P ${dbConfig.port || 3306} -u ${dbConfig.username}`;
@@ -126,24 +213,19 @@ async function performBackup(
     
     // Generate backup filename
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const baseFileName = `${dbConfig.database}_${timestamp}`;
     const extension = options.compress ? 'gz' : 'sql';
-    let backupFileName = `${dbConfig.database}_${timestamp}.${extension}`;
+    let finalFileName = `${baseFileName}.${extension}`;
     
+    // Get storage config
     const storageConfig = options.storage || { type: 'local', basePath: './backups' };
-    const localTempPath = appConfig.get('storage.tempPath') || './tmp';
-    localBackupPath = path.join(localTempPath, backupFileName);
-    
-    if (!existsSync(localTempPath)) {
-        mkdirSync(localTempPath, { recursive: true });
-    }
     
     // Handle encryption
     const isEncrypted = options.encrypt || false;
     let encryptionKey: string | null = null;
-    let encryptionMetadata: any = null;
-    let finalBackupPath = localBackupPath;
-    let finalFileName = backupFileName;
     let encryptionType: string | null = null;
+    let encryptionTransform: EncryptionTransform | null = null;
+    let encryptionMetadata: any = null;
     
     if (isEncrypted) {
         encryptionKey = options.encryptionKey || null;
@@ -153,51 +235,101 @@ async function performBackup(
         if (encryptionKey.length !== 64) {
             throw new Error('Encryption key must be 64 hexadecimal characters (32 bytes)');
         }
-        
         encryptionType = ALGORITHM;
-        const encryptedFileName = `${dbConfig.database}_${timestamp}_encrypted.enc`;
-        encryptedPath = path.join(localTempPath, encryptedFileName);
-        finalFileName = encryptedFileName;
-        finalBackupPath = encryptedPath;
+        finalFileName = `${baseFileName}_encrypted.enc`;
     }
     
-    const finalCommand = options.compress 
-        ? `${command} | gzip > "${localBackupPath}"`
-        : `${command} > "${localBackupPath}"`;
+    log.debug('Executing mysqldump', { backupId, command: command.substring(0, 200) + '...' });
     
-    log.debug('Executing mysqldump', { backupId });
+    // STREAMING PIPELINE: NO TEMPORARY FILES
     
+    // Step 1: Spawn mysqldump process
+    const mysqldump = spawn(command, {
+        shell: true,
+        env: { ...process.env },
+        stdio: ['ignore', 'pipe', 'pipe']
+    });
+    
+    // Create a PassThrough to capture errors
+    const errorPassthrough = new PassThrough();
+    let mysqldumpError: Error | null = null;
+    
+    mysqldump.on('error', (err) => {
+        mysqldumpError = err;
+        errorPassthrough.destroy(err);
+    });
+    
+    mysqldump.stderr.on('data', (data) => {
+        const msg = data.toString();
+        if (msg.includes('ERROR') || msg.includes('mysqldump:') || msg.includes('Got error')) {
+            const err = new Error(`mysqldump error: ${msg}`);
+            mysqldumpError = err;
+            errorPassthrough.destroy(err);
+        }
+        log.debug('mysqldump stderr', { backupId, msg: msg.substring(0, 200) });
+    });
+    
+    // Pipe stdout to errorPassthrough
+    mysqldump.stdout.pipe(errorPassthrough, { end: true });
+    mysqldump.stdout.on('error', (err) => {
+        if (!mysqldumpError) {
+            mysqldumpError = err;
+            errorPassthrough.destroy(err);
+        }
+    });
+    
+    // Step 2: Start building the pipeline
+    let currentStream: Readable = errorPassthrough;
+    
+    // Step 3: Compression (if enabled)
+    let compressStream = null;
+    if (options.compress) {
+        compressStream = createGzip();
+        currentStream = currentStream.pipe(compressStream);
+    }
+    
+    // Step 4: SHA-256 Checksum + Size Tracking
+    const checksumTransform = new ChecksumTransform();
+    currentStream = currentStream.pipe(checksumTransform);
+    
+    // Step 5: Encryption (if enabled)
+    if (isEncrypted && encryptionKey) {
+        encryptionTransform = new EncryptionTransform(encryptionKey);
+        currentStream = currentStream.pipe(encryptionTransform);
+    }
+    
+    // Step 6: Upload to Storage
     try {
-        await execAsync(finalCommand, {
-            maxBuffer: 50 * 1024 * 1024,
-            env: { ...process.env }
-        });
+        const uploadResult = await uploadStream(currentStream, storageConfig, finalFileName);
         
-        let stats = statSync(localBackupPath);
-        let fileSize = stats.size;
-        let checksum = await calculateChecksum(localBackupPath);
+        // Get checksum and size from the transform
+        const checksum = checksumTransform.getChecksum();
+        const fileSize = checksumTransform.getSize();
         
-        if (isEncrypted && encryptionKey) {
-            log.info('Encrypting backup', { backupId });
-            
-            const result = await encryptFile(localBackupPath, encryptedPath!, encryptionKey);
-            
-            encryptionMetadata = {
-                iv: result.iv,
-                tag: result.tag,
-                algorithm: ALGORITHM
-            };
-            
-            const encryptedStats = statSync(encryptedPath!);
-            fileSize = encryptedStats.size;
-            checksum = await calculateChecksum(encryptedPath!);
-            
-            log.info('Encryption completed', { backupId });
+        // Get encryption metadata if applicable
+        if (isEncrypted && encryptionTransform) {
+            const encMeta = encryptionTransform.getEncryptionMetadata();
+            if (encMeta.tag) {
+                encryptionMetadata = {
+                    iv: encMeta.iv,
+                    tag: encMeta.tag,
+                    algorithm: encMeta.algorithm
+                };
+            }
         }
         
+        // Build final path
         let finalPath: string;
-        let storageType: string;
-        let metadata: any = {
+        if (storageConfig.type === 's3') {
+            const prefix = storageConfig.prefix || '';
+            finalPath = `s3://${storageConfig.bucket}/${prefix ? prefix + '/' : ''}${finalFileName}`;
+        } else {
+            const localPath = storageConfig.basePath || './backups';
+            finalPath = path.join(localPath, finalFileName);
+        }
+        
+        // Build metadata
+        const metadata: any = {
             id: backupId,
             dbType: 'mysql',
             dbName: dbConfig.database,
@@ -208,83 +340,34 @@ async function performBackup(
             compression: options.compress ? 'gzip' : 'none',
             encrypted: isEncrypted,
             encryptionType: isEncrypted ? encryptionType : null,
-            encryptionMetadata: isEncrypted ? encryptionMetadata : null
+            encryptionMetadata: isEncrypted ? encryptionMetadata : null,
+            storage: {
+                name: storageConfig.name || (storageConfig.type === 's3' ? 's3-storage' : 'local-storage'),
+                type: storageConfig.type,
+                ...(storageConfig.type === 's3' && {
+                    bucket: storageConfig.bucket,
+                    region: storageConfig.region || 'us-east-1',
+                    key: finalFileName,
+                    etag: uploadResult.etag,
+                    versionId: uploadResult.versionId
+                }),
+                ...(storageConfig.type === 'local' && {
+                    path: storageConfig.basePath || './backups'
+                })
+            }
         };
-        
-        if (storageConfig.type === 's3') {
-            if (!storageConfig.bucket) {
-                throw new Error('S3 bucket is required for s3 storage type');
-            }
-            if (!storageConfig.accessKey || !storageConfig.secretKey) {
-                throw new Error('S3 accessKey and secretKey are required for s3 storage type');
-            }
-            
-            log.info('Uploading backup to S3', { backupId, bucket: storageConfig.bucket });
-            
-            const s3Provider = new S3StorageProvider({
-                type: 's3',
-                bucket: storageConfig.bucket,
-                region: storageConfig.region || 'us-east-1',
-                accessKey: storageConfig.accessKey,
-                secretKey: storageConfig.secretKey
-            });
-            
-            await s3Provider.initialize();
-            
-            const prefix = storageConfig.prefix || '';
-            const remotePath = prefix ? `${prefix}/${finalFileName}` : finalFileName;
-            
-            const uploadResult = await s3Provider.upload(finalBackupPath, remotePath);
-            
-            finalPath = `s3://${storageConfig.bucket}/${remotePath}`;
-            storageType = 's3';
-            
-            metadata.storage = {
-                name: storageConfig.name || 's3-storage',
-                type: 's3',
-                bucket: storageConfig.bucket,
-                region: storageConfig.region || 'us-east-1',
-                key: remotePath,
-                etag: uploadResult.etag,
-                versionId: uploadResult.versionId
-            };
-            
-            log.info('Upload to S3 completed', { backupId, remotePath });
-            
-        } else {
-            const localPath = storageConfig.basePath || options.outputPath || appConfig.get('storage.localPath');
-            if (!existsSync(localPath)) {
-                mkdirSync(localPath, { recursive: true });
-            }
-            
-            const destPath = path.join(localPath, finalFileName);
-            const fs = require('fs');
-            fs.copyFileSync(finalBackupPath, destPath);
-            
-            finalPath = destPath;
-            storageType = 'local';
-            
-            metadata.storage = {
-                name: storageConfig.name || 'local-storage',
-                type: 'local',
-                path: localPath
-            };
-        }
         
         const duration = (Date.now() - startTime) / 1000;
         
-        log.info('MySQL backup completed', { 
-            backupId, 
-            size: fileSize, 
-            duration, 
-            storageType,
+        log.info('MySQL backup completed', {
+            backupId,
+            size: fileSize,
+            duration,
+            storageType: storageConfig.type,
             encrypted: isEncrypted,
             checksum: checksum.substring(0, 16) + '...'
         });
         
-        // RETURN RESPONSE WITHOUT UPDATING DATABASE
-        // The orchestrator handles all BackupJob updates
-        //
         return {
             success: true,
             backupId,
@@ -300,27 +383,21 @@ async function performBackup(
         };
         
     } catch (error) {
+        // Destroy the stream to clean up resources
+        if (!currentStream.destroyed) {
+            currentStream.destroy();
+        }
+        
+        // Kill mysqldump if still running
+        try {
+            mysqldump.kill('SIGTERM');
+        } catch (e) {
+            // Ignore kill errors
+        }
+        
         const errorMessage = error instanceof Error ? error.message : String(error);
         log.error('MySQL backup execution failed', { backupId, error: errorMessage });
         throw new Error(`MySQL backup execution failed: ${errorMessage}`);
-        
-    } finally {
-        if (localBackupPath && existsSync(localBackupPath)) {
-            try {
-                unlinkSync(localBackupPath);
-                log.debug('Temporary file cleaned up', { path: localBackupPath });
-            } catch (cleanupError) {
-                log.warn('Failed to cleanup temp file', { path: localBackupPath, error: cleanupError });
-            }
-        }
-        if (encryptedPath && existsSync(encryptedPath) && encryptedPath !== localBackupPath) {
-            try {
-                unlinkSync(encryptedPath);
-                log.debug('Temporary encrypted file cleaned up', { path: encryptedPath });
-            } catch (cleanupError) {
-                log.warn('Failed to cleanup temp encrypted file', { path: encryptedPath, error: cleanupError });
-            }
-        }
     }
 }
 
