@@ -4,15 +4,26 @@ import { createModuleLogger } from '../logger';
 
 const log = createModuleLogger('queue-manager');
 
-// Redis connection
+// Redis Connection
+
 const connection = new IORedis({ // connects to redis server
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT || '6379'),
     password: process.env.REDIS_PASSWORD || undefined,
     maxRetriesPerRequest: null,
+    enableReadyCheck: false,
 });
 
-// Queue names
+connection.on('connect', () => {
+    log.info('Redis connected');
+});
+
+connection.on('error', (err) => {
+    log.error('Redis connection error', { error: err.message });
+});
+
+// Queue Names
+
 export const QUEUES = {
     BACKUP: process.env.BACKUP_QUEUE_NAME || 'backup-queue',
     STORAGE: process.env.STORAGE_QUEUE_NAME || 'storage-queue',
@@ -26,17 +37,17 @@ export function createBackupQueue() {
         connection: connection as any,
         defaultJobOptions: {
             attempts: parseInt(process.env.BACKUP_RETRY_ATTEMPTS || '3'),
-            backoff: { // retry once after 5's
+            backoff: {
                 type: 'exponential',
                 delay: parseInt(process.env.BACKUP_RETRY_DELAY || '5000'),
             },
-            removeOnComplete: { // after one hour keep only completed 100 jobs, remove old ones
+            removeOnComplete: {
                 age: 3600, // 1 hour
                 count: 100,
             },
-            removeOnFail: { // 
-                age: 86400, // remove after 24 hours
-            },
+            removeOnFail: {
+                age: 86400, // 24 hours
+            }
         },
     });
 }
@@ -56,7 +67,7 @@ export function createStorageQueue() {
             },
             removeOnFail: {
                 age: 86400,
-            },
+            }
         },
     });
 }
@@ -76,31 +87,43 @@ export function createNotificationQueue() {
             },
             removeOnFail: {
                 age: 86400,
-            },
+            }
         },
     });
 }
 
-// Job Progress Tracking 
+// Queue Events (for monitoring)
 
-export interface JobProgress {
-    status: 'pending' | 'running' | 'completed' | 'failed';
-    progress: number;
-    message?: string;
-    data?: any;
+export function createQueueEvents(queueName: string) {
+    const queueEvents = new QueueEvents(queueName, { connection: connection as any, });
+    
+    queueEvents.on('completed', ({ jobId }) => {
+        log.info(`Job ${jobId} completed`, { queue: queueName });
+    });
+    
+    queueEvents.on('failed', ({ jobId, failedReason }) => {
+        log.error(`Job ${jobId} failed`, { queue: queueName, error: failedReason });
+    });
+    
+    queueEvents.on('progress', ({ jobId, data }) => {
+        log.debug(`Job ${jobId} progress`, { queue: queueName, progress: data });
+    });
+    
+    queueEvents.on('stalled', ({ jobId }) => {
+        log.warn(`Job ${jobId} stalled`, { queue: queueName });
+    });
+    
+    return queueEvents;
 }
 
-export async function updateJobProgress(jobId: string, progress: JobProgress) {
-    // Store progress in Redis or database
-    // This can be retrieved by the status endpoint
-}
+// Worker Registration
 
-// Worker Registration 
-
-export function registerBackupWorker(processor: (job: Job) => Promise<any>) { // processor is a backup function (async job => await backupDatabase(job.data))
+export function registerBackupWorker(processor: (job: Job) => Promise<any>) {
     const worker = new Worker(QUEUES.BACKUP, processor, {
         connection: connection as any,
-        concurrency: parseInt(process.env.MAX_CONCURRENT_BACKUPS || '3'), // controls how many jobs this single worker can process at the same time.
+        concurrency: parseInt(process.env.MAX_CONCURRENT_BACKUPS || '3'),
+        lockDuration: 60000, // 1 minute lock
+        stalledInterval: 30000, // 30 seconds
     });
 
     worker.on('completed', (job) => {
@@ -115,6 +138,10 @@ export function registerBackupWorker(processor: (job: Job) => Promise<any>) { //
         log.debug(`Backup job progress`, { jobId: job.id, progress });
     });
 
+    worker.on('stalled', (jobId) => {
+        log.warn(`Backup job stalled`, { jobId });
+    });
+
     return worker;
 }
 
@@ -122,6 +149,8 @@ export function registerStorageWorker(processor: (job: Job) => Promise<any>) {
     const worker = new Worker(QUEUES.STORAGE, processor, {
         connection: connection as any,
         concurrency: parseInt(process.env.MAX_CONCURRENT_STORAGE || '5'),
+        lockDuration: 30000,
+        stalledInterval: 30000,
     });
 
     worker.on('completed', (job) => {
@@ -139,6 +168,7 @@ export function registerNotificationWorker(processor: (job: Job) => Promise<any>
     const worker = new Worker(QUEUES.NOTIFICATION, processor, {
         connection: connection as any,
         concurrency: 10,
+        lockDuration: 10000,
     });
 
     worker.on('completed', (job) => {
@@ -150,6 +180,31 @@ export function registerNotificationWorker(processor: (job: Job) => Promise<any>
     });
 
     return worker;
+}
+
+// Graceful Shutdown
+
+export async function closeAllQueues() {
+    log.info('Closing all queues...');
+    
+    const queues = [
+        QUEUES.BACKUP,
+        QUEUES.STORAGE,
+        QUEUES.NOTIFICATION,
+    ];
+    
+    for (const queueName of queues) {
+        try {
+            const queue = new Queue(queueName, { connection: connection as any,});
+            await queue.close();
+            log.info(`Queue ${queueName} closed`);
+        } catch (error) {
+            log.error(`Failed to close queue ${queueName}`, { error });
+        }
+    }
+    
+    await connection.quit();
+    log.info('Redis connection closed');
 }
 
 export { connection };
