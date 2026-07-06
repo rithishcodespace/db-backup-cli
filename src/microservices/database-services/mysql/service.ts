@@ -13,6 +13,7 @@ import { config as appConfig } from '../../../config';
 import { S3StorageProvider } from '../../storage-service/providers/s3';
 import { LocalStorageProvider } from '../../storage-service/providers/local';
 import path from 'path';
+import { createWriteStream } from 'fs';
 
 const log = createModuleLogger('mysql-backup-service');
 
@@ -23,11 +24,11 @@ const SERVICE_PORT = process.env.MYSQL_SERVICE_PORT || 3011;
 const SERVICE_NAME = 'mysql-backup-service';
 const startTime = Date.now();
 
-// Encryption Constants 
+// ==================== Encryption Constants ====================
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 16;
 
-// Custom Transform: SHA-256 Checksum 
+// ==================== Custom Transform: SHA-256 Checksum ====================
 class ChecksumTransform extends Transform {
     private hash = createHash('sha256');
     private size = 0;
@@ -47,7 +48,7 @@ class ChecksumTransform extends Transform {
     }
 }
 
-// Custom Transform: AES-256-GCM Encryption 
+// ==================== Custom Transform: AES-256-GCM Encryption ====================
 class EncryptionTransform extends Transform {
     private cipher: any;
     private iv: Buffer;
@@ -97,62 +98,6 @@ class EncryptionTransform extends Transform {
             iv: this.iv.toString('base64'),
             tag: this.tag ? this.tag.toString('base64') : null,
             algorithm: ALGORITHM
-        };
-    }
-}
-
-// Storage Upload Stream Handler 
-interface UploadResult {
-    path: string;
-    size?: number;
-    etag?: string;
-    versionId?: string;
-}
-
-async function uploadStream(
-    stream: Readable,
-    storageConfig: any,
-    fileName: string
-): Promise<UploadResult> {
-    if (storageConfig.type === 's3') {
-        if (!storageConfig.bucket) {
-            throw new Error('S3 bucket is required for s3 storage type');
-        }
-        if (!storageConfig.accessKey || !storageConfig.secretKey) {
-            throw new Error('S3 accessKey and secretKey are required for s3 storage type');
-        }
-
-        log.info('Uploading stream to S3', { bucket: storageConfig.bucket, key: fileName });
-
-        const s3Provider = new S3StorageProvider({
-            type: 's3',
-            bucket: storageConfig.bucket,
-            region: storageConfig.region || 'us-east-1',
-            accessKey: storageConfig.accessKey,
-            secretKey: storageConfig.secretKey
-        });
-
-        await s3Provider.initialize();
-        return await s3Provider.uploadStream(stream, fileName);
-    } else {
-        const localPath = storageConfig.basePath || './backups';
-        const fs = require('fs');
-        
-        if (!fs.existsSync(localPath)) {
-            fs.mkdirSync(localPath, { recursive: true });
-        }
-
-        const destPath = path.join(localPath, fileName);
-        const writeStream = fs.createWriteStream(destPath);
-
-        await pipeline(stream, writeStream);
-
-        const stats = fs.statSync(destPath);
-        log.info('Stream uploaded to local storage', { path: destPath, size: stats.size });
-
-        return {
-            path: destPath,
-            size: stats.size
         };
     }
 }
@@ -241,7 +186,9 @@ async function performBackup(
     
     log.debug('Executing mysqldump', { backupId, command: command.substring(0, 200) + '...' });
     
+    // ============================================================
     // STREAMING PIPELINE: NO TEMPORARY FILES
+    // ============================================================
     
     // Step 1: Spawn mysqldump process
     const mysqldump = spawn(command, {
@@ -300,7 +247,49 @@ async function performBackup(
     
     // Step 6: Upload to Storage
     try {
-        const uploadResult = await uploadStream(currentStream, storageConfig, finalFileName);
+        let uploadResult;
+        
+        if (storageConfig.type === 's3') {
+            if (!storageConfig.bucket) {
+                throw new Error('S3 bucket is required for s3 storage type');
+            }
+            if (!storageConfig.accessKey || !storageConfig.secretKey) {
+                throw new Error('S3 accessKey and secretKey are required for s3 storage type');
+            }
+
+            log.info('Uploading stream to S3', { bucket: storageConfig.bucket, key: finalFileName });
+
+            const s3Provider = new S3StorageProvider({
+                type: 's3',
+                bucket: storageConfig.bucket,
+                region: storageConfig.region || 'us-east-1',
+                accessKey: storageConfig.accessKey,
+                secretKey: storageConfig.secretKey
+            });
+
+            await s3Provider.initialize();
+            uploadResult = await s3Provider.uploadStream(currentStream, finalFileName);
+        } else {
+            const localPath = storageConfig.basePath || './backups';
+            const fs = require('fs');
+            
+            if (!fs.existsSync(localPath)) {
+                fs.mkdirSync(localPath, { recursive: true });
+            }
+
+            const destPath = path.join(localPath, finalFileName);
+            const writeStream = fs.createWriteStream(destPath);
+
+            await pipeline(currentStream, writeStream);
+
+            const stats = fs.statSync(destPath);
+            log.info('Stream uploaded to local storage', { path: destPath, size: stats.size });
+
+            uploadResult = {
+                path: destPath,
+                size: stats.size
+            };
+        }
         
         // Get checksum and size from the transform
         const checksum = checksumTransform.getChecksum();
