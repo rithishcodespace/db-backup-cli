@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { prisma } from "../../lib/prisma";
 import { createModuleLogger } from '../../logger';
 import { BackupRequest, BackupResponse, BackupStatus } from '../shared/types';
+import { createBackupQueue, createStorageQueue, createNotificationQueue } from '../../lib/queue-manager';
 
 const app = express();
 app.use(express.json());
@@ -14,13 +15,27 @@ const SERVICE_PORT = process.env.ORCHESTRATOR_PORT || 3001;
 const SERVICE_NAME = 'backup-orchestrator';
 const startTime = Date.now();
 
-// Service registry (in production, use Consul/etcd)
+// Service registry 
 const serviceRegistry = {
   postgresql: process.env.POSTGRES_SERVICE_URL || 'http://localhost:3010',
   mysql: process.env.MYSQL_SERVICE_URL || 'http://localhost:3011',
   mongodb: process.env.MONGODB_SERVICE_URL || 'http://localhost:3012',
   sqlite: process.env.SQLITE_SERVICE_URL || 'http://localhost:3013'
 };
+
+// Queue instances (lazy loaded)
+let backupQueue: any = null;
+let storageQueue: any = null;
+let notificationQueue: any = null;
+
+async function getQueues() {
+  if (!backupQueue) {
+    backupQueue = createBackupQueue();
+    storageQueue = createStorageQueue();
+    notificationQueue = createNotificationQueue();
+  }
+  return { backupQueue, storageQueue, notificationQueue };
+}
 
 app.get('/health', (req, res) => {
   res.json({
@@ -108,11 +123,9 @@ app.post('/backup', async (req, res) => {
         }
       }
     }
-    
-    // ============================================================
-    // CREATE BackupJob record with RUNNING status (Single Owner)
-    // ============================================================
-    const backupJob = await prisma.backupJob.create({
+
+    // CREATE BackupJob record with RUNNING status
+    await prisma.backupJob.create({
       data: {
         id: backupId,
         dbType: dbConfig.type,
@@ -133,62 +146,40 @@ app.post('/backup', async (req, res) => {
     
     log.info('Backup job created', { backupId, status: BackupStatus.RUNNING });
     
-    // ============================================================
-    // Forward request to database service
-    // ============================================================
-    const serviceUrl = serviceRegistry[dbType];
-    const response = await axios.post(`${serviceUrl}/backup`, {
+    // ADD JOB TO QUEUE INSTEAD OF DIRECT CALL
+    const { backupQueue: queue } = await getQueues();
+    
+    await queue.add('backup', { // backup is the name of job
+      backupId,
       dbConfig,
       backupType,
       options: {
         ...options,
-        backupId: backupId // Pass backupId for reference
+        backupId,
+        storageLocationId,
+        storage: storageConfig
       }
+    }, {
+      jobId: backupId, // Use backupId as jobId for tracking
     });
     
-    const result: BackupResponse = response.data;
+    log.info('Backup job queued', { backupId });
     
+    // RETURN QUEUED RESPONSE IMMEDIATELY
 
-    // UPDATE BackupJob to SUCCESS (Single Owner)
-    if (result.success) {
-      await prisma.backupJob.update({
-        where: { id: backupId },
-        data: {
-          status: BackupStatus.SUCCESS,
-          filePath: result.filePath,
-          fileSize: result.fileSize,
-          duration: result.duration,
-          completedAt: new Date(),
-          fileName: backupName || result.fileName,
-          checksum: result.checksum,
-          encrypted: result.encrypted,
-          encryptionType: result.encryptionType,
-          encryptionMetadata: result.encryptionMetadata,
-          metadata: JSON.stringify({
-            ...result.metadata,
-            backupName: backupName,
-            storageLocationId: storageLocationId,
-            requestedAt: new Date().toISOString(),
-            completedAt: new Date().toISOString()
-          })
-        }
-      });
-      
-      log.info('Backup orchestration completed', { 
-        backupId, 
-        duration: result.duration,
-        storageLocationId,
-        status: BackupStatus.SUCCESS
-      });
-      res.json(result);
-    } else {
-      throw new Error(result.error || 'Backup failed with unknown error');
-    }
+    res.json({
+      success: true,
+      backupId,
+      queued: true,
+      status: 'queued',
+      message: 'Backup has been queued and will be processed shortly',
+      statusUrl: `/backup/${backupId}/status`
+    });
     
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-
-    // UPDATE BackupJob to FAILED on error (Single Owner)
+    
+    // UPDATE BackupJob to FAILED on error
     try {
       await prisma.backupJob.update({
         where: { id: backupId },
@@ -215,34 +206,144 @@ app.post('/backup', async (req, res) => {
 app.get('/backup/:id/status', async (req, res) => {
   const { id } = req.params;
   
-  const job = await prisma.backupJob.findUnique({
-    where: { id },
-    include: {
-      storageLocation: true
+  try {
+    // Get job from database
+    const job = await prisma.backupJob.findUnique({
+      where: { id },
+      include: {
+        storageLocation: true
+      }
+    });
+    
+    if (!job) {
+      res.status(404).json({ error: 'Backup job not found' });
+      return;
     }
-  });
-  
-  if (!job) {
-    res.status(404).json({ error: 'Backup job not found' });
-    return;
+    
+    // Get queue status if job is still in queue
+    let queueStatus = null;
+    try {
+      const { backupQueue: queue } = await getQueues();
+      const queueJob = await queue.getJob(id);
+      if (queueJob) {
+        const state = await queueJob.getState();
+        queueStatus = {
+          state: state,
+          progress: queueJob.progress,
+          attempts: queueJob.attemptsMade,
+          maxAttempts: queueJob.opts.attempts,
+        };
+      }
+    } catch (e) {
+      // Ignore queue errors
+    }
+    
+    res.json({
+      id: job.id,
+      status: job.status,
+      progress: job.status === BackupStatus.RUNNING ? 50 : 100,
+      filePath: job.filePath,
+      fileSize: job.fileSize,
+      duration: job.duration,
+      error: job.error,
+      createdAt: job.startedAt,
+      completedAt: job.completedAt,
+      backupName: job.fileName || 'N/A',
+      storage: job.storageLocation ? {
+        name: job.storageLocation.name,
+        type: job.storageLocation.type
+      } : null,
+      queueStatus
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error('Failed to get backup status', { backupId: id, error: errorMessage });
+    res.status(500).json({
+      error: 'Failed to get backup status',
+      message: errorMessage
+    });
   }
+});
+
+app.delete('/backup/:id', async (req, res) => {
+  const { id } = req.params;
   
-  res.json({
-    id: job.id,
-    status: job.status,
-    progress: job.status === BackupStatus.RUNNING ? 50 : 100,
-    filePath: job.filePath,
-    fileSize: job.fileSize,
-    duration: job.duration,
-    error: job.error,
-    createdAt: job.startedAt,
-    completedAt: job.completedAt,
-    backupName: job.fileName || 'N/A',
-    storage: job.storageLocation ? {
-      name: job.storageLocation.name,
-      type: job.storageLocation.type
-    } : null
-  });
+  try {
+    // Check if job exists
+    const job = await prisma.backupJob.findUnique({
+      where: { id }
+    });
+    
+    if (!job) {
+      res.status(404).json({ error: 'Backup job not found' });
+      return;
+    }
+    
+    // Remove from queue if still pending
+    try {
+      const { backupQueue: queue } = await getQueues();
+      const queueJob = await queue.getJob(id);
+      if (queueJob) {
+        await queueJob.remove();
+        log.info('Removed job from queue', { backupId: id });
+      }
+    } catch (e) {
+      // Ignore queue errors
+    }
+    
+    // Update status to cancelled
+    await prisma.backupJob.update({
+      where: { id },
+      data: {
+        status: 'cancelled',
+        completedAt: new Date()
+      }
+    });
+    
+    res.json({
+      success: true,
+      message: 'Backup job cancelled'
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error('Failed to cancel backup', { backupId: id, error: errorMessage });
+    res.status(500).json({
+      error: 'Failed to cancel backup',
+      message: errorMessage
+    });
+  }
+});
+
+app.get('/queue/stats', async (req, res) => {
+  try {
+    const { backupQueue: queue } = await getQueues();
+    
+    const [waiting, active, completed, failed, delayed] = await Promise.all([
+      queue.getWaitingCount(),
+      queue.getActiveCount(),
+      queue.getCompletedCount(),
+      queue.getFailedCount(),
+      queue.getDelayedCount(),
+    ]);
+    
+    res.json({
+      queue: 'backup-queue',
+      stats: {
+        waiting,
+        active,
+        completed,
+        failed,
+        delayed,
+        total: waiting + active + completed + failed + delayed,
+      },
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    res.status(500).json({
+      error: 'Failed to get queue stats',
+      message: errorMessage
+    });
+  }
 });
 
 app.listen(SERVICE_PORT, () => {
