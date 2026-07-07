@@ -6,7 +6,7 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${BLUE}     Starting Database Backup Microservices - Phase 4${NC}"
+echo -e "${BLUE}     Starting Database Backup Microservices with BullMQ${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 
 # Check if PM2 is installed
@@ -18,7 +18,9 @@ fi
 # Create necessary directories
 mkdir -p logs backups/local tmp
 
-# Start all services
+echo -e "${GREEN}Starting BullMQ Workers...${NC}"
+pm2 start dist/src/index.js --name backup-workers -- --worker
+
 echo -e "${GREEN}Starting API Gateway...${NC}"
 pm2 start dist/src/microservices/gateway/index.js --name api-gateway -- --port 3000
 
@@ -41,7 +43,7 @@ pm2 start dist/src/microservices/database-services/mongodb/service.js --name mon
 pm2 start dist/src/microservices/database-services/sqlite/service.js --name sqlite-backup -- --port 3013
 
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}✓ All Phase 4 services started!${NC}"
+echo -e "${GREEN}✓ All services and workers started!${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
 echo ""
 echo -e "${YELLOW}Service URLs:${NC}"
@@ -55,14 +57,13 @@ echo "  MySQL:             http://localhost:3011"
 echo "  MongoDB:           http://localhost:3012"
 echo "  SQLite:            http://localhost:3013"
 echo ""
-echo -e "${YELLOW}New Phase 4 Commands:${NC}"
-echo "  db-backup schedule --cron '0 2 * * *' --type full"
-echo "  db-backup schedule:list"
-echo "  db-backup restore --id <backup-id> --drop-existing"
-echo "  db-backup backup --storage s3 --retention 30"
+echo -e "${YELLOW}BullMQ Workers:${NC}"
+echo "  Backup Worker      (processes backup jobs)"
+echo "  Storage Worker     (uploads to S3/local)"
+echo "  Notification Worker (sends Slack/Email)"
 echo ""
 echo -e "${YELLOW}PM2 Commands:${NC}"
-echo "  View logs:    pm2 logs"
+echo "  View logs:    pm2 logs backup-workers"
 echo "  Stop all:     pm2 stop all"
 echo "  Restart all:  pm2 restart all"
 echo "  Monitor:      pm2 monit"
