@@ -218,7 +218,8 @@
     "docker:build": "docker-compose build",
     "test:services": "node tests/test-microservices.js",
     "test:all": "npm run test:services",
-    "test:phase4": "node tests/test-phase4.js"
+    "test:phase4": "node tests/test-phase4.js",
+    "worker": "node dist/src/index.js --worker"
   },
   "repository": {
     "type": "git",
