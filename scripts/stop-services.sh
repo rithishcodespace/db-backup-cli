@@ -1,11 +1,16 @@
-# Windows PowerShell script for stopping services
+#!/bin/bash
 
-Write-Host "Stopping all microservices and workers..." -ForegroundColor Yellow
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo -e "${YELLOW}Stopping all microservices and workers...${NC}"
 
 # Stop all PM2 processes
 pm2 stop all
 
-# Remove all PM2 processes from list
+# Remove all PM2 processes
 pm2 delete all
 
-Write-Host "✓ All services and workers stopped" -ForegroundColor Green
+echo -e "${GREEN}✓ All services and workers stopped${NC}"

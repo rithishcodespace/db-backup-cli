@@ -16,7 +16,8 @@ import { registerKeyCommand } from './commands/key';
   const program = new Command();
 
 // WORKER MODE: Start BullMQ workers
-if (process.env.RUN_WORKER === 'true' || process.argv.includes('--worker')) {
+console.log(process.argv);
+if (process.argv.includes('--worker')) {
   console.log(chalk.blue('\n Starting BullMQ workers...'));
   console.log(chalk.dim('  • Backup Worker (processing backup jobs)'));
   console.log(chalk.dim('  • Storage Worker (uploading to S3/local)'));
