@@ -1,7 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+import { RateLimiterRedis } from 'rate-limiter-flexible'; // general purpose rate limiter engine works with redis, postgresql, etc 
+import {connection} from "../../lib/queue-manager"; // reuse the connection created for bullmq
 import axios from 'axios';
 import { createModuleLogger } from '../../logger';
 
@@ -16,12 +17,34 @@ app.use(helmet()); // prevents xss attacks
 app.use(cors());
 app.use(express.json());
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
+// Rate limiting - create instance of rate limiter engine
+const rateLimiter = new RateLimiterRedis({
+    storeClient: redis,
+
+    points: 100, // 100's seconds
+
+    duration: 60, // time window
+
+    keyPrefix: 'gateway_rate_limit',
 });
-app.use('/api/', limiter); // apply to all api's with /api
+
+// creating my own middleware
+const rateLimitMiddleware = async = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  try{
+    const apiKey = req.header('x-api-key') || req.ip;
+    await rateLimiter.consume(apiKey);
+    next();
+  }
+  catch{
+    return res.status(429).json({
+      success: false,
+      error: "Too many requests",
+      message: "Rate limit exceeded. Try again later."
+    });
+  }
+}
+
+app.use('/api/', rateLimitMiddleware); // apply to all api's with /api
 
 // Health check
 app.get('/health', (req, res) => {
