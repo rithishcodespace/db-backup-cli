@@ -11,20 +11,30 @@ export const httpClient = axios.create({
     }
 });
 
-// Add request interceptor to include Client ID
+// Request interceptor: Adds Client ID to every request
 httpClient.interceptors.request.use((config) => {
-    const clientId = getClientId();
+    const clientId = getClientId();  // ← Uses the singleton
     config.headers['x-client-id'] = clientId;
+    
+    // Optional: Add for debugging
+    if (process.env.DEBUG === 'true') {
+        console.log(`[HTTP] Request to ${config.url} with client-id: ${clientId.substring(0, 8)}...`);
+    }
+    
     return config;
 });
 
-// Add response interceptor for logging
+// Response interceptor: Handles rate limiting errors
 httpClient.interceptors.response.use(
     (response) => response,
     (error) => {
         if (axios.isAxiosError(error) && error.response?.status === 429) {
             console.error('\n⚠️ Rate limit exceeded. Please wait and try again.');
-            console.error(`   Retry after: ${error.response.headers['retry-after'] || 'some time'}\n`);
+            
+            const retryAfter = error.response.headers['retry-after'] || 
+                              error.response.headers['x-ratelimit-reset'] || 
+                              'some time';
+            console.error(`   Retry after: ${retryAfter} seconds\n`);
         }
         return Promise.reject(error);
     }
