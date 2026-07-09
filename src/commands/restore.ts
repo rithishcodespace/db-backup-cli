@@ -14,6 +14,7 @@ import path from 'path';
 import os from 'os';
 import { S3Client, GetObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
 import { createHash, createDecipheriv } from 'crypto';
+import httpClient from '../utils/http-client';
 import { keyManager } from '../lib/key-manager';
 
 const streamPipeline = promisify(pipeline);

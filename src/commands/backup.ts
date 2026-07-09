@@ -8,6 +8,7 @@ import { createModuleLogger } from '../logger';
 import { config } from '../config';
 import { prisma } from "../lib/prisma";
 import { keyManager } from '../lib/key-manager';
+import httpClient from '../utils/http-client';
 import crypto from 'crypto';
 
 const log = createModuleLogger('backup-command');
@@ -202,7 +203,7 @@ export function registerBackupCommand(program: Command): void {
           storeKey
         });
         
-        const response = await axios.post(`${GATEWAY_URL}/api/backup`, backupRequest);
+        const response = await httpClient.post(`${GATEWAY_URL}/api/backup`, backupRequest);
         
         if (response.data.success) {
           const backupId = response.data.backupId;

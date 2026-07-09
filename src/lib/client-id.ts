@@ -12,37 +12,87 @@ export interface ClientConfig {
     lastUpdated: string;
 }
 
-export function getClientId(): string {
-    // Ensure config directory exists
-    if (!fs.existsSync(CONFIG_DIR)) {
-        fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+export class ClientIdManager {
+    private static instance: ClientIdManager;
+    private config: ClientConfig | null = null;
+
+    private constructor() {
+        this.ensureConfigDirectory();
+        this.loadOrCreateConfig();
     }
-    
-    // If config file exists, read it
-    if (fs.existsSync(CONFIG_FILE)) {
-        try {
-            const data = fs.readFileSync(CONFIG_FILE, 'utf-8');
-            const config = JSON.parse(data);
-            if (config.clientId) {
-                return config.clientId;
-            }
-        } catch (error) {
-            console.warn('Failed to read client config, generating new ID');
+
+    public static getInstance(): ClientIdManager {
+        if (!ClientIdManager.instance) {
+            ClientIdManager.instance = new ClientIdManager();
+        }
+        return ClientIdManager.instance;
+    }
+
+    private ensureConfigDirectory(): void {
+        if (!fs.existsSync(CONFIG_DIR)) {
+            fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
         }
     }
-    
-    // Generate new client ID
-    const clientId = uuidv4();
-    const config: ClientConfig = {
-        clientId,
-        createdAt: new Date().toISOString(),
-        lastUpdated: new Date().toISOString()
-    };
-    
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), { mode: 0o600 });
-    
-    console.log(`\n🔑 Client ID generated: ${clientId}`);
-    console.log(`   Stored in: ${CONFIG_FILE}\n`);
-    
-    return clientId;
+
+    private loadOrCreateConfig(): void {
+        if (fs.existsSync(CONFIG_FILE)) {
+            try {
+                const data = fs.readFileSync(CONFIG_FILE, 'utf-8');
+                this.config = JSON.parse(data);
+                
+                // Validate config has clientId
+                if (!this.config?.clientId) {
+                    this.createNewConfig();
+                }
+            } catch (error) {
+                // Config file is corrupted, create new one
+                this.createNewConfig();
+            }
+        } else {
+            this.createNewConfig();
+        }
+    }
+
+    private createNewConfig(): void {
+        const clientId = uuidv4();
+        
+        this.config = {
+            clientId: clientId,
+            createdAt: new Date().toISOString(),
+            lastUpdated: new Date().toISOString()
+        };
+        
+        this.saveConfig();
+        
+        // Only log on first creation (not on every load)
+        console.log(`\n🔑 Client ID generated: ${clientId}`);
+        console.log(`   Stored in: ${CONFIG_FILE}\n`);
+    }
+
+    private saveConfig(): void {
+        if (!this.config) return;
+        
+        this.config.lastUpdated = new Date().toISOString();
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2), { mode: 0o600 });
+    }
+
+    public getClientId(): string {
+        return this.config?.clientId || '';
+    }
+
+    public getConfig(): ClientConfig | null {
+        return this.config;
+    }
+
+    public resetConfig(): void {
+        this.createNewConfig();
+    }
+}
+
+// Singleton instance for easy import
+export const clientIdManager = ClientIdManager.getInstance();
+
+// Simple function for backward compatibility
+export function getClientId(): string {
+    return clientIdManager.getClientId();
 }

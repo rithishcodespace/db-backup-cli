@@ -5,6 +5,7 @@ import axios from 'axios';
 import { createModuleLogger } from '../logger';
 import { config } from '../config';
 import { prisma } from "../lib/prisma";
+import httpClient from '../utils/http-client';
 
 const log = createModuleLogger('schedule-command');
 
@@ -215,7 +216,7 @@ export function registerScheduleCommand(program: Command): void {
         
         spinner.text = 'Sending schedule request...';
         
-        const response = await axios.post(`${SCHEDULER_URL}/api/schedule`, scheduleConfig);
+        const response = await httpClient.post(`${SCHEDULER_URL}/api/schedule`, scheduleConfig);
         
         if (response.data.success) {
           spinner.succeed(chalk.green('Backup schedule created!'));
@@ -275,7 +276,7 @@ export function registerScheduleListCommand(program: Command): void {
     .description('List all scheduled backups')
     .action(async () => {
       try {
-        const response = await axios.get(`${SCHEDULER_URL}/api/schedule`);
+        const response = await httpClient.get(`${SCHEDULER_URL}/api/schedule`);
         
         if (!response.data.success || response.data.schedules.length === 0) {
           console.log(chalk.yellow('\n📭 No schedules found'));

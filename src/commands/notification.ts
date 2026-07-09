@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import { createModuleLogger } from '../logger';
 import nodemailer from 'nodemailer';
 import axios from 'axios';
+import httpClient from '../utils/http-client';
 
 const log = createModuleLogger('notification-command');
 
@@ -403,7 +404,7 @@ Sent at: ${new Date().toISOString()}
 
         spinner.text = 'Testing Slack webhook...';
 
-        await axios.post(config.webhook, {
+        await httpClient.post(config.webhook, {
           text: '🔔 DB Backup CLI notification configured successfully.'
         });
 
@@ -454,7 +455,7 @@ Sent at: ${new Date().toISOString()}
 
         spinner.text = 'Sending test notification...';
 
-        await axios.post(config.webhook, {
+        await httpClient.post(config.webhook, {
           text: '📬 This is a test notification from DB Backup CLI.',
           attachments: [
             {
