@@ -3,7 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import { RateLimiterRedis } from 'rate-limiter-flexible';
 import { connection } from '../../lib/queue-manager';
-import { clientIdManager } from '../../lib/client-id-manager';
+import { clientIdManager } from '../../lib/client-id'; 
 import axios from 'axios';
 import { createModuleLogger } from '../../logger';
 

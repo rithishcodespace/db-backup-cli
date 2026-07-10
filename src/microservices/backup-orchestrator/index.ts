@@ -124,6 +124,23 @@ app.post('/backup', async (req, res) => {
       }
     }
 
+    const { backupQueue: queue } = await getQueues();
+
+    const MAX_QUEUE_SIZE =
+        parseInt(process.env.MAX_QUEUE_SIZE || "50");
+
+    const waitingJobs = await queue.getWaitingCount();
+
+    // Waiting queue limit
+    if (waitingJobs >= MAX_QUEUE_SIZE) {
+        return res.status(429).json({
+            success: false,
+            error: "Backup queue is full.",
+            queueSize: waitingJobs,
+            maxQueueSize: MAX_QUEUE_SIZE
+        });
+    }
+
     // CREATE BackupJob record with RUNNING status
     await prisma.backupJob.create({
       data: {
@@ -147,7 +164,6 @@ app.post('/backup', async (req, res) => {
     log.info('Backup job created', { backupId, status: BackupStatus.RUNNING });
     
     // ADD JOB TO QUEUE INSTEAD OF DIRECT CALL
-    const { backupQueue: queue } = await getQueues();
     
     await queue.add('backup', { // backup is the name of job
       backupId,
