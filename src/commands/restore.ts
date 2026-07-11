@@ -1,5 +1,3 @@
-// src/commands/restore.ts
-
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
@@ -16,14 +14,16 @@ import { S3Client, GetObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s
 import { createHash, createDecipheriv } from 'crypto';
 import httpClient from '../utils/http-client';
 import { keyManager } from '../lib/key-manager';
+import { connection } from '../lib/queue-manager';
+import { DistributedLock } from '../lib/distributed-lock';
 
 const streamPipeline = promisify(pipeline);
 const log = createModuleLogger('restore-command');
-
-// ==================== Encryption Constants ====================
 const ALGORITHM = 'aes-256-gcm';
 
-// ==================== Types ====================
+// Lock TTL - configurable via environment variable only
+// Default: 1 hour (3600 seconds)
+const LOCK_TTL = parseInt(process.env.RESTORE_LOCK_TTL || '3600', 10);
 
 interface StorageLocation {
     id: string;
@@ -37,8 +37,7 @@ interface StorageLocation {
     config: any;
 }
 
-// ==================== Helper: Calculate Checksum ====================
-
+// Calculate Checksum 
 async function calculateChecksum(filePath: string): Promise<string> {
     return new Promise((resolve, reject) => {
         const hash = createHash('sha256');
@@ -50,8 +49,7 @@ async function calculateChecksum(filePath: string): Promise<string> {
     });
 }
 
-// ==================== Helper: Decrypt File ====================
-
+// Decrypt File 
 async function decryptFile(inputPath: string, outputPath: string, key: string, ivBase64: string, tagBase64: string): Promise<void> {
     const keyBuffer = Buffer.from(key, 'hex');
     const iv = Buffer.from(ivBase64, 'base64');
@@ -73,25 +71,20 @@ async function decryptFile(inputPath: string, outputPath: string, key: string, i
     });
 }
 
-// ==================== Helper: Detect Gzip by Magic Bytes ====================
-
+// Detect Gzip by Magic Bytes
 function isGzipFile(filePath: string): boolean {
     try {
         const fd = openSync(filePath, 'r');
-
         const header = Buffer.alloc(2);
         readSync(fd, header, 0, 2, 0);
-
         closeSync(fd);
-
         return header[0] === 0x1f && header[1] === 0x8b;
     } catch {
         return false;
     }
 }
 
-// ==================== Helper: Prepare Restore File ====================
-
+// Prepare Restore File 
 interface PrepareRestoreResult {
     restoreFile: string;
     tempDecompressedFile: string | null;
@@ -106,7 +99,6 @@ async function prepareRestoreFile(filePath: string): Promise<PrepareRestoreResul
         console.log(chalk.dim(`\n🔄 Detected gzip compressed file (magic: 1F 8B)`));
         
         const tempDir = path.dirname(filePath);
-
         const decompressedFile = path.join(
             tempDir,
             `decompressed_${path.basename(filePath)}`
@@ -135,8 +127,7 @@ async function prepareRestoreFile(filePath: string): Promise<PrepareRestoreResul
     };
 }
 
-// ==================== S3 Helper Functions ====================
-
+// S3 Helper Functions 
 function isS3Path(filePath: string): boolean {
     return filePath.startsWith('s3://');
 }
@@ -319,8 +310,12 @@ function cleanupTempFile(filePath: string): void {
     }
 }
 
-// ==================== Main Restore Command ====================
+// Helper to get database identifier for lock
+function getDatabaseIdentifier(dbConfig: any): string {
+    return `${dbConfig.type}:${dbConfig.host}:${dbConfig.database}`;
+}
 
+// Main Restore Command 
 export function registerRestoreCommand(program: Command): void {
     program
         .command('restore')
@@ -338,14 +333,36 @@ export function registerRestoreCommand(program: Command): void {
             let tempDownloadedFile: string | null = null;
             let decryptedFile: string | null = null;
             let decompressedFile: string | null = null;
+            let lock: DistributedLock | null = null;
+            let lockAcquired = false;
+            let dbConfig: any = null;
             
             try {
-                const dbConfig = config.get('database');
+                dbConfig = config.get('database');
                 if (!dbConfig) {
                     spinner.fail('No database configuration found');
                     console.error(chalk.red('\n✗ Please run "db-backup connect" first'));
                     process.exit(1);
                 }
+                
+                // Initialize distributed lock
+                const lockKey = `restore:${getDatabaseIdentifier(dbConfig)}`;
+                lock = new DistributedLock(connection as any, lockKey, { ttl: LOCK_TTL });
+                
+                // Try to acquire lock
+                spinner.text = 'Acquiring restore lock...';
+                lockAcquired = await lock.acquire();
+                
+                if (!lockAcquired) {
+                    spinner.fail(chalk.red(`A restore operation is already running for database '${dbConfig.database}'. Please wait until it completes.`));
+                    log.warn('Restore lock acquisition failed', { 
+                        database: dbConfig.database,
+                        host: dbConfig.host
+                    });
+                    process.exit(1);
+                }
+                
+                console.log(chalk.green(`\n🔒 Restore lock acquired for ${dbConfig.database}`));
                 
                 let backupFile = options.file;
                 let backupRecord = null;
@@ -430,9 +447,7 @@ export function registerRestoreCommand(program: Command): void {
                     process.exit(1);
                 }
                 
-                // ============================================================
                 // STEP 1: Check if backup is local or S3
-                // ============================================================
                 let restoreFile = backupFile;
                 
                 if (isS3Path(backupFile)) {
@@ -465,9 +480,7 @@ export function registerRestoreCommand(program: Command): void {
                     }
                 }
                 
-                // ============================================================
                 // STEP 2: Decrypt if needed
-                // ============================================================
                 const isEncrypted = backupRecord?.encrypted || false;
                 const encryptionMetadata = backupRecord?.encryptionMetadata as any;
                 let decryptedFilePath: string | null = null;
@@ -520,16 +533,12 @@ export function registerRestoreCommand(program: Command): void {
                     }
                 }
                 
-                // ============================================================
                 // STEP 3: Prepare restore file (detect gzip by magic bytes)
-                // ============================================================
                 const prepareResult = await prepareRestoreFile(restoreFile);
                 restoreFile = prepareResult.restoreFile;
                 decompressedFile = prepareResult.tempDecompressedFile;
                 
-                // ============================================================
                 // STEP 4: Verify checksum (skip for encrypted files)
-                // ============================================================
                 if (!options.skipChecksum && backupRecord?.checksum && !isEncrypted) {
                     spinner.text = 'Verifying backup integrity...';
                     log.info('Verifying checksum', { backupId: backupRecord.id });
@@ -700,12 +709,23 @@ export function registerRestoreCommand(program: Command): void {
                 console.error(chalk.red(`\n✗ Error: ${error.message}`));
                 log.error('Restore failed', { error: error.message });
                 process.exit(1);
+            } finally {
+                // ALWAYS release the lock in finally block
+                if (lock && lockAcquired) {
+                    try {
+                        await lock.release();
+                        console.log(chalk.dim(`\n🔓 Restore lock released for ${dbConfig?.database || 'database'}`));
+                        log.debug('Lock released', { database: dbConfig?.database });
+                    } catch (releaseError: any) {
+                        log.error('Failed to release lock', { error: releaseError.message });
+                        console.error(chalk.red(`\n⚠️ Failed to release lock: ${releaseError.message}`));
+                    }
+                }
             }
         });
 }
 
-// ==================== PostgreSQL Restore ====================
-
+// PostgreSQL Restore
 async function restorePostgres(backupFile: string, dbConfig: any, options: any): Promise<any> {
     const { exec } = require('child_process');
     const { promisify } = require('util');
@@ -810,8 +830,7 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
     }
 }
 
-// ==================== MySQL Restore ====================
-
+// MySQL Restore 
 async function restoreMySQL(backupFile: string, dbConfig: any, options: any): Promise<any> {
     const { exec } = require('child_process');
     const { promisify } = require('util');
