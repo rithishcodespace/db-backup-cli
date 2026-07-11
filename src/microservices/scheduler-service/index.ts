@@ -3,6 +3,8 @@ import { prisma } from '../../lib/prisma';
 import cron from 'node-cron';
 import axios from 'axios';
 import { createModuleLogger } from '../../logger';
+import { connection } from '../../lib/queue-manager';
+import { DistributedLock } from '../../lib/distributed-lock';
 
 const app = express();
 app.use(express.json());
@@ -20,7 +22,7 @@ const scheduledTasks = new Map();
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://localhost:3001';
 const NOTIFICATION_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3040';
 
-// ==================== Types ====================
+// Types 
 
 interface NotificationProvider {
   type: 'email' | 'slack';
@@ -31,7 +33,7 @@ interface NotificationPayload {
   providers: NotificationProvider[];
 }
 
-// ==================== Helper Functions ====================
+// Helper Functions
 
 function normalizeNotification(notification: any): NotificationPayload | null {
   if (!notification) {
@@ -77,7 +79,7 @@ function getProviderTypes(notification: any): string[] {
   return providers.map(p => p.type);
 }
 
-// ==================== Health Check ====================
+// Health Check 
 
 app.get('/health', (req, res) => {
   res.json({
@@ -89,7 +91,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// ==================== Schedule a Backup ====================
+// Schedule a Backup
 
 app.post('/api/schedule', async (req, res) => {
   const { schedule, dbConfig, backupType, options, storageType, notification } = req.body;
@@ -182,7 +184,7 @@ app.post('/api/schedule', async (req, res) => {
   }
 });
 
-// ==================== Stop a Schedule ====================
+// Stop a Schedule
 
 app.post('/api/schedule/:id/stop', async (req, res) => {
   const { id } = req.params;
@@ -210,7 +212,7 @@ app.post('/api/schedule/:id/stop', async (req, res) => {
   }
 });
 
-// ==================== List All Schedules ====================
+// List All Schedules
 
 app.get('/api/schedule', async (req, res) => {
   try {
@@ -232,8 +234,7 @@ app.get('/api/schedule', async (req, res) => {
   }
 });
 
-// ==================== Execute Scheduled Backup ====================
-
+// Execute Scheduled Backup
 async function executeScheduledBackup(
   scheduleId: string,
   dbConfig: any,
@@ -241,104 +242,165 @@ async function executeScheduledBackup(
   options: any,
   notification: NotificationPayload | null
 ) {
-  log.info('Executing scheduled backup', { 
-    scheduleId, 
-    dbType: dbConfig.type,
-    notification: notification ? getProviderTypes(notification) : 'none'
-  });
+  // DISTRIBUTED LOCK GUARD 
+  // Acquire lock to prevent duplicate scheduled backups for the same database
+  const lockKey = `backup:${dbConfig.type}:${dbConfig.database}`;
+  const lock = new DistributedLock(connection as any, lockKey, { ttl: 3600 });
   
-  let backupSuccess = false;
-  let backupId = null;
-  let errorMessage = null;
-  let startTime = Date.now();
+  let lockAcquired = false;
   
   try {
-    // Update schedule last run
-    await prisma.backupSchedule.update({
-      where: { id: scheduleId },
-      data: {
-        lastRunAt: new Date()
-      }
-    });
+    // Try to acquire the lock
+    lockAcquired = await lock.acquire();
     
-    // Call backup orchestrator
-    const response = await axios.post(`${ORCHESTRATOR_URL}/backup`, {
-      dbConfig,
-      backupType,
-      options: {
-        ...options,
-        scheduled: true,
-        scheduleId
-      }
-    });
-    
-    const duration = (Date.now() - startTime) / 1000;
-    
-    if (response.data.success) {
-      backupSuccess = true;
-      backupId = response.data.backupId;
-      
-      log.info('Scheduled backup completed', { 
-        scheduleId, 
-        backupId, 
-        duration 
+    if (!lockAcquired) {
+      // Lock already held by another scheduled backup execution
+      log.info('Scheduled backup already running. Skipping execution.', {
+        scheduleId,
+        dbType: dbConfig.type,
+        dbName: dbConfig.database,
+        lockKey
       });
+      return; // Exit immediately - do NOT execute backup
+    }
+    
+    // Lock acquired - proceed with backup execution
+    log.debug('Scheduled backup lock acquired', {
+      scheduleId,
+      dbType: dbConfig.type,
+      dbName: dbConfig.database,
+      lockKey
+    });
+    
+    // EXISTING BACKUP EXECUTION LOGIC 
+    log.info('Executing scheduled backup', { 
+      scheduleId, 
+      dbType: dbConfig.type,
+      notification: notification ? getProviderTypes(notification) : 'none'
+    });
+    
+    let backupSuccess = false;
+    let backupId = null;
+    let errorMessage = null;
+    let startTime = Date.now();
+    
+    try {
+      // Update schedule last run
+      await prisma.backupSchedule.update({
+        where: { id: scheduleId },
+        data: {
+          lastRunAt: new Date()
+        }
+      });
+      
+      // Call backup orchestrator
+      const response = await axios.post(`${ORCHESTRATOR_URL}/backup`, {
+        dbConfig,
+        backupType,
+        options: {
+          ...options,
+          scheduled: true,
+          scheduleId
+        }
+      });
+      
+      const duration = (Date.now() - startTime) / 1000;
+      
+      if (response.data.success) {
+        backupSuccess = true;
+        backupId = response.data.backupId;
+        
+        log.info('Scheduled backup completed', { 
+          scheduleId, 
+          backupId, 
+          duration 
+        });
+        
+        await prisma.backupSchedule.update({
+          where: { id: scheduleId },
+          data: {
+            lastRunStatus: 'success',
+            error: null
+          }
+        });
+        
+        // Send success notifications to all providers
+        if (notification) {
+          await sendBackupNotifications({
+            success: true,
+            backupId,
+            scheduleId,
+            dbConfig,
+            backupType,
+            duration,
+            fileSize: response.data.fileSize,
+            notification
+          });
+        }
+      } else {
+        throw new Error(response.data.error || 'Backup failed');
+      }
+    } catch (error) {
+      const duration = (Date.now() - startTime) / 1000;
+      errorMessage = error instanceof Error ? error.message : String(error);
+      
+      log.error('Scheduled backup failed', { scheduleId, error: errorMessage });
       
       await prisma.backupSchedule.update({
         where: { id: scheduleId },
         data: {
-          lastRunStatus: 'success',
-          error: null
+          lastRunStatus: 'failed',
+          error: errorMessage
         }
       });
       
-      // Send success notifications to all providers
+      // Send failure notifications to all providers
       if (notification) {
         await sendBackupNotifications({
-          success: true,
-          backupId,
+          success: false,
+          backupId: null,
           scheduleId,
           dbConfig,
           backupType,
           duration,
-          fileSize: response.data.fileSize,
+          errorMessage,
           notification
         });
       }
-    } else {
-      throw new Error(response.data.error || 'Backup failed');
     }
+    
   } catch (error) {
-    const duration = (Date.now() - startTime) / 1000;
-    errorMessage = error instanceof Error ? error.message : String(error);
-    
-    log.error('Scheduled backup failed', { scheduleId, error: errorMessage });
-    
-    await prisma.backupSchedule.update({
-      where: { id: scheduleId },
-      data: {
-        lastRunStatus: 'failed',
-        error: errorMessage
-      }
+    // Handle any errors from lock acquisition or backup execution
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error('Scheduled backup execution error', {
+      scheduleId,
+      dbType: dbConfig.type,
+      dbName: dbConfig.database,
+      error: errorMessage
     });
-    
-    // Send failure notifications to all providers
-    if (notification) {
-      await sendBackupNotifications({
-        success: false,
-        backupId: null,
-        scheduleId,
-        dbConfig,
-        backupType,
-        duration,
-        errorMessage,
-        notification
-      });
+  } finally {
+    // ALWAYS release the lock in finally block
+    if (lockAcquired) {
+      try {
+        await lock.release();
+        log.debug('Scheduled backup lock released', {
+          scheduleId,
+          dbType: dbConfig.type,
+          dbName: dbConfig.database,
+          lockKey
+        });
+      } catch (releaseError) {
+        log.error('Failed to release scheduled backup lock', {
+          scheduleId,
+          error: releaseError instanceof Error ? releaseError.message : String(releaseError)
+        });
+        // Lock will expire via TTL, so we don't need to rethrow
+      }
     }
   }
 }
 
-// ==================== Send Backup Notifications to All Providers ====================
+// Send Backup Notifications to All Providers 
 
 async function sendBackupNotifications(params: {
   success: boolean;
@@ -470,7 +532,7 @@ ${errorMessage ? `Error: ${errorMessage}` : ''}`,
   }
 }
 
-// ==================== Load Existing Schedules ====================
+// Load Existing Schedules 
 
 async function loadSchedules() {
   try {
@@ -512,8 +574,6 @@ async function loadSchedules() {
     log.error('Failed to load schedules', { error });
   }
 }
-
-// ==================== Start the Service ====================
 
 app.listen(SERVICE_PORT, async () => {
   log.info(`${SERVICE_NAME} listening on port ${SERVICE_PORT}`);
