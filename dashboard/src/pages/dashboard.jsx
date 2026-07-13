@@ -47,6 +47,15 @@ const MOCK_DB = {
       startedAt: NOW - minutes(6) - 12_000,
       estimatedRemainingSeconds: 95,
     },
+     {
+      id: "run_8f5a",
+      database: "orders-postgres",
+      dbType: "PostgreSQL",
+      stage: "Uploading to S3",
+      progress: 72,
+      startedAt: NOW - minutes(6) - 12_000,
+      estimatedRemainingSeconds: 95,
+    },
   ],
 
   history: Array.from({ length: 47 }).map((_, i) => {
@@ -431,7 +440,7 @@ function OverviewSection({ query }) {
    RUNNING BACKUPS
    ============================================================================ */
 
-function RunningBackupCard({ backup }) {
+function RunningBackupCard({ backup, className = "" }) {
   const [, forceTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => forceTick((n) => n + 1), 1000);
@@ -439,7 +448,7 @@ function RunningBackupCard({ backup }) {
   }, []);
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+    <div className={`bg-white border border-gray-200 rounded-lg p-3 shadow-sm ${className}`}>
       <div className="flex items-start justify-between mb-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -491,13 +500,16 @@ function RunningBackupsSection({ query }) {
   }
   if (!query.data || query.data.length === 0) return null;
 
+  const hasOddCount = query.data.length % 2 === 1;
+
   return (
     <section>
       <SectionHeader title="Running Backups" />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-        {query.data.map((b) => (
-          <RunningBackupCard key={b.id} backup={b} />
-        ))}
+        {query.data.map((b, index) => {
+          const isLastOddCard = hasOddCount && index === query.data.length - 1;
+          return <RunningBackupCard key={b.id} backup={b} className={isLastOddCard ? "md:col-span-2" : ""} />;
+        })}
       </div>
     </section>
   );
