@@ -40,18 +40,11 @@ const MOCK_DB = {
   runningBackups: [
     {
       id: "run_8f2a",
+      backupId: "bkp_20481",
       database: "orders-postgres",
       dbType: "PostgreSQL",
-      stage: "Uploading to S3",
-      progress: 72,
-      startedAt: NOW - minutes(6) - 12_000,
-      estimatedRemainingSeconds: 95,
-    },
-     {
-      id: "run_8f5a",
-      database: "orders-postgres",
-      dbType: "PostgreSQL",
-      stage: "Uploading to S3",
+      stage: "Uploading to Amazon S3",
+      currentOperation: "Encrypting archive",
       progress: 72,
       startedAt: NOW - minutes(6) - 12_000,
       estimatedRemainingSeconds: 95,
@@ -71,21 +64,40 @@ const MOCK_DB = {
     const status = i === 0 ? "running" : statuses[i % statuses.length];
     const createdAt = NOW - hours(i * 3 + 1);
     const durationSeconds = 40 + ((i * 37) % 400);
+    const originalSizeBytes = 280_000_000 + ((i * 61_000_000) % 4_500_000_000);
+    const compressedSizeBytes = status === "failed" ? null : Math.round(originalSizeBytes * 0.62);
     return {
       id: `bkp_${1000 + i}`,
+      backupId: `bkp_${1000 + i}`,
       database: db.name,
       type: db.type,
       backupType: i % 5 === 0 ? "Full" : "Incremental",
       status,
-      sizeBytes: status === "failed" ? null : 200_000_000 + ((i * 53_000_000) % 4_000_000_000),
+      sizeBytes: compressedSizeBytes,
+      originalSizeBytes,
+      compressedSizeBytes,
+      compressionEnabled: i % 7 !== 3,
+      encryptionEnabled: i % 4 !== 0,
+      encryptionAlgorithm: i % 4 !== 0 ? "AES-256-GCM" : null,
+      storageProvider: i % 3 === 0 ? "Amazon S3" : "Local Storage",
+      storageLocation: i % 3 === 0 ? "s3://prod-db-backups/orders" : "/var/lib/db-backups",
       durationSeconds: status === "running" ? null : durationSeconds,
+      startedAt: createdAt - minutes(2 + (i % 4)),
+      completedAt: status === "running" ? null : createdAt - minutes(1),
       createdAt,
       destination: i % 3 === 0 ? "Local + S3" : "Local",
       checksum: status === "failed" ? null : `sha256:${(i * 9973).toString(16).padStart(16, "0")}`,
+      slackNotificationStatus: status === "running" ? "pending" : "sent",
+      emailNotificationStatus: status === "failed" ? "failed" : "sent",
+      failureReason: status === "failed" ? "Connection lost during dump" : null,
       logTail:
         status === "failed"
           ? "pg_dump: error: connection to server was lost\n  while sending COPY data:\nconnection timed out"
           : "Backup completed and verified successfully.\nChecksum matched. Notification sent.",
+      logPreview:
+        status === "failed"
+          ? "pg_dump: error: connection to server was lost"
+          : "Backup completed and verified successfully.",
     };
   }),
 
@@ -105,6 +117,7 @@ const MOCK_DB = {
       time: NOW - minutes(42),
       database: "orders-postgres",
       title: "Connection lost during dump",
+      severity: "high",
       description: "pg_dump lost its connection to the server mid-transfer.",
       logTail:
         "pg_dump: error: connection to server was lost\n  while sending COPY data:\nconnection timed out\nRetried 3 times, giving up.",
@@ -114,6 +127,7 @@ const MOCK_DB = {
       time: NOW - hours(9),
       database: "catalog-mongo",
       title: "Insufficient disk space",
+      severity: "medium",
       description: "Local backup directory ran out of space before compression finished.",
       logTail:
         "mongodump: write /var/backups/catalog/dump.bson: no space left on device\nCleanup removed partial archive.",
@@ -249,6 +263,20 @@ function formatDateTime(ts) {
   });
 }
 
+function formatMaybeDateTime(ts) {
+  return ts ? formatDateTime(ts) : null;
+}
+
+function formatPercent(n) {
+  if (n === null || n === undefined) return null;
+  return `${Math.round(n)}%`;
+}
+
+function formatRatio(value) {
+  if (value === null || value === undefined) return null;
+  return `${value.toFixed(2)}x`;
+}
+
 /* ============================================================================
    PRIMITIVES
    ============================================================================ */
@@ -377,24 +405,25 @@ function Header({ connectionStatus, lastRefresh, onRefresh, refreshing }) {
    OVERVIEW CARDS
    ============================================================================ */
 
-function OverviewCard({ label, value, icon: Icon, tone = "default" }) {
+function OverviewCard({ label, value, subtitle, icon: Icon, tone = "default" }) {
   const toneMap = {
     default: "text-gray-900",
     good: "text-emerald-600",
     bad: "text-red-600",
   };
   return (
-    <div className="bg-white border border-gray-200 rounded-lg px-3 sm:px-4 py-3 shadow-sm flex items-center justify-between">
+    <div className="bg-white border border-gray-200 rounded-lg px-3 sm:px-4 py-3 shadow-sm flex items-center justify-between gap-3">
       <div className="min-w-0">
-        <span className="text-xs font-medium text-gray-500 block truncate">{label}</span>
-        <div className={`text-base sm:text-lg font-semibold tabular-nums ${toneMap[tone]}`}>{value}</div>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400 block truncate">{label}</span>
+        <div className={`mt-1 text-base sm:text-lg font-semibold tabular-nums leading-tight ${toneMap[tone]}`}>{value}</div>
+        {subtitle && <p className="mt-1 text-[11px] text-gray-500 truncate">{subtitle}</p>}
       </div>
       {Icon && <Icon className="w-4 h-4 text-gray-300 shrink-0 ml-2" strokeWidth={1.75} />}
     </div>
   );
 }
 
-function OverviewSection({ query }) {
+function OverviewSection({ query, runningQuery, storageQuery }) {
   if (query.status === "loading") {
     return (
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
@@ -416,16 +445,19 @@ function OverviewSection({ query }) {
   }
 
   const d = query.data;
+  const runningBackup = runningQuery?.status === "success" ? runningQuery.data?.[0] : null;
+  const storage = storageQuery?.status === "success" ? storageQuery.data : null;
+  const localStoragePercent = storage?.localTotalBytes ? Math.round((storage.localUsedBytes / storage.localTotalBytes) * 100) : null;
   const cards = [
-    { label: "Running", value: d.runningBackups, icon: Loader2 },
+    { label: "Running Backups", value: d.runningBackups, subtitle: runningBackup?.currentOperation || runningBackup?.stage, icon: Loader2 },
     { label: "Successful Today", value: d.successfulToday, icon: CheckCircle2, tone: "good" },
     { label: "Failed Today", value: d.failedToday, icon: XCircle, tone: d.failedToday > 0 ? "bad" : "default" },
-    { label: "Local Storage", value: formatBytes(d.localStorageUsedBytes), icon: HardDrive },
+    { label: "Storage Used", value: formatBytes(d.localStorageUsedBytes), subtitle: localStoragePercent != null ? `${formatPercent(localStoragePercent)} of local storage` : undefined, icon: HardDrive },
   ];
   if (d.cloudConfigured) {
-    cards.push({ label: "Cloud Storage", value: formatBytes(d.cloudStorageUsedBytes), icon: Cloud });
+    cards.push({ label: "Cloud Storage", value: formatBytes(d.cloudStorageUsedBytes), subtitle: storage?.cloudProvider, icon: Cloud });
   }
-  cards.push({ label: "Compression Saved", value: formatBytes(d.compressionSavedBytes), icon: Archive });
+  cards.push({ label: "Compression Saved", value: formatBytes(d.compressionSavedBytes), subtitle: `${formatPercent(d.compressionSavedPercent)} reduction`, icon: Archive });
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
@@ -448,16 +480,16 @@ function RunningBackupCard({ backup, className = "" }) {
   }, []);
 
   return (
-    <div className={`bg-white border border-gray-200 rounded-lg p-3 shadow-sm ${className}`}>
-      <div className="flex items-start justify-between mb-2">
+    <div className={`bg-white border border-gray-200 rounded-lg p-3 shadow-sm transition-colors duration-200 ${className}`}>
+      <div className="flex items-start justify-between gap-3 mb-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-gray-900 truncate">{backup.database}</span>
-            <span className="text-[11px] text-gray-400 border border-gray-200 rounded px-1.5 py-0.5 shrink-0">
+            <span className="text-sm font-semibold text-gray-900 truncate">{backup.database}</span>
+            <span className="text-[11px] font-medium text-gray-500 border border-gray-200 rounded-full px-2 py-0.5 shrink-0 bg-gray-50">
               {backup.dbType}
             </span>
           </div>
-          <p className="text-xs text-gray-500 mt-0.5 truncate">{backup.stage}</p>
+          <p className="text-xs text-gray-500 mt-1 truncate">{backup.stage}</p>
         </div>
         <StatusBadge status="running" />
       </div>
@@ -471,11 +503,18 @@ function RunningBackupCard({ backup, className = "" }) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-gray-500">
-        <span>Elapsed {formatElapsed(backup.startedAt)}</span>
-        {backup.estimatedRemainingSeconds != null && (
-          <span>~{formatDuration(backup.estimatedRemainingSeconds)} remaining</span>
-        )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-gray-500">
+        <div className="space-y-0.5">
+          <div className="text-gray-400 uppercase tracking-widest">Current operation</div>
+          <div className="text-gray-700 truncate">{backup.currentOperation || backup.stage}</div>
+        </div>
+        <div className="space-y-0.5 sm:text-right">
+            <div className="text-gray-400 uppercase tracking-widest">Timing</div>
+          <div className="text-gray-700 tabular-nums">
+            Elapsed {formatElapsed(backup.startedAt)}
+            {backup.estimatedRemainingSeconds != null ? ` · ~${formatDuration(backup.estimatedRemainingSeconds)} left` : ""}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -484,10 +523,18 @@ function RunningBackupCard({ backup, className = "" }) {
 function RunningBackupsSection({ query }) {
   if (query.status === "loading") {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
-        <Skeleton className="h-4 w-40 mb-2" />
-        <Skeleton className="h-1 w-full mb-2" />
-        <Skeleton className="h-3 w-24" />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        {Array.from({ length: 2 }).map((_, index) => (
+          <div key={index} className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+            <Skeleton className="h-4 w-40 mb-2" />
+            <Skeleton className="h-3 w-24 mb-3" />
+            <Skeleton className="h-1 w-full mb-3" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
@@ -498,7 +545,20 @@ function RunningBackupsSection({ query }) {
       </div>
     );
   }
-  if (!query.data || query.data.length === 0) return null;
+  if (!query.data || query.data.length === 0) {
+    return (
+      <section>
+        <SectionHeader title="Running Backups" />
+        <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
+          <EmptyState
+            icon={Loader2}
+            title="No backups currently running."
+            description="Active backup jobs will appear here while the CLI is working."
+          />
+        </div>
+      </section>
+    );
+  }
 
   const hasOddCount = query.data.length % 2 === 1;
 
@@ -526,53 +586,138 @@ const STATUS_FILTERS = [
   { value: "running", label: "Running" },
 ];
 
-function HistoryDrawer({ row, onClose }) {
+function MetadataField({ label, value, children, mono = false }) {
+  if (value === null || value === undefined || value === "") return null;
+
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-[0.08em] text-gray-400 mb-0.5">{label}</div>
+      {children || <div className={`text-gray-800 ${mono ? "font-mono text-xs break-all" : ""}`}>{value}</div>}
+    </div>
+  );
+}
+
+function BackupDetailsDrawer({ row, onClose }) {
   if (!row) return null;
+
+  const items = [
+    { label: "Backup ID", value: row.backupId || row.id, mono: true },
+    { label: "Database Name", value: row.database },
+    { label: "Database Type", value: row.type },
+    { label: "Backup Type", value: row.backupType },
+    {
+      label: "Status",
+      children: <StatusBadge status={row.status} />,
+    },
+    { label: "Started At", value: formatMaybeDateTime(row.startedAt || row.createdAt) },
+    { label: "Completed At", value: formatMaybeDateTime(row.completedAt) },
+    { label: "Duration", value: formatDuration(row.durationSeconds) },
+    { label: "Original Size", value: formatBytes(row.originalSizeBytes) },
+    { label: "Compressed Size", value: formatBytes(row.compressedSizeBytes || row.sizeBytes) },
+    {
+      label: "Compression Enabled",
+      value: row.compressionEnabled === undefined ? null : row.compressionEnabled ? "Enabled" : "Disabled",
+    },
+    {
+      label: "Encryption Enabled",
+      value: row.encryptionEnabled === undefined ? null : row.encryptionEnabled ? "Enabled" : "Disabled",
+    },
+    { label: "Encryption Algorithm", value: row.encryptionAlgorithm },
+    { label: "Storage Provider", value: row.storageProvider || row.destination },
+    { label: "Storage Location", value: row.storageLocation },
+    { label: "Checksum", value: row.checksum, mono: true },
+    { label: "Slack Notification", value: row.slackNotificationStatus },
+    { label: "Email Notification", value: row.emailNotificationStatus },
+    { label: "Failure Reason", value: row.failureReason },
+  ].filter((item) => item.value !== null && item.value !== undefined && item.value !== "" || item.children);
+
+  const logPreview = row.logPreview || row.logTail;
+
   return (
     <div className="fixed inset-0 z-30 flex justify-end">
       <div className="absolute inset-0 bg-gray-900/20" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-white h-full border-l border-gray-200 shadow-xl flex flex-col animate-[slideIn_0.2s_ease-out]">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+      <div className="relative flex h-full w-full max-w-md flex-col border-l border-gray-200 bg-white shadow-xl animate-[slideIn_0.2s_ease-out]">
+        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-gray-900 truncate">{row.database}</h3>
-            <p className="text-xs text-gray-500 truncate">{row.id}</p>
+            <h3 className="truncate text-sm font-semibold text-gray-900">{row.database}</h3>
+            <p className="truncate text-xs text-gray-500">{row.backupId || row.id}</p>
           </div>
           <button
             onClick={onClose}
             aria-label="Close details"
-            className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500/30 shrink-0 ml-2"
+            className="ml-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-400 hover:bg-gray-50 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
           >
-            <X className="w-4 h-4" />
+            <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="p-5 space-y-4 overflow-y-auto text-sm">
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Status"><StatusBadge status={row.status} /></Field>
-            <Field label="Type" value={row.type} />
-            <Field label="Backup Type" value={row.backupType} />
-            <Field label="Destination" value={row.destination} />
-            <Field label="Size" value={formatBytes(row.sizeBytes)} />
-            <Field label="Duration" value={formatDuration(row.durationSeconds)} />
-            <Field label="Created" value={formatDateTime(row.createdAt)} />
-            <Field label="Checksum" value={row.checksum || "—"} mono />
+
+        <div className="flex-1 space-y-4 overflow-y-auto p-5 text-sm">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {items.map((item) => (
+              <MetadataField key={item.label} label={item.label} value={item.value} mono={item.mono}>
+                {item.children}
+              </MetadataField>
+            ))}
           </div>
-          <div>
-            <span className="text-xs font-medium text-gray-500">Log</span>
-            <pre className="mt-1.5 bg-gray-900 text-gray-100 text-xs rounded-lg p-3 overflow-x-auto whitespace-pre-wrap leading-relaxed">
-              {row.logTail}
-            </pre>
-          </div>
+
+          {logPreview && (
+            <div className="space-y-1.5">
+              <div className="text-[11px] uppercase tracking-[0.08em] text-gray-400">Log Preview</div>
+              <pre className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs leading-relaxed text-gray-700 whitespace-pre-wrap">
+                {logPreview}
+              </pre>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function Field({ label, value, children, mono }) {
+function HistoryRow({ row, onSelect, index }) {
   return (
-    <div>
-      <div className="text-[11px] text-gray-400 mb-0.5">{label}</div>
-      {children || <div className={`text-gray-800 ${mono ? "font-mono text-xs break-all" : ""}`}>{value}</div>}
+    <tr
+      onClick={() => onSelect(row)}
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && onSelect(row)}
+      className={`cursor-pointer border-b border-gray-50 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500/30 ${
+        index % 2 === 1 ? "bg-gray-50/40" : "bg-white"
+      }`}
+    >
+      <td className="px-4 py-3 font-medium text-gray-900 truncate max-w-32 sm:max-w-none">{row.database}</td>
+      <td className="px-4 py-3 text-gray-500 hidden sm:table-cell">{row.type}</td>
+      <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{row.backupType}</td>
+      <td className="px-4 py-3">
+        <StatusBadge status={row.status} />
+      </td>
+      <td className="px-4 py-3 text-gray-500 tabular-nums hidden sm:table-cell">{formatBytes(row.sizeBytes)}</td>
+      <td className="px-4 py-3 text-gray-500 tabular-nums hidden lg:table-cell">{formatDuration(row.durationSeconds)}</td>
+      <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{formatDateTime(row.createdAt)}</td>
+    </tr>
+  );
+}
+
+function HistoryTable({ rows, onSelect }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-208 text-sm">
+        <thead className="sticky top-0 z-10 bg-white">
+          <tr className="border-b border-gray-100 text-left text-xs text-gray-500 shadow-[0_1px_0_0_rgba(0,0,0,0.02)]">
+            <th className="px-4 py-3 font-semibold tracking-[0.08em] uppercase">Database</th>
+            <th className="hidden px-4 py-3 font-semibold tracking-[0.08em] uppercase sm:table-cell">Type</th>
+            <th className="hidden px-4 py-3 font-semibold tracking-[0.08em] uppercase md:table-cell">Backup Type</th>
+            <th className="px-4 py-3 font-semibold tracking-[0.08em] uppercase">Status</th>
+            <th className="hidden px-4 py-3 font-semibold tracking-[0.08em] uppercase sm:table-cell">Size</th>
+            <th className="hidden px-4 py-3 font-semibold tracking-[0.08em] uppercase lg:table-cell">Duration</th>
+            <th className="hidden px-4 py-3 font-semibold tracking-[0.08em] uppercase md:table-cell">Created At</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <HistoryRow key={row.id} row={row} index={index} onSelect={onSelect} />
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -634,9 +779,17 @@ function HistorySection() {
 
       <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
         {query.status === "loading" && (
-          <div className="p-3 space-y-2">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-9 w-full" />
+          <div className="space-y-2 p-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="grid grid-cols-7 gap-3 rounded-md border border-gray-100 px-4 py-3">
+                <Skeleton className="h-4 w-32 col-span-2" />
+                <Skeleton className="h-4 w-20 hidden sm:block" />
+                <Skeleton className="h-4 w-16 hidden md:block" />
+                <Skeleton className="h-5 w-20" />
+                <Skeleton className="h-4 w-20 hidden sm:block" />
+                <Skeleton className="h-4 w-16 hidden lg:block" />
+                <Skeleton className="h-4 w-24 hidden md:block" />
+              </div>
             ))}
           </div>
         )}
@@ -653,42 +806,7 @@ function HistorySection() {
 
         {query.status === "success" && query.data.total > 0 && (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100 text-left text-xs text-gray-500">
-                    <th className="font-semibold px-3 py-2">Database</th>
-                    <th className="font-semibold px-3 py-2 hidden sm:table-cell">Type</th>
-                    <th className="font-semibold px-3 py-2 hidden md:table-cell">Backup Type</th>
-                    <th className="font-semibold px-3 py-2">Status</th>
-                    <th className="font-semibold px-3 py-2 hidden sm:table-cell">Size</th>
-                    <th className="font-semibold px-3 py-2 hidden lg:table-cell">Duration</th>
-                    <th className="font-semibold px-3 py-2 hidden md:table-cell">Created At</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {query.data.rows.map((row) => (
-                    <tr
-                      key={row.id}
-                      onClick={() => setSelectedRow(row)}
-                      tabIndex={0}
-                      onKeyDown={(e) => e.key === "Enter" && setSelectedRow(row)}
-                      className="border-b border-gray-50 last:border-0 hover:bg-gray-50 cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500/30"
-                    >
-                      <td className="px-3 py-2 font-medium text-gray-900 truncate max-w-30 sm:max-w-none">{row.database}</td>
-                      <td className="px-3 py-2 text-gray-500 hidden sm:table-cell">{row.type}</td>
-                      <td className="px-3 py-2 text-gray-500 hidden md:table-cell">{row.backupType}</td>
-                      <td className="px-3 py-2">
-                        <StatusBadge status={row.status} />
-                      </td>
-                      <td className="px-3 py-2 text-gray-500 tabular-nums hidden sm:table-cell">{formatBytes(row.sizeBytes)}</td>
-                      <td className="px-3 py-2 text-gray-500 tabular-nums hidden lg:table-cell">{formatDuration(row.durationSeconds)}</td>
-                      <td className="px-3 py-2 text-gray-500 hidden md:table-cell">{formatDateTime(row.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <HistoryTable rows={query.data.rows} onSelect={setSelectedRow} />
 
             <div className="flex flex-col sm:flex-row items-center justify-between px-3 py-2 border-t border-gray-100 gap-2">
               <span className="text-xs text-gray-500">
@@ -715,7 +833,7 @@ function HistorySection() {
         )}
       </div>
 
-      <HistoryDrawer row={selectedRow} onClose={() => setSelectedRow(null)} />
+      <BackupDetailsDrawer row={selectedRow} onClose={() => setSelectedRow(null)} />
     </section>
   );
 }
@@ -724,19 +842,26 @@ function HistorySection() {
    STORAGE USAGE
    ============================================================================ */
 
-function StorageBar({ label, used, total, tone = "blue" }) {
+function StorageBar({ label, used, total, tone = "blue", subtitle }) {
   const pct = total ? Math.min(100, Math.round((used / total) * 100)) : 0;
   const toneMap = { blue: "bg-blue-500", gray: "bg-gray-700" };
+  const available = total != null ? Math.max(0, total - used) : null;
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-xs font-medium text-gray-600 truncate mr-2">{label}</span>
-        <span className="text-xs text-gray-400 tabular-nums shrink-0">
-          {formatBytes(used)} {total ? `/ ${formatBytes(total)}` : ""}
-        </span>
+    <div className="space-y-1.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <span className="block truncate text-xs font-semibold text-gray-700">{label}</span>
+          {subtitle && <p className="truncate text-[11px] text-gray-500">{subtitle}</p>}
+        </div>
+        <span className="shrink-0 text-[11px] text-gray-400 tabular-nums">{pct}% used</span>
       </div>
-      <div className="h-1 w-full bg-gray-100 rounded-full overflow-hidden">
-        <div className={`h-full ${toneMap[tone]} rounded-full transition-all duration-500`} style={{ width: `${total ? pct : 8}%` }} />
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+        <div className={`h-full rounded-full ${toneMap[tone]} transition-all duration-500`} style={{ width: `${total ? pct : 8}%` }} />
+      </div>
+      <div className="flex items-center justify-between text-[11px] text-gray-500 tabular-nums">
+        <span>Used {formatBytes(used)}</span>
+        {available !== null ? <span>Available {formatBytes(available)}</span> : <span>Available data unavailable</span>}
       </div>
     </div>
   );
@@ -748,32 +873,63 @@ function StorageSection({ query }) {
       <SectionHeader title="Storage Usage" />
       <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
         {query.status === "loading" && (
-          <div className="space-y-4">
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-1.5 w-full" />
+              <div className="flex justify-between gap-3">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-32" />
+              <Skeleton className="h-1.5 w-full" />
+              <div className="flex justify-between gap-3">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-3 w-20" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Skeleton className="h-3 w-28" />
+              <Skeleton className="h-3 w-full" />
+            </div>
           </div>
         )}
         {query.status === "error" && <ErrorState message={query.error?.message} onRetry={query.refetch} />}
-        {query.status === "success" && (
+        {query.status === "success" && query.data && (
           <div className="space-y-4">
-            <StorageBar label="Local Storage" used={query.data.localUsedBytes} total={query.data.localTotalBytes} tone="gray" />
+            <StorageBar
+              label="Local Storage"
+              used={query.data.localUsedBytes}
+              total={query.data.localTotalBytes}
+              tone="gray"
+              subtitle={query.data.localTotalBytes ? `${Math.round((query.data.localUsedBytes / query.data.localTotalBytes) * 100)}% of local capacity` : undefined}
+            />
             {query.data.cloudConfigured ? (
-              <StorageBar label={`Cloud Storage (${query.data.cloudProvider})`} used={query.data.cloudUsedBytes} tone="blue" />
+              <StorageBar label="Cloud Storage" used={query.data.cloudUsedBytes} tone="blue" subtitle={query.data.cloudProvider} />
             ) : (
               <div className="border border-dashed border-gray-200 rounded-lg py-4">
                 <EmptyState icon={Cloud} title="Cloud storage is not configured." description="Run `db-backup-cli config storage` to add a provider." />
               </div>
             )}
-            <div className="pt-3 border-t border-gray-100">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-600 truncate mr-2">Compression Saved</span>
-                <span className="text-xs text-emerald-600 font-medium tabular-nums shrink-0">
-                  {formatBytes(query.data.compressionSavedBytes)} ({query.data.compressionSavedPercent}%)
-                </span>
+            <div className="space-y-2 border-t border-gray-100 pt-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="truncate text-xs font-semibold text-gray-700">Compression Saved</span>
+                <span className="shrink-0 text-[11px] font-medium tabular-nums text-emerald-700">{query.data.compressionSavedPercent}% reduction</span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
+                <div className="h-full rounded-full bg-emerald-500 transition-all duration-500" style={{ width: `${Math.min(100, query.data.compressionSavedPercent)}%` }} />
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-gray-500 tabular-nums">
+                <span>Saved {formatBytes(query.data.compressionSavedBytes)}</span>
+                <span>Compression ratio {formatRatio(1 - query.data.compressionSavedPercent / 100) || "—"}</span>
               </div>
             </div>
           </div>
+        )}
+        {query.status === "success" && !query.data && (
+          <EmptyState icon={HardDrive} title="No storage metrics available." description="Storage usage will appear once the CLI writes backup data." />
         )}
       </div>
     </section>
@@ -784,36 +940,87 @@ function StorageSection({ query }) {
    RECENT ERRORS
    ============================================================================ */
 
-function ErrorDrawer({ err, onClose }) {
+function ErrorSeverityBadge({ severity }) {
+  const config = {
+    high: { label: "High", bg: "bg-red-50", text: "text-red-700", border: "border-red-100" },
+    medium: { label: "Medium", bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-100" },
+    low: { label: "Low", bg: "bg-gray-50", text: "text-gray-600", border: "border-gray-200" },
+  }[severity] || { label: severity || "Info", bg: "bg-gray-50", text: "text-gray-600", border: "border-gray-200" };
+
+  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${config.bg} ${config.text} ${config.border}`}>{config.label}</span>;
+}
+
+function ErrorDetailsDrawer({ err, onClose }) {
   if (!err) return null;
+
   return (
     <div className="fixed inset-0 z-30 flex justify-end">
       <div className="absolute inset-0 bg-gray-900/20" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-white h-full border-l border-gray-200 shadow-xl flex flex-col animate-[slideIn_0.2s_ease-out]">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+      <div className="relative flex h-full w-full max-w-md flex-col border-l border-gray-200 bg-white shadow-xl animate-[slideIn_0.2s_ease-out]">
+        <div className="flex items-start justify-between border-b border-gray-100 px-5 py-4">
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-gray-900 truncate">{err.title}</h3>
-            <p className="text-xs text-gray-500 truncate">{err.database} · {formatDateTime(err.time)}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="truncate text-sm font-semibold text-gray-900">{err.title}</h3>
+              <ErrorSeverityBadge severity={err.severity} />
+            </div>
+            <p className="truncate text-xs text-gray-500">{err.database} · {formatDateTime(err.time)}</p>
           </div>
           <button
             onClick={onClose}
             aria-label="Close error details"
-            className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500/30 shrink-0 ml-2"
+            className="ml-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-400 hover:bg-gray-50 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
           >
-            <X className="w-4 h-4" />
+            <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="p-5 space-y-4 overflow-y-auto text-sm">
-          <p className="text-gray-600">{err.description}</p>
-          <div>
-            <span className="text-xs font-medium text-gray-500">Full Log</span>
-            <pre className="mt-1.5 bg-gray-900 text-gray-100 text-xs rounded-lg p-3 overflow-x-auto whitespace-pre-wrap leading-relaxed">
-              {err.logTail}
-            </pre>
-          </div>
+
+        <div className="flex-1 space-y-4 overflow-y-auto p-5 text-sm">
+          <MetadataField label="Database Name" value={err.database} />
+          <MetadataField label="Timestamp" value={formatDateTime(err.time)} />
+          <MetadataField label="Severity" children={<ErrorSeverityBadge severity={err.severity} />} />
+          <MetadataField label="Short Description" value={err.description} />
+
+          {err.logTail && (
+            <div className="space-y-1.5">
+              <div className="text-[11px] uppercase tracking-[0.08em] text-gray-400">Log Preview</div>
+              <pre className="whitespace-pre-wrap rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs leading-relaxed text-gray-700">
+                {err.logTail}
+              </pre>
+            </div>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+function ErrorRow({ err, onSelect, index }) {
+  return (
+    <li>
+      <button
+        onClick={() => onSelect(err)}
+        className={`w-full border-b border-gray-50 px-3 py-3 text-left transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500/30 ${index % 2 === 1 ? "bg-gray-50/40" : "bg-white"}`}
+      >
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-50">
+            <XCircle className="h-3.5 w-3.5 text-red-500" />
+          </div>
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="truncate text-sm font-medium text-gray-900">{err.title}</span>
+                  <ErrorSeverityBadge severity={err.severity} />
+                </div>
+                <p className="truncate text-xs text-gray-500">{err.database}</p>
+              </div>
+              <span className="shrink-0 text-[11px] text-gray-400">{formatRelativeTime(err.time)}</span>
+            </div>
+            <p className="hidden truncate text-xs text-gray-400 sm:block">{err.description}</p>
+          </div>
+        </div>
+      </button>
+    </li>
   );
 }
 
@@ -823,11 +1030,23 @@ function ErrorsSection({ query }) {
   return (
     <section>
       <SectionHeader title="Recent Errors" />
-      <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
+      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
         {query.status === "loading" && (
-          <div className="p-3 space-y-2">
+          <div className="space-y-2 p-3">
             {Array.from({ length: 2 }).map((_, i) => (
-              <Skeleton key={i} className="h-12 w-full" />
+              <div key={i} className="rounded-md border border-gray-100 px-3 py-3">
+                <div className="flex items-start gap-3">
+                  <Skeleton className="h-6 w-6 rounded-full" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-5 w-14 rounded-full" />
+                    </div>
+                    <Skeleton className="h-3 w-28" />
+                    <Skeleton className="h-3 w-full" />
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
         )}
@@ -837,32 +1056,13 @@ function ErrorsSection({ query }) {
         )}
         {query.status === "success" && query.data.length > 0 && (
           <ul>
-            {query.data.map((err, i) => (
-              <li key={err.id}>
-                <button
-                  onClick={() => setSelected(err)}
-                  className={`w-full text-left px-3 py-2.5 flex items-start gap-3 hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500/30 ${
-                    i !== 0 ? "border-t border-gray-50" : ""
-                  }`}
-                >
-                  <div className="w-6 h-6 rounded-full bg-red-50 flex items-center justify-center mt-0.5 shrink-0">
-                    <XCircle className="w-3.5 h-3.5 text-red-500" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium text-gray-900 truncate">{err.title}</span>
-                      <span className="text-[11px] text-gray-400 shrink-0">{formatRelativeTime(err.time)}</span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-0.5 truncate">{err.database}</p>
-                    <p className="text-xs text-gray-400 mt-0.5 truncate hidden sm:block">{err.description}</p>
-                  </div>
-                </button>
-              </li>
+            {query.data.map((err, index) => (
+              <ErrorRow key={err.id} err={err} index={index} onSelect={setSelected} />
             ))}
           </ul>
         )}
       </div>
-      <ErrorDrawer err={selected} onClose={() => setSelected(null)} />
+      <ErrorDetailsDrawer err={selected} onClose={() => setSelected(null)} />
     </section>
   );
 }
@@ -939,7 +1139,7 @@ export default function App() {
       />
 
       <main className="px-4 sm:px-6 py-4 sm:py-5 space-y-4 sm:space-y-6">
-        <OverviewSection query={overviewQuery} />
+        <OverviewSection query={overviewQuery} runningQuery={runningQuery} storageQuery={storageQuery} />
         <RunningBackupsSection query={runningQuery} />
         <HistorySection />
 
