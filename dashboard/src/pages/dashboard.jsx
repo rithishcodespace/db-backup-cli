@@ -657,13 +657,13 @@ function HistorySection() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 text-left text-xs text-gray-500">
-                    <th className="font-medium px-3 py-2">Database</th>
-                    <th className="font-medium px-3 py-2 hidden sm:table-cell">Type</th>
-                    <th className="font-medium px-3 py-2 hidden md:table-cell">Backup Type</th>
-                    <th className="font-medium px-3 py-2">Status</th>
-                    <th className="font-medium px-3 py-2 hidden sm:table-cell">Size</th>
-                    <th className="font-medium px-3 py-2 hidden lg:table-cell">Duration</th>
-                    <th className="font-medium px-3 py-2 hidden md:table-cell">Created At</th>
+                    <th className="font-semibold px-3 py-2">Database</th>
+                    <th className="font-semibold px-3 py-2 hidden sm:table-cell">Type</th>
+                    <th className="font-semibold px-3 py-2 hidden md:table-cell">Backup Type</th>
+                    <th className="font-semibold px-3 py-2">Status</th>
+                    <th className="font-semibold px-3 py-2 hidden sm:table-cell">Size</th>
+                    <th className="font-semibold px-3 py-2 hidden lg:table-cell">Duration</th>
+                    <th className="font-semibold px-3 py-2 hidden md:table-cell">Created At</th>
                   </tr>
                 </thead>
                 <tbody>
