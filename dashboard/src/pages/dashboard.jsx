@@ -16,9 +16,6 @@ import {
   WifiOff,
 } from "lucide-react";
 
-/* ============================================================================
-   MOCK DATA LAYER
-   ============================================================================ */
 
 const NOW = Date.now();
 const minutes = (n) => n * 60 * 1000;
@@ -49,6 +46,7 @@ const MOCK_DB = {
       startedAt: NOW - minutes(6) - 12_000,
       estimatedRemainingSeconds: 95,
     },
+    
   ],
 
   history: Array.from({ length: 47 }).map((_, i) => {
@@ -175,9 +173,6 @@ const api = {
   },
 };
 
-/* ============================================================================
-   MINIMAL QUERY HOOK
-   ============================================================================ */
 
 function useQuery(queryFn, deps = [], { enabled = true } = {}) {
   const [state, setState] = useState({ status: "loading", data: undefined, error: undefined });
@@ -349,10 +344,6 @@ function StatusBadge({ status }) {
   );
 }
 
-/* ============================================================================
-   HEADER
-   ============================================================================ */
-
 function ConnectionIndicator({ status }) {
   const map = {
     connected: { label: "Connected", dot: "bg-emerald-500" },
@@ -468,9 +459,6 @@ function OverviewSection({ query, runningQuery, storageQuery }) {
   );
 }
 
-/* ============================================================================
-   RUNNING BACKUPS
-   ============================================================================ */
 
 function RunningBackupCard({ backup, className = "" }) {
   const [, forceTick] = useState(0);
@@ -575,9 +563,6 @@ function RunningBackupsSection({ query }) {
   );
 }
 
-/* ============================================================================
-   BACKUP HISTORY
-   ============================================================================ */
 
 const STATUS_FILTERS = [
   { value: "all", label: "All" },
@@ -838,9 +823,6 @@ function HistorySection() {
   );
 }
 
-/* ============================================================================
-   STORAGE USAGE
-   ============================================================================ */
 
 function StorageBar({ label, used, total, tone = "blue", subtitle }) {
   const pct = total ? Math.min(100, Math.round((used / total) * 100)) : 0;
@@ -869,11 +851,11 @@ function StorageBar({ label, used, total, tone = "blue", subtitle }) {
 
 function StorageSection({ query }) {
   return (
-    <section>
+    <section className="h-full flex flex-col min-h-0">
       <SectionHeader title="Storage Usage" />
-      <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+      <div className="flex flex-1 min-h-0 flex-col rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
         {query.status === "loading" && (
-          <div className="space-y-5">
+          <div className="flex flex-1 min-h-0 flex-col justify-start space-y-5">
             <div className="space-y-2">
               <Skeleton className="h-3 w-28" />
               <Skeleton className="h-1.5 w-full" />
@@ -896,9 +878,13 @@ function StorageSection({ query }) {
             </div>
           </div>
         )}
-        {query.status === "error" && <ErrorState message={query.error?.message} onRetry={query.refetch} />}
+        {query.status === "error" && (
+          <div className="flex flex-1 min-h-0 items-start p-3">
+            <ErrorState message={query.error?.message} onRetry={query.refetch} />
+          </div>
+        )}
         {query.status === "success" && query.data && (
-          <div className="space-y-4">
+          <div className="flex flex-1 min-h-0 flex-col justify-start space-y-4">
             <StorageBar
               label="Local Storage"
               used={query.data.localUsedBytes}
@@ -929,16 +915,14 @@ function StorageSection({ query }) {
           </div>
         )}
         {query.status === "success" && !query.data && (
-          <EmptyState icon={HardDrive} title="No storage metrics available." description="Storage usage will appear once the CLI writes backup data." />
+          <div className="flex flex-1 min-h-0 items-start p-3">
+            <EmptyState icon={HardDrive} title="No storage metrics available." description="Storage usage will appear once the CLI writes backup data." />
+          </div>
         )}
       </div>
     </section>
   );
 }
-
-/* ============================================================================
-   RECENT ERRORS
-   ============================================================================ */
 
 function ErrorSeverityBadge({ severity }) {
   const config = {
@@ -996,29 +980,31 @@ function ErrorDetailsDrawer({ err, onClose }) {
 
 function ErrorRow({ err, onSelect, index }) {
   return (
-    <li>
+    <li className="flex min-h-0 flex-1">
       <button
         onClick={() => onSelect(err)}
-        className={`w-full border-b border-gray-50 px-3 py-3 text-left transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500/30 ${index % 2 === 1 ? "bg-gray-50/40" : "bg-white"}`}
+        className={`flex h-full w-full items-start border-b border-gray-50 px-3 py-3 text-left transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500/30 ${index % 2 === 1 ? "bg-gray-50/40" : "bg-white"}`}
       >
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-50">
-            <XCircle className="h-3.5 w-3.5 text-red-500" />
-          </div>
-          <div className="min-w-0 flex-1 space-y-1">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="truncate text-sm font-medium text-gray-900">{err.title}</span>
-                  <ErrorSeverityBadge severity={err.severity} />
-                </div>
-                <p className="truncate text-xs text-gray-500">{err.database}</p>
-              </div>
-              <span className="shrink-0 text-[11px] text-gray-400">{formatRelativeTime(err.time)}</span>
+        <div className="flex h-full min-w-0 flex-1 flex-col">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-red-50">
+              <XCircle className="h-3.5 w-3.5 text-red-500" />
             </div>
-            <p className="hidden truncate text-xs text-gray-400 sm:block">{err.description}</p>
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="truncate text-sm font-medium text-gray-900">{err.title}</span>
+                    <ErrorSeverityBadge severity={err.severity} />
+                  </div>
+                  <p className="truncate text-xs text-gray-500">{err.database}</p>
+                </div>
+                <span className="shrink-0 text-[11px] text-gray-400">{formatRelativeTime(err.time)}</span>
+              </div>
+            </div>
           </div>
-        </div>
+          <p className="mt-auto hidden truncate text-xs text-gray-400 sm:block">{err.description}</p>
+          </div>
       </button>
     </li>
   );
@@ -1028,11 +1014,11 @@ function ErrorsSection({ query }) {
   const [selected, setSelected] = useState(null);
 
   return (
-    <section>
+    <section className="h-full flex flex-col min-h-0">
       <SectionHeader title="Recent Errors" />
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+      <div className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
         {query.status === "loading" && (
-          <div className="space-y-2 p-3">
+          <div className="flex flex-1 min-h-0 flex-col justify-start space-y-2 p-3">
             {Array.from({ length: 2 }).map((_, i) => (
               <div key={i} className="rounded-md border border-gray-100 px-3 py-3">
                 <div className="flex items-start gap-3">
@@ -1050,27 +1036,30 @@ function ErrorsSection({ query }) {
             ))}
           </div>
         )}
-        {query.status === "error" && <ErrorState message={query.error?.message} onRetry={query.refetch} />}
+        {query.status === "error" && (
+          <div className="flex flex-1 min-h-0 items-start p-3">
+            <ErrorState message={query.error?.message} onRetry={query.refetch} />
+          </div>
+        )}
         {query.status === "success" && query.data.length === 0 && (
-          <EmptyState icon={CheckCircle2} title="No recent failures." description="Everything has been running smoothly." />
+          <div className="flex flex-1 min-h-0 items-start p-3">
+            <EmptyState icon={CheckCircle2} title="No recent failures." description="Everything has been running smoothly." />
+          </div>
         )}
         {query.status === "success" && query.data.length > 0 && (
-          <ul>
-            {query.data.map((err, index) => (
-              <ErrorRow key={err.id} err={err} index={index} onSelect={setSelected} />
-            ))}
-          </ul>
+          <div className="flex flex-1 min-h-0 overflow-y-auto">
+            <ul className="flex h-full min-h-full flex-1 flex-col">
+              {query.data.map((err, index) => (
+                <ErrorRow key={err.id} err={err} index={index} onSelect={setSelected} />
+              ))}
+            </ul>
+          </div>
         )}
       </div>
       <ErrorDetailsDrawer err={selected} onClose={() => setSelected(null)} />
     </section>
   );
 }
-
-/* ============================================================================
-   APP
-   ============================================================================ */
-
 export default function App() {
   const [lastRefresh, setLastRefresh] = useState(() => Date.now());
   const [refreshTick, setRefreshTick] = useState(0);
@@ -1143,9 +1132,13 @@ export default function App() {
         <RunningBackupsSection query={runningQuery} />
         <HistorySection />
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-          <StorageSection query={storageQuery} />
-          <ErrorsSection query={errorsQuery} />
+        <div className="flex flex-row items-stretch gap-4 sm:gap-6 min-h-75">
+          <div className="flex-1 min-h-0">
+            <StorageSection query={storageQuery} />
+          </div>
+          <div className="flex-1 min-h-0">
+            <ErrorsSection query={errorsQuery} />
+          </div>
         </div>
       </main>
 
