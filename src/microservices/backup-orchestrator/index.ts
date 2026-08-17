@@ -183,7 +183,7 @@ app.post('/backup', async (req, res) => {
     
     // RETURN QUEUED RESPONSE IMMEDIATELY
 
-    res.json({
+    return res.json({
       success: true,
       backupId,
       queued: true,
@@ -211,7 +211,7 @@ app.post('/backup', async (req, res) => {
     }
     
     log.error('Backup orchestration failed', { backupId, error: errorMessage });
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       backupId,
       error: errorMessage

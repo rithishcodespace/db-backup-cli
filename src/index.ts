@@ -109,7 +109,6 @@ if (process.argv.includes('--worker')) {
     logger.info('Received SIGINT, shutting down gracefully');
     process.exit(0);
   });
-
   process.on('SIGTERM', () => {
     logger.info('Received SIGTERM, shutting down gracefully');
     process.exit(0);

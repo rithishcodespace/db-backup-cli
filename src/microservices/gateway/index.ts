@@ -6,6 +6,7 @@ import { connection } from '../../lib/queue-manager';
 import { clientIdManager } from '../../lib/client-id'; 
 import axios from 'axios';
 import { createModuleLogger } from '../../logger';
+import dashboardRoutes from './modules/dashboard/dashboard.routes';
 
 const app = express();
 const log = createModuleLogger('api-gateway');
@@ -60,7 +61,7 @@ const clientIdMiddleware = (req: express.Request, res: express.Response, next: e
         clientId: clientId.substring(0, 8) + '...' 
     });
     
-    next();
+    return next();
 };
 
 // Rate Limiting Middleware Factory
@@ -72,7 +73,7 @@ const createRateLimiter = (limiter: RateLimiterRedis) => {
             
             // Consume a point for this key
             await limiter.consume(key);
-            next();
+            return next();
         } catch (error: any) {
             // Rate limit exceeded
             if (error instanceof Error && error.message?.includes('Rate limit exceeded')) {
@@ -93,10 +94,13 @@ const createRateLimiter = (limiter: RateLimiterRedis) => {
             
             // Other errors
             log.error('Rate limiter error', { error: error.message });
-            next();
+            return next();
         }
     };
 };
+
+// Dashboard API - no client ID header required for telemetry reading
+app.use('/api/dashboard', dashboardRoutes);
 
 app.use('/api/backup', clientIdMiddleware, createRateLimiter(rateLimiters.backup));
 app.use('/api/', clientIdMiddleware, createRateLimiter(rateLimiters.api));
