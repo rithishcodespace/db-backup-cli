@@ -67,6 +67,7 @@ export function registerConnectCommand(program: Command): void {
             host: options.host,
             database: options.database 
           });
+          process.exit(0);
         } else {
           spinner.fail(chalk.red('Connection failed'));
           console.error(chalk.red(`\n✗ Error: ${result.error}`));

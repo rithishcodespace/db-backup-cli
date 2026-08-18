@@ -12,6 +12,7 @@ const connection = new IORedis({ // connects to redis server
     password: process.env.REDIS_PASSWORD || undefined,
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
+    lazyConnect: true,
 });
 
 connection.on('connect', () => {

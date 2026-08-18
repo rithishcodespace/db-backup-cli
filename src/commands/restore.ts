@@ -16,6 +16,7 @@ import httpClient from '../utils/http-client';
 import { keyManager } from '../lib/key-manager';
 import { connection } from '../lib/queue-manager';
 import { DistributedLock } from '../lib/distributed-lock';
+import { PostgresIncrementalService } from '../services/postgres-incremental.service';
 
 const streamPipeline = promisify(pipeline);
 const log = createModuleLogger('restore-command');
@@ -544,7 +545,7 @@ export function registerRestoreCommand(program: Command): void {
                     log.info('Verifying checksum', { backupId: backupRecord.id });
                     
                     try {
-                        const calculatedChecksum = await calculateChecksum(restoreFile);
+                        const calculatedChecksum = await calculateChecksum(backupFile);
                         
                         if (calculatedChecksum !== backupRecord.checksum) {
                             spinner.fail(chalk.red('Backup integrity verification failed!'));
@@ -649,7 +650,7 @@ export function registerRestoreCommand(program: Command): void {
                 switch (dbConfig.type) {
                     case 'postgresql':
                     case 'postgres':
-                        result = await restorePostgres(restoreFile, dbConfig, options);
+                        result = await restorePostgres(restoreFile, dbConfig, { ...options, backupRecord });
                         break;
                     case 'mysql':
                         result = await restoreMySQL(restoreFile, dbConfig, options);
@@ -722,6 +723,7 @@ export function registerRestoreCommand(program: Command): void {
                     }
                 }
             }
+            process.exit(0);
         });
 }
 
@@ -736,7 +738,15 @@ async function restorePostgres(backupFile: string, dbConfig: any, options: any):
     let tempDecompressedFile: string | null = null;
     
     try {
-        // Use the prepareRestoreFile helper
+        if (options.backupRecord && (options.backupRecord.backupType === 'incremental' || options.backupRecord.parentBackupId)) {
+            console.log(chalk.cyan(`\n🔄 Restoring incremental backup chain (ID: ${options.backupRecord.id})...`));
+            const chainResult = await PostgresIncrementalService.restoreBackupChain(options.backupRecord.id, dbConfig);
+            return {
+                success: true,
+                duration: chainResult.duration
+            };
+        }
+
         const restoreFile = backupFile;
         
         let command = `pg_restore -h ${dbConfig.host} -p ${dbConfig.port || 5432} -U ${dbConfig.username} -d ${dbConfig.database}`;

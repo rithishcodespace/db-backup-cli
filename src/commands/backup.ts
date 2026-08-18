@@ -20,6 +20,9 @@ export function registerBackupCommand(program: Command): void {
     .command('backup')
     .description('Perform a database backup using microservices')
     .option('-t, --type <type>', 'Backup type (full, incremental, differential)', 'full')
+    .option('--incremental', 'Perform an incremental backup', false)
+    .option('--parent-id <id>', 'Parent backup ID for incremental backup')
+    .option('--physical', 'Perform physical base backup (pg_basebackup with manifest for incremental backups)', false)
     .option('-c, --compress', 'Compress backup file', true)
     .option('-o, --output <path>', 'Output directory')
     .option('-n, --name <name>', 'Custom backup name')
@@ -169,6 +172,17 @@ export function registerBackupCommand(program: Command): void {
           }
         }
         
+        const effectiveType = options.incremental ? 'incremental' : options.type;
+        const parentBackupId = options.parentId || undefined;
+
+        if (effectiveType === 'incremental') {
+          console.log(chalk.cyan(`\nBackup type: Incremental`));
+          console.log(chalk.dim(`Database: ${dbConfig.database}`));
+          if (parentBackupId) {
+            console.log(chalk.dim(`Parent backup: ${parentBackupId}`));
+          }
+        }
+        
         const backupRequest = {
           dbConfig: {
             type: dbConfig.type,
@@ -179,7 +193,7 @@ export function registerBackupCommand(program: Command): void {
             database: dbConfig.database,
             ssl: dbConfig.ssl
           },
-          backupType: options.type,
+          backupType: effectiveType,
           options: {
             compress: options.compress,
             tables,
@@ -190,7 +204,9 @@ export function registerBackupCommand(program: Command): void {
             storageLocationId: storageLocationId,
             encrypt: options.encrypt,
             encryptionKey: encryptionKey,
-            storeKey: storeKey
+            storeKey: storeKey,
+            parentBackupId: parentBackupId,
+            physical: options.physical
           }
         };
         
@@ -207,10 +223,37 @@ export function registerBackupCommand(program: Command): void {
         
         if (response.data.success) {
           const backupId = response.data.backupId;
+          let jobData = response.data;
           
-          // Update key store with actual backup ID
+          if (response.data.queued) {
+            spinner.text = 'Waiting for background worker to complete backup...';
+            const maxAttempts = 60;
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+              await new Promise(r => setTimeout(r, 1000));
+              try {
+                const statusRes = await httpClient.get(`${GATEWAY_URL}/api/backup/${backupId}/status`);
+                if (statusRes.data && statusRes.data.status && statusRes.data.status !== 'running' && statusRes.data.status !== 'queued') {
+                  jobData = statusRes.data;
+                  break;
+                }
+              } catch (err) {
+                // Ignore polling errors and retry
+              }
+            }
+          }
+
+          if (jobData.status === 'failed' || jobData.error) {
+            if (options.encrypt && storeKey) {
+              keyManager.deleteKey('pending');
+            }
+            spinner.fail(chalk.red('Backup failed'));
+            console.error(chalk.red(`\n✗ Error: ${jobData.error || 'Backup job failed'}`));
+            process.exit(1);
+          }
+
+          const returnedParentId = jobData.metadata?.parentBackupId || parentBackupId || 'N/A';
+          
           if (options.encrypt && storeKey && encryptionKey) {
-            // Remove pending entry and add with actual backup ID
             keyManager.deleteKey('pending');
             keyManager.addKey(
               backupId,
@@ -222,38 +265,43 @@ export function registerBackupCommand(program: Command): void {
           
           spinner.succeed(chalk.green('Backup completed successfully!'));
           
-          console.log(chalk.green('\n✓ Backup Details:'));
-          console.log(chalk.dim(`  Backup ID: ${backupId}`));
-          console.log(chalk.dim(`  Database: ${dbConfig.type}/${dbConfig.database}`));
-          console.log(chalk.dim(`  Type: ${options.type}`));
-          console.log(chalk.dim(`  Storage: ${storageConfig?.type || 'local'}`));
-          if (storageConfig?.name) {
-            console.log(chalk.dim(`  Storage Name: ${storageConfig.name}`));
-          }
-          
-          if (options.encrypt) {
-            console.log(chalk.dim(`  Encryption: AES-256-GCM ✅`));
-            if (storeKey) {
-              console.log(chalk.dim(`  🔐 Key stored locally for automatic decryption`));
-            } else {
-              console.log(chalk.yellow(`  ⚠️  Key not stored. Save it now: ${encryptionKey}`));
+          if (effectiveType === 'incremental') {
+            console.log(chalk.green('\nIncremental backup completed'));
+            console.log(chalk.dim(`Backup ID: ${backupId}`));
+            console.log(chalk.dim(`Parent backup: ${returnedParentId}`));
+            if (jobData.duration) {
+              console.log(chalk.dim(`Duration: ${jobData.duration.toFixed(2)}s`));
+            }
+            if (jobData.fileSize) {
+              const sizeMB = (jobData.fileSize / 1024 / 1024).toFixed(2);
+              console.log(chalk.dim(`Size: ${sizeMB} MB`));
+            }
+          } else {
+            console.log(chalk.green('\n✓ Backup Details:'));
+            console.log(chalk.dim(`  Backup ID: ${backupId}`));
+            console.log(chalk.dim(`  Database: ${dbConfig.type}/${dbConfig.database}`));
+            console.log(chalk.dim(`  Type: ${effectiveType}`));
+            console.log(chalk.dim(`  Storage: ${storageConfig?.type || 'local'}`));
+            if (storageConfig?.name) {
+              console.log(chalk.dim(`  Storage Name: ${storageConfig.name}`));
+            }
+            if (options.encrypt) {
+              console.log(chalk.dim(`  Encryption: AES-256-GCM ✅`));
+            }
+            if (jobData.fileSize) {
+              const sizeMB = (jobData.fileSize / 1024 / 1024).toFixed(2);
+              console.log(chalk.dim(`  Size: ${sizeMB} MB`));
+            }
+            if (jobData.duration) {
+              console.log(chalk.dim(`  Duration: ${jobData.duration.toFixed(2)} seconds`));
+            }
+            if (jobData.filePath) {
+              console.log(chalk.dim(`  Location: ${jobData.filePath}`));
             }
           }
           
-          if (response.data.fileSize) {
-            const sizeMB = (response.data.fileSize / 1024 / 1024).toFixed(2);
-            console.log(chalk.dim(`  Size: ${sizeMB} MB`));
-          }
-          
-          if (response.data.duration) {
-            console.log(chalk.dim(`  Duration: ${response.data.duration.toFixed(2)} seconds`));
-          }
-          
-          if (response.data.filePath) {
-            console.log(chalk.dim(`  Location: ${response.data.filePath}`));
-          }
-          
           log.info('Backup completed via microservices', { backupId: backupId });
+          process.exit(0);
         } else {
           // Clean up pending key if backup failed
           if (options.encrypt && storeKey) {

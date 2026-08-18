@@ -76,6 +76,9 @@ async function handleBackupJob(job: Job) {
                     encrypted: result.encrypted,
                     encryptionType: result.encryptionType,
                     encryptionMetadata: result.encryptionMetadata,
+                    parentBackupId: result.parentBackupId || result.metadata?.parentBackupId || null,
+                    baseBackupId: result.baseBackupId || result.metadata?.baseBackupId || null,
+                    backupLevel: result.backupLevel !== undefined ? result.backupLevel : (result.metadata?.backupLevel ?? null),
                     metadata: {
                         ...result.metadata,
                         completedAt: new Date().toISOString()

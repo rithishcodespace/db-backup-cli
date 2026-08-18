@@ -88,6 +88,7 @@ export function registerStorageCommand(program: Command): void {
         console.log(chalk.dim(`\n💡 To set as default: db-backup storage set-default ${storage.name}`));
         
         log.info('Storage location added', { name: options.name, type: options.type });
+        process.exit(0);
         
       } catch (error: any) {
         spinner.fail(chalk.red('Failed to add storage location'));
@@ -141,6 +142,7 @@ export function registerStorageCommand(program: Command): void {
         console.log(chalk.dim('─'.repeat(80)));
         console.log(chalk.dim(`\n💡 Use: db-backup storage show <name> for details`));
         console.log(chalk.dim(`   db-backup storage set-default <name> to set as default`));
+        process.exit(0);
         
       } catch (error: any) {
         console.error(chalk.red('\n✗ Failed to list storage locations:'), error.message);
@@ -190,6 +192,7 @@ export function registerStorageCommand(program: Command): void {
         }
         
         console.log(chalk.dim('─'.repeat(60)));
+        process.exit(0);
         
       } catch (error: any) {
         console.error(chalk.red('\n✗ Failed to show storage:'), error.message);
@@ -240,6 +243,7 @@ export function registerStorageCommand(program: Command): void {
         });
         
         console.log(chalk.green(`\n✓ Storage location "${name}" removed successfully`));
+        process.exit(0);
         
       } catch (error: any) {
         console.error(chalk.red('\n✗ Failed to remove storage location:'), error.message);
@@ -291,6 +295,7 @@ export function registerStorageCommand(program: Command): void {
         }
         console.log(chalk.dim(`\n💡 Now you can backup without specifying storage:`));
         console.log(chalk.dim(`  db-backup backup --type full`));
+        process.exit(0);
         
       } catch (error: any) {
         spinner.fail(chalk.red('Failed to set default storage'));

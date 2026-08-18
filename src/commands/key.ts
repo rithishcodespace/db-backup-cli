@@ -47,6 +47,7 @@ export function registerKeyCommand(program: Command): void {
                 
                 console.log(chalk.dim('─'.repeat(80)));
                 console.log(chalk.dim(`\n💡 Keystore location: ${keyManager.getKeystorePath()}`));
+                process.exit(0);
                 
             } catch (error: any) {
                 console.error(chalk.red('\n✗ Failed to list keys:'), error.message);
@@ -67,6 +68,7 @@ export function registerKeyCommand(program: Command): void {
                 keyManager.exportKeystore(exportPath);
                 spinner.succeed(chalk.green('Keystore exported successfully'));
                 log.info('Keystore exported', { path: exportPath });
+                process.exit(0);
             } catch (error: any) {
                 spinner.fail(chalk.red('Failed to export keystore'));
                 console.error(chalk.red(`\n✗ Error: ${error.message}`));
@@ -88,6 +90,7 @@ export function registerKeyCommand(program: Command): void {
                 keyManager.importKeystore(importPath, options.password);
                 spinner.succeed(chalk.green('Keystore imported successfully'));
                 log.info('Keystore imported', { path: importPath });
+                process.exit(0);
             } catch (error: any) {
                 spinner.fail(chalk.red('Failed to import keystore'));
                 console.error(chalk.red(`\n✗ Error: ${error.message}`));
@@ -141,6 +144,7 @@ export function registerKeyCommand(program: Command): void {
                 } else {
                     console.log(chalk.yellow(`\n⚠️  No key found for backup: ${options.id}`));
                 }
+                process.exit(0);
                 
             } catch (error: any) {
                 console.error(chalk.red('\n✗ Failed to delete key:'), error.message);
@@ -176,6 +180,7 @@ export function registerKeyCommand(program: Command): void {
                 console.log(chalk.dim('─'.repeat(50)));
                 console.log(chalk.yellow('\n⚠️  Keep this key secure!'));
                 console.log(chalk.dim('   Anyone with this key can decrypt your backup.'));
+                process.exit(0);
                 
             } catch (error: any) {
                 console.error(chalk.red('\n✗ Failed to show key:'), error.message);

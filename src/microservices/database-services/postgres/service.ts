@@ -11,6 +11,7 @@ import { config as appConfig } from '../../../config';
 import { S3StorageProvider } from '../../storage-service/providers/s3';
 import { LocalStorageProvider } from '../../storage-service/providers/local';
 import path from 'path';
+import { PostgresIncrementalService } from '../../../services/postgres-incremental.service';
 
 const log = createModuleLogger('postgres-backup-service');
 
@@ -137,7 +138,27 @@ async function performBackup(
 ): Promise<BackupResponse> {
     const startTime = Date.now();
     
-    // Build pg_dump command
+    if (backupType === 'incremental' || options?.physical) {
+        const incService = new PostgresIncrementalService(dbConfig as any);
+        const incResult = await incService.performIncrementalBackup(backupId, {
+            type: backupType === 'incremental' ? 'incremental' : 'full',
+            compress: options?.compress,
+            output: options?.outputPath,
+            name: options?.backupName,
+            parentBackupId: options?.parentBackupId
+        });
+        return {
+            success: true,
+            backupId: incResult.backupId,
+            filePath: incResult.filePath,
+            fileSize: incResult.fileSize,
+            duration: incResult.duration,
+            metadata: incResult.metadata,
+            fileName: incResult.fileName,
+            checksum: incResult.checksum
+        };
+    }
+    
     let command = `pg_dump -h ${dbConfig.host} -p ${dbConfig.port || 5432} -U ${dbConfig.username} -d ${dbConfig.database}`;
     command += ' --format=custom --verbose --no-owner --no-privileges --blobs --clean --if-exists';
     

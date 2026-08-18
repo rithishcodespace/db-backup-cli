@@ -40,7 +40,7 @@ export function registerListCommand(program: Command): void {
         if (backups.length === 0) {
           console.log(chalk.yellow('\n📭 No backups found'));
           console.log(chalk.dim('\nRun "db-backup backup" to create your first backup'));
-          return;
+          process.exit(0);
         }
         
         console.log(chalk.bold.cyan(`\n📋 Found ${backups.length} Backup(s):\n`));
@@ -79,10 +79,11 @@ export function registerListCommand(program: Command): void {
         console.log(chalk.dim(`\n💡 To restore, use: db-backup restore --id <full-backup-id>`));
         
         log.info('Listed backups', { count: backups.length, filters: options });
-        
+        process.exit(0);
       } catch (error) {
         console.error(chalk.red('\n✗ Failed to list backups:'), error);
         log.error('Failed to list backups', { error });
+        process.exit(1);
       }
     });
 }
