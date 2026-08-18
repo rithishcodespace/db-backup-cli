@@ -32,12 +32,20 @@ router.post('/backup', async (req, res) => {
         if (backupType === 'full' || backupType === 'full-backup') {
             result = await backupManager.createFullBackup(dbConfig, options);
         } else if (backupType === 'incremental') {
-            const chains = await backupManager.listBackupChains();
-            if (chains.length === 0) {
-                throw new Error('No full backup found. Please create a full backup first.');
+            let parentId = options?.parentBackupId;
+            if (!parentId) {
+                const chains = await backupManager.listBackupChains();
+                if (chains.length === 0) {
+                    throw new Error('No full backup found. Please create a full backup first.');
+                }
+                const latestChain = chains[chains.length - 1];
+                if (latestChain.increments.length > 0) {
+                    parentId = latestChain.increments[latestChain.increments.length - 1].id;
+                } else {
+                    parentId = latestChain.fullBackup.id;
+                }
             }
-            const latestFull = chains[chains.length - 1];
-            result = await backupManager.createIncrementalBackup(dbConfig, latestFull.fullBackup.id, options);
+            result = await backupManager.createIncrementalBackup(dbConfig, parentId, options);
         } else {
             throw new Error(`Unsupported backup type: ${backupType}`);
         }

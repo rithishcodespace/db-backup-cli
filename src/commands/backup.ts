@@ -266,15 +266,31 @@ export function registerBackupCommand(program: Command): void {
           spinner.succeed(chalk.green('Backup completed successfully!'));
           
           if (effectiveType === 'incremental') {
-            console.log(chalk.green('\nIncremental backup completed'));
-            console.log(chalk.dim(`Backup ID: ${backupId}`));
-            console.log(chalk.dim(`Parent backup: ${returnedParentId}`));
-            if (jobData.duration) {
-              console.log(chalk.dim(`Duration: ${jobData.duration.toFixed(2)}s`));
+            const startFile = jobData.binlogFile || jobData.metadata?.startBinlogFile || 'N/A';
+            const startPos = jobData.binlogPosition ?? jobData.metadata?.startBinlogPosition ?? 0;
+            const endFile = jobData.endBinlogFile || jobData.metadata?.endBinlogFile || startFile;
+            const endPos = jobData.endBinlogPosition ?? jobData.metadata?.endBinlogPosition ?? startPos;
+            const baseId = jobData.baseBackupId || jobData.metadata?.baseBackupId || 'N/A';
+            const level = jobData.backupLevel ?? jobData.metadata?.backupLevel ?? 1;
+
+            console.log(chalk.green('\n📋 Incremental Backup Details:'));
+            console.log(chalk.dim(`  Backup ID: ${backupId}`));
+            console.log(chalk.dim(`  Type: incremental`));
+            console.log(chalk.dim(`  Database: ${dbConfig.type}/${dbConfig.database}`));
+            console.log(chalk.dim(`  Level: ${level}`));
+            console.log(chalk.dim(`  Parent backup: ${returnedParentId}`));
+            console.log(chalk.dim(`  Base backup: ${baseId}`));
+            console.log(chalk.dim(`  Binlog Start: ${startFile}:${startPos}`));
+            console.log(chalk.dim(`  Binlog End: ${endFile}:${endPos}`));
+            if (jobData.checksum || jobData.metadata?.checksum) {
+              console.log(chalk.dim(`  Checksum: ${jobData.checksum || jobData.metadata?.checksum}`));
             }
             if (jobData.fileSize) {
               const sizeMB = (jobData.fileSize / 1024 / 1024).toFixed(2);
-              console.log(chalk.dim(`Size: ${sizeMB} MB`));
+              console.log(chalk.dim(`  Size: ${sizeMB} MB`));
+            }
+            if (jobData.duration) {
+              console.log(chalk.dim(`  Duration: ${jobData.duration.toFixed(2)}s`));
             }
           } else {
             console.log(chalk.green('\n✓ Backup Details:'));
@@ -282,6 +298,11 @@ export function registerBackupCommand(program: Command): void {
             console.log(chalk.dim(`  Database: ${dbConfig.type}/${dbConfig.database}`));
             console.log(chalk.dim(`  Type: ${effectiveType}`));
             console.log(chalk.dim(`  Storage: ${storageConfig?.type || 'local'}`));
+            if (jobData.binlogFile || jobData.metadata?.startBinlogFile) {
+              const startFile = jobData.binlogFile || jobData.metadata?.startBinlogFile;
+              const startPos = jobData.binlogPosition ?? jobData.metadata?.startBinlogPosition;
+              console.log(chalk.dim(`  Binlog Coordinate: ${startFile}:${startPos}`));
+            }
             if (storageConfig?.name) {
               console.log(chalk.dim(`  Storage Name: ${storageConfig.name}`));
             }

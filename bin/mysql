@@ -1,0 +1,8 @@
+#!/bin/bash
+if command -v mysql.bin >/dev/null 2>&1; then
+  exec mysql.bin "$@"
+elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q test-mysql; then
+  exec docker exec -i -e MYSQL_PWD test-mysql mysql "$@"
+else
+  exec docker run --rm -i -e MYSQL_PWD --net=host mysql:8.0 mysql "$@"
+fi

@@ -10,6 +10,7 @@ import { DatabaseConfig } from '../../shared/types';
 import { createModuleLogger } from '../../../logger';
 import { ReentrantFileLock } from './locks/reentrant-file-lock';
 import { ChecksumTransform } from './transforms/checksum';
+import { BinlogHeaderTransform } from './transforms/binlog-header';
 import { EncryptionTransform } from './transforms/encryption';
 import { DecryptionTransform } from './transforms/decryption';
 import { IncrementalBackupMetadata, BackupChain, BackupResult } from './types';
@@ -57,7 +58,6 @@ export class MySQLIncrementalBackupManager {
         return MySQLIncrementalBackupManager.instance;
     }
 
-    // Connection Management 
     private async getConnection(dbConfig: DatabaseConfig): Promise<mysql.Connection> {
         if (this.connection) {
             try {
@@ -98,7 +98,6 @@ export class MySQLIncrementalBackupManager {
         }
     }
 
-    // Process Management 
     private trackProcess(proc: ChildProcess): void {
         this.activeProcesses.push(proc);
         proc.on('exit', () => {
@@ -147,7 +146,6 @@ export class MySQLIncrementalBackupManager {
                         }, 5000);
                     }
                 } catch (error) {
-                    // Ignore
                 }
                 reject(new Error(`Operation timed out after ${timeoutMs}ms`));
             }, timeoutMs);
@@ -179,7 +177,6 @@ export class MySQLIncrementalBackupManager {
         throw lastError || new Error('Operation failed after retries');
     }
 
-    // Core Backup Methods 
     async validatePrivileges(dbConfig: DatabaseConfig): Promise<{ valid: boolean; missing: string[] }> {
         const requiredPrivileges = ['SELECT', 'RELOAD', 'LOCK TABLES', 'REPLICATION CLIENT', 'REPLICATION SLAVE', 'PROCESS'];
         const missing: string[] = [];
@@ -211,23 +208,22 @@ export class MySQLIncrementalBackupManager {
         try {
             const conn = await this.getConnection(dbConfig);
             const [rows] = await conn.query("SHOW VARIABLES LIKE 'log_bin'") as any;
-            const enabled = rows[0]?.Value === 'ON';
+            const enabled = rows[0]?.Value === 'ON' || rows[0]?.Value === '1';
             
             if (!enabled) {
-                return { enabled: false, format: 'N/A', error: 'Binary logging is not enabled.' };
+                return { enabled: false, format: 'N/A', error: 'Binary logging is not enabled (log_bin = OFF).' };
             }
 
             const [formatRows] = await conn.query("SHOW VARIABLES LIKE 'binlog_format'") as any;
-            const format = formatRows[0]?.Value || 'STATEMENT';
+            const format = formatRows[0]?.Value || 'ROW';
 
             let retention: number | undefined;
             try {
                 const [retentionRows] = await conn.query("SHOW VARIABLES LIKE 'binlog_expire_logs_seconds'") as any;
                 if (retentionRows[0]?.Value) {
-                    retention = parseInt(retentionRows[0].Value) / 86400;
+                    retention = parseInt(retentionRows[0].Value, 10) / 86400;
                 }
             } catch {
-                // Ignore
             }
 
             return { enabled: true, format, retention };
@@ -239,13 +235,20 @@ export class MySQLIncrementalBackupManager {
 
     async getCurrentBinlogPosition(dbConfig: DatabaseConfig): Promise<{ file: string; position: number }> {
         const conn = await this.getConnection(dbConfig);
-        const [rows] = await conn.query("SHOW MASTER STATUS") as any;
-        
-        if (!rows || rows.length === 0) {
-            throw new Error('Failed to get binlog position. Ensure REPLICATION CLIENT privilege.');
+        try {
+            const [rows] = await conn.query("SHOW BINARY LOG STATUS") as any;
+            if (rows && rows.length > 0) {
+                return { file: rows[0].File, position: parseInt(rows[0].Position, 10) };
+            }
+        } catch {
         }
 
-        return { file: rows[0].File, position: rows[0].Position };
+        const [rows] = await conn.query("SHOW MASTER STATUS") as any;
+        if (!rows || rows.length === 0) {
+            throw new Error('Failed to get binlog position. Ensure REPLICATION CLIENT privilege and binary logging is enabled.');
+        }
+
+        return { file: rows[0].File, position: parseInt(rows[0].Position, 10) };
     }
 
     async listBinlogFiles(dbConfig: DatabaseConfig): Promise<string[]> {
@@ -254,35 +257,16 @@ export class MySQLIncrementalBackupManager {
         return rows.map((row: any) => row.Log_name);
     }
 
-    private async hasBinlogDataAfterPosition(dbConfig: DatabaseConfig, binlogFile: string, position: number): Promise<boolean> {
-        try {
-            const conn = await this.getConnection(dbConfig);
-            const [rows] = await conn.query("SHOW BINLOG EVENTS IN ? LIMIT 1", [binlogFile]) as any;
-            
-            if (rows && rows.length > 0) {
-                for (const row of rows) {
-                    if (row.Pos > position) {
-                        return true;
-                    }
-                }
-            }
-            return false;
-        } catch (error) {
-            log.warn('Failed to check binlog events', { error });
-            return false;
-        }
-    }
-
     async createFullBackup(dbConfig: DatabaseConfig, options: any = {}): Promise<BackupResult> {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const backupId = `full_${timestamp}_${uuidv4().slice(0, 8)}`;
+        const backupId = options.backupId || `full_${timestamp}_${uuidv4().slice(0, 8)}`;
         const fileName = `${backupId}.sql.gz`;
         const filePath = path.join(this.backupDir, fileName);
 
         log.info('Creating full backup', { backupId, database: dbConfig.database });
 
         const binlogStatus = await this.getCurrentBinlogPosition(dbConfig);
-        
+
         const args = [
             `--host=${dbConfig.host}`,
             `--port=${String(dbConfig.port || 3306)}`,
@@ -294,7 +278,7 @@ export class MySQLIncrementalBackupManager {
             `--hex-blob`,
             `--add-drop-table`,
             `--flush-logs`,
-            `--master-data=2`,
+            `--source-data=2`,
             dbConfig.database
         ];
 
@@ -308,12 +292,15 @@ export class MySQLIncrementalBackupManager {
             });
         }
 
-        const env = { ...process.env, MYSQL_PWD: dbConfig.password };
+        const binDir = path.join(process.cwd(), 'bin');
+        const envPath = process.env.PATH ? `${binDir}:${process.env.PATH}` : binDir;
+        const env = { ...process.env, PATH: envPath, MYSQL_PWD: dbConfig.password };
         const mysqldump = spawn('mysqldump', args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
 
         const writeStream = createWriteStream(filePath);
         const gzip = createGzip();
         const checksumTransform = new ChecksumTransform();
+        const binlogHeaderTransform = new BinlogHeaderTransform();
 
         let stderrOutput = '';
         mysqldump.stderr.on('data', (data) => {
@@ -323,17 +310,27 @@ export class MySQLIncrementalBackupManager {
 
         await this.executeWithRetry(async () => {
             await this.executeWithTimeout(mysqldump, async () => {
-                await pipeline(mysqldump.stdout, gzip, checksumTransform, writeStream);
+                await pipeline(mysqldump.stdout, binlogHeaderTransform, gzip, checksumTransform, writeStream);
             });
         });
 
-        await new Promise<void>((resolve, reject) => {
-            mysqldump.on('close', (code) => {
-                if (code === 0) resolve();
-                else reject(new Error(`mysqldump exited with code ${code}: ${stderrOutput}`));
+        if (mysqldump.exitCode !== null) {
+            if (mysqldump.exitCode !== 0) {
+                throw new Error(`mysqldump exited with code ${mysqldump.exitCode}: ${stderrOutput}`);
+            }
+        } else {
+            await new Promise<void>((resolve, reject) => {
+                mysqldump.on('close', (code) => {
+                    if (code === 0) resolve();
+                    else reject(new Error(`mysqldump exited with code ${code}: ${stderrOutput}`));
+                });
+                mysqldump.on('error', reject);
             });
-            mysqldump.on('error', reject);
-        });
+        }
+
+        const headerCoord = binlogHeaderTransform.getBinlogCoordinate();
+        const startFile = headerCoord.file || binlogStatus.file;
+        const startPos = headerCoord.position !== null ? headerCoord.position : binlogStatus.position;
 
         const stats = await fs.stat(filePath);
         const checksum = checksumTransform.getChecksum();
@@ -353,28 +350,39 @@ export class MySQLIncrementalBackupManager {
             id: backupId,
             type: 'full',
             database: dbConfig.database,
-            startBinlogFile: binlogStatus.file,
-            startBinlogPosition: binlogStatus.position,
+            baseBackupId: backupId,
+            parentBackupId: null,
+            backupLevel: 0,
+            startBinlogFile: startFile,
+            startBinlogPosition: startPos,
+            endBinlogFile: startFile,
+            endBinlogPosition: startPos,
             timestamp: new Date(),
             file: finalFileName,
             size: stats.size,
             checksum: checksum,
-            encrypted: !!encryptionMetadata
+            encrypted: !!encryptionMetadata,
+            status: 'success'
         };
 
         await this.saveMetadata(metadata);
 
         log.info('Full backup completed', { 
-            backupId, size: stats.size, binlogFile: binlogStatus.file, 
-            binlogPosition: binlogStatus.position, encrypted: !!encryptionMetadata 
+            backupId, size: stats.size, binlogFile: startFile, 
+            binlogPosition: startPos, encrypted: !!encryptionMetadata 
         });
 
         return {
             success: true,
             backupId,
             file: finalFilePath,
-            binlogFile: binlogStatus.file,
-            binlogPosition: binlogStatus.position,
+            binlogFile: startFile,
+            binlogPosition: startPos,
+            endBinlogFile: startFile,
+            endBinlogPosition: startPos,
+            baseBackupId: backupId,
+            parentBackupId: null,
+            backupLevel: 0,
             size: stats.size,
             metadata,
             checksum,
@@ -422,184 +430,289 @@ export class MySQLIncrementalBackupManager {
         return decryptedPath;
     }
 
-    async createIncrementalBackup(dbConfig: DatabaseConfig, fullBackupId: string, options: any = {}): Promise<any> {
-        const chain = await this.getBackupChain(fullBackupId);
-        if (!chain) {
-            throw new Error(`Backup chain not found for ID: ${fullBackupId}`);
+    async createIncrementalBackup(dbConfig: DatabaseConfig, parentBackupId: string, options: any = {}): Promise<any> {
+        const allMetadata = await this.listMetadata();
+        const parent = allMetadata.find((m: any) => m.id === parentBackupId);
+
+        if (!parent) {
+            throw new Error(`Parent backup not found for ID: ${parentBackupId}`);
         }
 
-        let lastBackup: IncrementalBackupMetadata;
-        if (chain.increments.length > 0) {
-            lastBackup = chain.increments[chain.increments.length - 1];
-        } else {
-            lastBackup = chain.fullBackup;
+        if (parent.status && parent.status !== 'success') {
+            throw new Error(`Parent backup '${parentBackupId}' status is '${parent.status}'. Incremental backup requires a successful parent.`);
+        }
+
+        const baseBackupId = parent.baseBackupId || parent.id;
+        const backupLevel = (parent.backupLevel ?? 0) + 1;
+        const startBinlogFile = parent.endBinlogFile || parent.startBinlogFile;
+        const startBinlogPosition = parent.endBinlogPosition || parent.startBinlogPosition;
+
+        const binlogStatusCheck = await this.checkBinlogStatus(dbConfig);
+        if (!binlogStatusCheck.enabled) {
+            throw new Error(`Incremental backup failed: binary logging is disabled on MySQL server (log_bin = OFF). ${binlogStatusCheck.error || ''}`);
         }
 
         const binlogFiles = await this.listBinlogFiles(dbConfig);
-        const startFileIndex = binlogFiles.indexOf(lastBackup.startBinlogFile);
+        const startFileIndex = binlogFiles.indexOf(startBinlogFile);
+
         if (startFileIndex === -1) {
-            throw new Error(`Binlog file ${lastBackup.startBinlogFile} not found. Please create a new full backup.`);
+            throw new Error(`Cannot create incremental backup: required parent binary log '${startBinlogFile}' has been purged from MySQL server.`);
         }
 
-        const hasNewData = await this.hasBinlogDataAfterPosition(
-            dbConfig, binlogFiles[startFileIndex], lastBackup.startBinlogPosition
-        );
+        const currentServerPos = await this.getCurrentBinlogPosition(dbConfig);
+        const endBinlogFile = currentServerPos.file;
+        const endBinlogPosition = currentServerPos.position;
 
-        if (!hasNewData && startFileIndex === binlogFiles.length - 1) {
-            throw new Error('No new binlog data to backup.');
+        const endFileIndex = binlogFiles.indexOf(endBinlogFile);
+
+        if (endFileIndex < startFileIndex) {
+            throw new Error(`Invalid binlog file sequence: end file '${endBinlogFile}' precedes start file '${startBinlogFile}'.`);
+        }
+
+        if (endFileIndex === startFileIndex && endBinlogPosition <= startBinlogPosition) {
+            throw new Error(`No new binary log events since parent backup (start: ${startBinlogFile}:${startBinlogPosition}, current: ${endBinlogFile}:${endBinlogPosition}).`);
         }
 
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const backupId = `inc_${timestamp}_${uuidv4().slice(0, 8)}`;
-        const backupDir = path.join(this.backupDir, backupId);
-        
-        if (!existsSync(backupDir)) {
-            mkdirSync(backupDir, { recursive: true });
-        }
+        const backupId = options.backupId || `inc_${timestamp}_${uuidv4().slice(0, 8)}`;
+        const fileName = `${backupId}.sql.gz`;
+        const filePath = path.join(this.backupDir, fileName);
 
         log.info('Creating incremental backup', { 
-            backupId, from: lastBackup.startBinlogFile, position: lastBackup.startBinlogPosition
+            backupId, parentId: parentBackupId, baseBackupId, backupLevel,
+            start: `${startBinlogFile}:${startBinlogPosition}`,
+            end: `${endBinlogFile}:${endBinlogPosition}`
         });
 
-        let filesToBackup: string[] = [];
-        let currentPosition = lastBackup.startBinlogPosition;
+        const targetBinlogFiles = binlogFiles.slice(startFileIndex, endFileIndex + 1);
 
-        for (let i = startFileIndex; i < binlogFiles.length; i++) {
-            const file = binlogFiles[i];
-            if (i === startFileIndex) {
-                const hasData = await this.hasBinlogDataAfterPosition(dbConfig, file, currentPosition);
-                if (hasData) {
-                    filesToBackup.push(file);
-                }
-            } else {
-                filesToBackup.push(file);
-            }
-        }
+        const binDir = path.join(process.cwd(), 'bin');
+        const envPath = process.env.PATH ? `${binDir}:${process.env.PATH}` : binDir;
+        const env = { ...process.env, PATH: envPath, MYSQL_PWD: dbConfig.password };
+        const mysqlbinlogArgs = [
+            `--host=${dbConfig.host}`,
+            `--port=${String(dbConfig.port || 3306)}`,
+            `--user=${dbConfig.username}`,
+            `--read-from-remote-server`,
+            `--start-position=${String(startBinlogPosition)}`,
+            `--stop-position=${String(endBinlogPosition)}`,
+            ...targetBinlogFiles
+        ];
 
-        if (filesToBackup.length === 0) {
-            throw new Error('No new binlog data to backup.');
-        }
+        const mysqlbinlog = spawn('mysqlbinlog', mysqlbinlogArgs, {
+            env,
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
 
-        let totalSize = 0;
-        const downloadedFiles: string[] = [];
-        let lastEndFile = lastBackup.startBinlogFile;
-        let lastEndPosition = lastBackup.startBinlogPosition;
+        const writeStream = createWriteStream(filePath);
+        const gzip = createGzip();
+        const checksumTransform = new ChecksumTransform();
 
-        for (let i = 0; i < filesToBackup.length; i++) {
-            const binlogFile = filesToBackup[i];
-            const outputFile = path.join(backupDir, `${binlogFile}.sql.gz`);
-            
-            let startPosition = 4;
-            if (i === 0 && lastBackup.startBinlogFile === binlogFile) {
-                startPosition = lastBackup.startBinlogPosition;
-            }
+        let stderrOutput = '';
+        mysqlbinlog.stderr.on('data', (data) => {
+            stderrOutput += data.toString();
+            log.debug('mysqlbinlog stderr', { backupId, msg: data.toString().substring(0, 200) });
+        });
 
-            const env = { ...process.env, MYSQL_PWD: dbConfig.password };
-            const mysqlbinlogArgs = [
-                `--host=${dbConfig.host}`,
-                `--port=${String(dbConfig.port || 3306)}`,
-                `--user=${dbConfig.username}`,
-                `--read-from-remote-server`,
-                `--start-position=${String(startPosition)}`,
-                `--result-file=-`,
-                binlogFile
-            ];
-
-            const mysqlbinlog = spawn('mysqlbinlog', mysqlbinlogArgs, {
-                env,
-                stdio: ['ignore', 'pipe', 'pipe']
-            });
-
-            const writeStream = createWriteStream(outputFile);
-            const gzip = createGzip();
-
-            let stderrOutput = '';
-            mysqlbinlog.stderr.on('data', (data) => {
-                stderrOutput += data.toString();
-                log.debug('mysqlbinlog stderr', { backupId, msg: data.toString().substring(0, 200) });
-            });
-
+        try {
             await this.executeWithRetry(async () => {
                 await this.executeWithTimeout(mysqlbinlog, async () => {
-                    await pipeline(mysqlbinlog.stdout, gzip, writeStream);
+                    await pipeline(mysqlbinlog.stdout, gzip, checksumTransform, writeStream);
                 });
             });
 
-            await new Promise<void>((resolve, reject) => {
-                mysqlbinlog.on('close', (code) => {
-                    if (code === 0) resolve();
-                    else reject(new Error(`mysqlbinlog exited with code ${code}: ${stderrOutput}`));
-                });
-                mysqlbinlog.on('error', reject);
-            });
-
-            const stats = await fs.stat(outputFile);
-            if (stats.size > 0) {
-                totalSize += stats.size;
-                downloadedFiles.push(binlogFile);
-                lastEndFile = binlogFile;
+            if (mysqlbinlog.exitCode !== null) {
+                if (mysqlbinlog.exitCode !== 0) {
+                    throw new Error(`mysqlbinlog exited with code ${mysqlbinlog.exitCode}: ${stderrOutput}`);
+                }
             } else {
-                await fs.unlink(outputFile);
+                await new Promise<void>((resolve, reject) => {
+                    mysqlbinlog.on('close', (code) => {
+                        if (code === 0) resolve();
+                        else reject(new Error(`mysqlbinlog exited with code ${code}: ${stderrOutput}`));
+                    });
+                    mysqlbinlog.on('error', reject);
+                });
             }
+
+            const stats = await fs.stat(filePath);
+            if (stats.size === 0) {
+                throw new Error('mysqlbinlog produced an empty backup file.');
+            }
+
+            const checksum = checksumTransform.getChecksum();
+
+            let encryptionMetadata = null;
+            let finalFilePath = filePath;
+            let finalFileName = fileName;
+
+            if (options.encrypt && options.encryptionKey) {
+                const encryptionResult = await this.encryptBackupFile(filePath, options.encryptionKey, fileName);
+                finalFilePath = encryptionResult.filePath;
+                finalFileName = encryptionResult.fileName;
+                encryptionMetadata = encryptionResult.metadata;
+            }
+
+            const metadata: IncrementalBackupMetadata = {
+                id: backupId,
+                type: 'incremental',
+                database: dbConfig.database,
+                baseBackupId: baseBackupId,
+                parentBackupId: parentBackupId,
+                backupLevel: backupLevel,
+                fullBackupId: baseBackupId,
+                startBinlogFile: startBinlogFile,
+                startBinlogPosition: startBinlogPosition,
+                endBinlogFile: endBinlogFile,
+                endBinlogPosition: endBinlogPosition,
+                binlogFiles: targetBinlogFiles,
+                timestamp: new Date(),
+                file: finalFileName,
+                size: stats.size,
+                checksum: checksum,
+                encrypted: !!encryptionMetadata,
+                status: 'success'
+            };
+
+            await this.saveMetadata(metadata);
+
+            log.info('Incremental backup completed', {
+                backupId, size: stats.size,
+                start: `${startBinlogFile}:${startBinlogPosition}`,
+                end: `${endBinlogFile}:${endBinlogPosition}`
+            });
+
+            return {
+                success: true,
+                backupId,
+                file: finalFilePath,
+                startBinlogFile: startBinlogFile,
+                startBinlogPosition: startBinlogPosition,
+                endBinlogFile: endBinlogFile,
+                endBinlogPosition: endBinlogPosition,
+                binlogFile: startBinlogFile,
+                binlogPosition: startBinlogPosition,
+                baseBackupId: baseBackupId,
+                parentBackupId: parentBackupId,
+                backupLevel: backupLevel,
+                size: stats.size,
+                metadata,
+                checksum
+            };
+        } catch (error) {
+            const failedMeta: IncrementalBackupMetadata = {
+                id: backupId,
+                type: 'incremental',
+                database: dbConfig.database,
+                baseBackupId: baseBackupId,
+                parentBackupId: parentBackupId,
+                backupLevel: backupLevel,
+                startBinlogFile: startBinlogFile,
+                startBinlogPosition: startBinlogPosition,
+                endBinlogFile: endBinlogFile,
+                endBinlogPosition: endBinlogPosition,
+                timestamp: new Date(),
+                file: fileName,
+                size: 0,
+                encrypted: false,
+                status: 'failed'
+            };
+            await this.saveMetadata(failedMeta);
+            if (existsSync(filePath)) {
+                try { await fs.unlink(filePath); } catch {}
+            }
+            throw error;
         }
-
-        const currentStatus = await this.getCurrentBinlogPosition(dbConfig);
-        lastEndFile = currentStatus.file;
-        lastEndPosition = currentStatus.position;
-
-        if (downloadedFiles.length === 0) {
-            throw new Error('No binlog data was downloaded.');
-        }
-
-        const metadata: IncrementalBackupMetadata = {
-            id: backupId,
-            type: 'incremental',
-            database: dbConfig.database,
-            fullBackupId: fullBackupId,
-            startBinlogFile: lastBackup.startBinlogFile,
-            startBinlogPosition: lastBackup.startBinlogPosition,
-            endBinlogFile: lastEndFile,
-            endBinlogPosition: lastEndPosition,
-            binlogFiles: downloadedFiles,
-            timestamp: new Date(),
-            file: backupId,
-            size: totalSize,
-            encrypted: false
-        };
-
-        await this.saveMetadata(metadata);
-
-        log.info('Incremental backup completed', {
-            backupId, files: downloadedFiles.length, size: totalSize,
-            endBinlogFile: lastEndFile, endPosition: lastEndPosition
-        });
-
-        return {
-            success: true,
-            backupId,
-            file: backupDir,
-            binlogFiles: downloadedFiles,
-            size: totalSize,
-            metadata
-        };
     }
 
-    async getBackupChain(fullBackupId: string): Promise<BackupChain | null> {
+    async getBackupChain(targetBackupId: string): Promise<BackupChain | null> {
         await this.fileLock.acquire();
         try {
             const allMetadata = await this.listMetadata();
-            const fullBackup = allMetadata.find((m: any) => m.id === fullBackupId && m.type === 'full');
-            if (!fullBackup) {
+            const target = allMetadata.find((m: any) => m.id === targetBackupId);
+            if (!target) {
                 return null;
             }
 
-            const increments = allMetadata
-                .filter((m: any) => m.type === 'incremental' && m.fullBackupId === fullBackupId)
-                .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+            const chainList: IncrementalBackupMetadata[] = [target];
+            let current = target;
 
+            while (current.parentBackupId) {
+                const parent = allMetadata.find((m: any) => m.id === current.parentBackupId);
+                if (!parent) {
+                    throw new Error(`Broken backup chain: parent '${current.parentBackupId}' missing for backup '${current.id}'.`);
+                }
+                if (chainList.some(item => item.id === parent.id)) {
+                    throw new Error(`Circular parent backup reference detected at '${parent.id}'.`);
+                }
+                chainList.unshift(parent);
+                current = parent;
+            }
+
+            const fullBackup = chainList[0];
+            if (fullBackup.type !== 'full') {
+                throw new Error(`Chain root '${fullBackup.id}' is not a full base backup.`);
+            }
+
+            const increments = chainList.slice(1);
             return { fullBackup, increments };
         } finally {
             this.fileLock.release();
+        }
+    }
+
+    async validateBackupChain(chain: BackupChain): Promise<void> {
+        const full = chain.fullBackup;
+        if (full.status && full.status !== 'success') {
+            throw new Error(`Full base backup '${full.id}' status is '${full.status}'. Restore rejected.`);
+        }
+
+        const fullPath = path.join(this.backupDir, full.file);
+        if (!existsSync(fullPath)) {
+            throw new Error(`Base backup file missing from storage: ${fullPath}`);
+        }
+
+        if (full.checksum) {
+            const calculated = await this.calculateFileChecksum(fullPath);
+            if (calculated !== full.checksum) {
+                throw new Error(`Checksum mismatch for base backup '${full.id}'. File may be corrupted.`);
+            }
+        }
+
+        let previous: IncrementalBackupMetadata = full;
+
+        for (let i = 0; i < chain.increments.length; i++) {
+            const current = chain.increments[i];
+
+            if (current.status && current.status !== 'success') {
+                throw new Error(`Incremental backup '${current.id}' status is '${current.status}'. Restore rejected.`);
+            }
+
+            const incPath = path.join(this.backupDir, current.file);
+            if (!existsSync(incPath)) {
+                throw new Error(`Incremental backup file missing from storage: ${incPath}`);
+            }
+
+            if (current.checksum) {
+                const calculated = await this.calculateFileChecksum(incPath);
+                if (calculated !== current.checksum) {
+                    throw new Error(`Checksum mismatch for incremental backup '${current.id}'. File may be corrupted.`);
+                }
+            }
+
+            const prevEndFile = previous.endBinlogFile || previous.startBinlogFile;
+            const prevEndPos = previous.endBinlogPosition || previous.startBinlogPosition;
+
+            if (current.startBinlogFile !== prevEndFile || current.startBinlogPosition !== prevEndPos) {
+                throw new Error(`Coordinate discontinuity in chain between '${previous.id}' (ends at ${prevEndFile}:${prevEndPos}) and '${current.id}' (starts at ${current.startBinlogFile}:${current.startBinlogPosition}).`);
+            }
+
+            const expectedLevel = (previous.backupLevel ?? 0) + 1;
+            if (current.backupLevel !== undefined && current.backupLevel !== expectedLevel) {
+                throw new Error(`Level mismatch in chain for backup '${current.id}'. Expected level ${expectedLevel}, got ${current.backupLevel}.`);
+            }
+
+            previous = current;
         }
     }
 
@@ -607,15 +720,14 @@ export class MySQLIncrementalBackupManager {
         await this.fileLock.acquire();
         try {
             const allMetadata = await this.listMetadata();
-            const fullBackups = allMetadata.filter((m: any) => m.type === 'full');
+            const fullBackups = allMetadata.filter((m: any) => m.type === 'full' && m.status === 'success');
             
             const chains: BackupChain[] = [];
             for (const full of fullBackups) {
-                const increments = allMetadata
-                    .filter((m: any) => m.type === 'incremental' && m.fullBackupId === full.id)
-                    .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-                
-                chains.push({ fullBackup: full, increments });
+                const chain = await this.getBackupChain(full.id);
+                if (chain) {
+                    chains.push(chain);
+                }
             }
             
             return chains;
@@ -624,7 +736,7 @@ export class MySQLIncrementalBackupManager {
         }
     }
 
-    async restoreToPointInTime(dbConfig: DatabaseConfig, backupId: string, targetTime?: Date): Promise<void> {
+    async restoreToPointInTime(dbConfig: DatabaseConfig, targetBackupId: string, targetTime?: Date): Promise<void> {
         let lockFd: number | null = null;
         try {
             lockFd = openSync(this.restoreLockFile, 'wx');
@@ -636,34 +748,35 @@ export class MySQLIncrementalBackupManager {
             writeFileSync(this.restoreLockFile, JSON.stringify({
                 pid: process.pid,
                 startTime: new Date().toISOString(),
-                backupId: backupId
+                backupId: targetBackupId
             }));
 
             this.isRestoring = true;
 
-            const chain = await this.getBackupChain(backupId);
+            const chain = await this.getBackupChain(targetBackupId);
             if (!chain) {
-                throw new Error('Backup chain not found');
+                throw new Error(`Backup chain not found for ID: ${targetBackupId}`);
             }
 
-            log.info('Starting restore', { backupId, targetTime: targetTime?.toISOString() || 'latest' });
+            log.info('Validating backup chain before restore', { targetBackupId });
+            await this.validateBackupChain(chain);
 
-            await this.verifyBackupChecksum(chain.fullBackup);
+            log.info('Starting restore execution', { targetBackupId, targetTime: targetTime?.toISOString() || 'latest' });
+
             await this.restoreFullBackup(dbConfig, chain.fullBackup);
 
             let appliedCount = 0;
             for (const inc of chain.increments) {
                 if (targetTime && new Date(inc.timestamp) > targetTime) {
-                    log.info('Stopping at target time', { targetTime: targetTime.toISOString() });
+                    log.info('Stopping incremental application at target time', { targetTime: targetTime.toISOString() });
                     break;
                 }
 
-                await this.verifyBackupChecksum(inc);
                 await this.applyIncrementalBackup(dbConfig, inc);
                 appliedCount++;
             }
 
-            log.info('Restore completed', { backupId, incrementsApplied: appliedCount });
+            log.info('Restore completed successfully', { targetBackupId, incrementsApplied: appliedCount });
         } finally {
             this.isRestoring = false;
             if (lockFd !== null) {
@@ -677,39 +790,6 @@ export class MySQLIncrementalBackupManager {
                 }
             }
         }
-    }
-
-    private async verifyBackupChecksum(backup: IncrementalBackupMetadata): Promise<void> {
-        if (!backup.checksum) {
-            log.warn('No checksum found for backup', { id: backup.id });
-            return;
-        }
-
-        const filePath = path.join(this.backupDir, backup.file);
-        if (!existsSync(filePath)) {
-            throw new Error(`Backup file not found: ${filePath}`);
-        }
-
-        let fileToVerify = filePath;
-        if (backup.encrypted) {
-            const key = process.env.BACKUP_ENCRYPTION_KEY;
-            if (!key) {
-                throw new Error('Encryption key not found in environment');
-            }
-            fileToVerify = await this.decryptBackupFile(filePath, key);
-        }
-
-        const calculatedChecksum = await this.calculateFileChecksum(fileToVerify);
-        
-        if (fileToVerify !== filePath && existsSync(fileToVerify)) {
-            await fs.unlink(fileToVerify);
-        }
-
-        if (calculatedChecksum !== backup.checksum) {
-            throw new Error(`Checksum verification failed for ${backup.id}`);
-        }
-
-        log.info('Checksum verification passed', { id: backup.id });
     }
 
     private async calculateFileChecksum(filePath: string): Promise<string> {
@@ -727,7 +807,7 @@ export class MySQLIncrementalBackupManager {
         let filePath = path.join(this.backupDir, fullBackup.file);
         
         if (!existsSync(filePath)) {
-            throw new Error(`Full backup file not found: ${filePath}`);
+            throw new Error(`Full base backup file not found: ${filePath}`);
         }
 
         let restoreFile = filePath;
@@ -739,7 +819,75 @@ export class MySQLIncrementalBackupManager {
             restoreFile = await this.decryptBackupFile(filePath, key);
         }
 
-        const env = { ...process.env, MYSQL_PWD: dbConfig.password };
+        const binDir = path.join(process.cwd(), 'bin');
+        const envPath = process.env.PATH ? `${binDir}:${process.env.PATH}` : binDir;
+        const env = { ...process.env, PATH: envPath, MYSQL_PWD: dbConfig.password };
+
+        const gunzip = spawn('gunzip', ['-c', restoreFile]);
+        this.trackProcess(gunzip);
+        
+        const mysqlArgs = [
+            `--host=${dbConfig.host}`,
+            `--port=${String(dbConfig.port || 3306)}`,
+            `--user=${dbConfig.username}`,
+            dbConfig.database
+        ];
+
+        const mysqlProcess = spawn('mysql', mysqlArgs, { env, stdio: ['pipe', 'pipe', 'pipe'] });
+        this.trackProcess(mysqlProcess);
+
+        let stderrOutput = '';
+        mysqlProcess.stderr.on('data', (data) => {
+            stderrOutput += data.toString();
+        });
+
+        await this.executeWithRetry(async () => {
+            await this.executeWithTimeout(mysqlProcess, async () => {
+                await pipeline(gunzip.stdout, mysqlProcess.stdin);
+            });
+        });
+
+        if (mysqlProcess.exitCode !== null) {
+            if (mysqlProcess.exitCode !== 0) {
+                throw new Error(`mysql restore failed with code ${mysqlProcess.exitCode}: ${stderrOutput}`);
+            }
+        } else {
+            await new Promise<void>((resolve, reject) => {
+                mysqlProcess.on('close', (code) => {
+                    if (code === 0) resolve();
+                    else reject(new Error(`mysql restore failed with code ${code}: ${stderrOutput}`));
+                });
+                mysqlProcess.on('error', reject);
+                gunzip.on('error', reject);
+            });
+        }
+
+        if (restoreFile !== filePath && existsSync(restoreFile)) {
+            await fs.unlink(restoreFile);
+        }
+
+        log.info('Full base backup restored', { file: fullBackup.file });
+    }
+
+    private async applyIncrementalBackup(dbConfig: DatabaseConfig, inc: IncrementalBackupMetadata): Promise<void> {
+        let sqlFile = path.join(this.backupDir, inc.file);
+        
+        if (!existsSync(sqlFile)) {
+            throw new Error(`Incremental backup file not found: ${sqlFile}`);
+        }
+
+        let restoreFile = sqlFile;
+        if (inc.encrypted) {
+            const key = process.env.BACKUP_ENCRYPTION_KEY;
+            if (!key) {
+                throw new Error('Encryption key not found in environment');
+            }
+            restoreFile = await this.decryptBackupFile(sqlFile, key);
+        }
+
+        const binDir = path.join(process.cwd(), 'bin');
+        const envPath = process.env.PATH ? `${binDir}:${process.env.PATH}` : binDir;
+        const env = { ...process.env, PATH: envPath, MYSQL_PWD: dbConfig.password };
 
         const gunzip = spawn('gunzip', ['-c', restoreFile]);
         this.trackProcess(gunzip);
@@ -768,71 +916,17 @@ export class MySQLIncrementalBackupManager {
         await new Promise<void>((resolve, reject) => {
             mysqlProcess.on('close', (code) => {
                 if (code === 0) resolve();
-                else reject(new Error(`mysql restore failed with code ${code}: ${stderrOutput}`));
+                else reject(new Error(`mysql incremental restore failed for '${inc.id}' with code ${code}: ${stderrOutput}`));
             });
             mysqlProcess.on('error', reject);
             gunzip.on('error', reject);
         });
 
-        if (restoreFile !== filePath && existsSync(restoreFile)) {
+        if (restoreFile !== sqlFile && existsSync(restoreFile)) {
             await fs.unlink(restoreFile);
         }
 
-        log.info('Full backup restored', { file: fullBackup.file });
-    }
-
-    private async applyIncrementalBackup(dbConfig: DatabaseConfig, inc: IncrementalBackupMetadata): Promise<void> {
-        const incDir = path.join(this.backupDir, inc.file);
-        
-        if (!existsSync(incDir)) {
-            throw new Error(`Incremental backup directory not found: ${incDir}`);
-        }
-
-        const env = { ...process.env, MYSQL_PWD: dbConfig.password };
-
-        for (const binlogFile of inc.binlogFiles || []) {
-            const sqlFile = path.join(incDir, `${binlogFile}.sql.gz`);
-            
-            if (!existsSync(sqlFile)) {
-                log.warn(`Binlog file not found: ${sqlFile}, skipping`);
-                continue;
-            }
-
-            const gunzip = spawn('gunzip', ['-c', sqlFile]);
-            this.trackProcess(gunzip);
-            
-            const mysqlArgs = [
-                `--host=${dbConfig.host}`,
-                `--port=${String(dbConfig.port || 3306)}`,
-                `--user=${dbConfig.username}`,
-                dbConfig.database
-            ];
-
-            const mysqlProcess = spawn('mysql', mysqlArgs, { env, stdio: ['pipe', 'pipe', 'pipe'] });
-            this.trackProcess(mysqlProcess);
-
-            let stderrOutput = '';
-            mysqlProcess.stderr.on('data', (data) => {
-                stderrOutput += data.toString();
-            });
-
-            await this.executeWithRetry(async () => {
-                await this.executeWithTimeout(mysqlProcess, async () => {
-                    await pipeline(gunzip.stdout, mysqlProcess.stdin);
-                });
-            });
-
-            await new Promise<void>((resolve, reject) => {
-                mysqlProcess.on('close', (code) => {
-                    if (code === 0) resolve();
-                    else reject(new Error(`mysql restore failed with code ${code}: ${stderrOutput}`));
-                });
-                mysqlProcess.on('error', reject);
-                gunzip.on('error', reject);
-            });
-        }
-
-        log.info('Incremental backup applied', { id: inc.id });
+        log.info('Incremental backup applied successfully', { id: inc.id });
     }
 
     async cleanup(retentionDays: number = 7): Promise<void> {
@@ -842,53 +936,12 @@ export class MySQLIncrementalBackupManager {
             const cutoff = new Date();
             cutoff.setDate(cutoff.getDate() - retentionDays);
 
-            const fullBackupDependencies = new Map<string, Set<string>>();
-            const incrementalDependencies = new Map<string, Set<string>>();
-
-            for (const meta of allMetadata) {
-                if (meta.type === 'full') {
-                    fullBackupDependencies.set(meta.id, new Set());
-                }
-            }
-
-            for (const meta of allMetadata) {
-                if (meta.type === 'incremental' && meta.fullBackupId) {
-                    const deps = fullBackupDependencies.get(meta.fullBackupId);
-                    if (deps) {
-                        deps.add(meta.id);
-                    }
-                }
-            }
-
-            const sortedIncrements = allMetadata
-                .filter((m: any) => m.type === 'incremental')
-                .sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-            for (let i = 0; i < sortedIncrements.length; i++) {
-                const current = sortedIncrements[i];
-                const deps = new Set<string>();
-                for (let j = i + 1; j < sortedIncrements.length; j++) {
-                    deps.add(sortedIncrements[j].id);
-                }
-                incrementalDependencies.set(current.id, deps);
-            }
-
             const toDelete: any[] = [];
             const toKeep: any[] = [];
 
             for (const meta of allMetadata) {
                 const isOld = new Date(meta.timestamp) < cutoff;
-                let hasDependents = false;
-
-                if (meta.type === 'full') {
-                    const deps = fullBackupDependencies.get(meta.id);
-                    hasDependents = deps !== undefined && deps.size > 0;
-                } else if (meta.type === 'incremental') {
-                    const deps = incrementalDependencies.get(meta.id);
-                    hasDependents = deps !== undefined && deps.size > 0;
-                }
-
-                if (isOld && !hasDependents) {
+                if (isOld) {
                     toDelete.push(meta);
                 } else {
                     toKeep.push(meta);

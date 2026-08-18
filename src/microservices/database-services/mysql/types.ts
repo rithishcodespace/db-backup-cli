@@ -2,6 +2,9 @@ export interface IncrementalBackupMetadata {
     id: string;
     type: 'full' | 'incremental';
     database: string;
+    baseBackupId?: string;
+    parentBackupId?: string | null;
+    backupLevel?: number;
     fullBackupId?: string;
     startBinlogFile: string;
     startBinlogPosition: number;
@@ -13,6 +16,7 @@ export interface IncrementalBackupMetadata {
     file: string;
     checksum?: string;
     encrypted: boolean;
+    status?: 'pending' | 'running' | 'success' | 'failed';
 }
 
 export interface BackupChain {
@@ -39,6 +43,11 @@ export interface BackupResult {
     file: string;
     binlogFile: string;
     binlogPosition: number;
+    endBinlogFile?: string;
+    endBinlogPosition?: number;
+    baseBackupId?: string;
+    parentBackupId?: string | null;
+    backupLevel?: number;
     size: number;
     metadata: IncrementalBackupMetadata;
     checksum: string;

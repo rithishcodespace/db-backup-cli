@@ -79,6 +79,8 @@ async function handleBackupJob(job: Job) {
                     parentBackupId: result.parentBackupId || result.metadata?.parentBackupId || null,
                     baseBackupId: result.baseBackupId || result.metadata?.baseBackupId || null,
                     backupLevel: result.backupLevel !== undefined ? result.backupLevel : (result.metadata?.backupLevel ?? null),
+                    binlogFile: result.binlogFile || result.metadata?.startBinlogFile || null,
+                    binlogPosition: result.binlogPosition ?? result.metadata?.startBinlogPosition ?? null,
                     metadata: {
                         ...result.metadata,
                         completedAt: new Date().toISOString()
