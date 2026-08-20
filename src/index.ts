@@ -13,6 +13,7 @@ import { registerNotificationCommand } from './commands/notification';
 import { registerKeyCommand } from './commands/key';
 import { registerInitCommand } from './commands/init';
 import { registerConfigCheckCommand } from './commands/config-check';
+import { registerDashboardCommand } from './commands/dashboard';
 
   // Creates CLI object
   const program = new Command();
@@ -85,6 +86,7 @@ if (process.argv.includes('--worker')) {
   registerStorageCommand(program);
   registerNotificationCommand(program);
   registerKeyCommand(program);
+  registerDashboardCommand(program);
 
   // Default help
   program

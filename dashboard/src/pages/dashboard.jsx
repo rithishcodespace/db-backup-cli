@@ -9,7 +9,7 @@ import ErrorDiagnosticsDrawer from '../components/ErrorDiagnosticsDrawer';
 import LogsViewer from '../components/LogsViewer';
 import HelpGlossaryModal from '../components/HelpGlossaryModal';
 import { dashboardApi, isBackendConnected, lastSuccessfulUpdate } from '../services/api';
-import { Activity, History, Terminal, AlertTriangle } from 'lucide-react';
+import { Activity, Terminal, AlertTriangle } from 'lucide-react';
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -40,41 +40,55 @@ export default function DashboardPage() {
   const [activeBackups, setActiveBackups] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [connected, setConnected] = useState(true);
+  const [apiError, setApiError] = useState(null);
+  const [initialLoading, setInitialLoading] = useState(true);
 
-  const fetchDashboardData = useCallback(async () => {
+  const fetchDashboardData = useCallback(async (signal) => {
     setIsRefreshing(true);
     try {
       const [sumRes, activeRes, alertsRes] = await Promise.all([
-        dashboardApi.getSummary().catch(() => null),
-        dashboardApi.getActiveBackups().catch(() => []),
-        dashboardApi.getAlerts().catch(() => []),
+        dashboardApi.getSummary({ signal }),
+        dashboardApi.getActiveBackups({ signal }),
+        dashboardApi.getAlerts({ signal }),
       ]);
 
       if (sumRes) {
         setSummary(sumRes);
-        setConnected(true);
-      } else {
-        setConnected(isBackendConnected);
       }
-
       setActiveBackups(activeRes || []);
       setAlerts(alertsRes || []);
+      setConnected(true);
+      setApiError(null);
     } catch (err) {
-      setConnected(false);
+      if (err.name === 'AbortError') {
+        return; // Ignore intentional request cancellations
+      }
+      // On failure, preserve existing valid data while updating connection and error status
+      setConnected(isBackendConnected);
+      setApiError(lastApiError || err.message);
     } finally {
       setIsRefreshing(false);
+      setInitialLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchDashboardData();
-    if (pollingInterval <= 0) return;
+    const controller = new AbortController();
+    fetchDashboardData(controller.signal);
+
+    if (pollingInterval <= 0) {
+      return () => controller.abort();
+    }
 
     const timer = setInterval(() => {
-      fetchDashboardData();
+      const pollController = new AbortController();
+      fetchDashboardData(pollController.signal);
     }, pollingInterval);
 
-    return () => clearInterval(timer);
+    return () => {
+      controller.abort();
+      clearInterval(timer);
+    };
   }, [fetchDashboardData, pollingInterval]);
 
   return (
@@ -84,12 +98,12 @@ export default function DashboardPage() {
       
       {/* Top Header */}
       <Header
-        systemStatus={summary?.systemStatus || 'healthy'}
-        activeConcurrencyCount={summary?.activeConcurrencyCount || 0}
-        maxConcurrencyLimit={summary?.maxConcurrencyLimit || 3}
+        systemStatus={summary?.systemStatus}
+        activeConcurrencyCount={summary?.activeConcurrencyCount}
+        maxConcurrencyLimit={summary?.maxConcurrencyLimit}
         pollingInterval={pollingInterval}
         setPollingInterval={setPollingInterval}
-        onRefresh={fetchDashboardData}
+        onRefresh={() => fetchDashboardData()}
         isRefreshing={isRefreshing}
         onOpenHelp={() => setIsHelpOpen(true)}
         isConnected={connected}
@@ -98,11 +112,12 @@ export default function DashboardPage() {
         setTheme={setTheme}
       />
 
-      {/* Disconnection Banner */}
+      {/* Disconnection / API Error Banner */}
       <OfflineBanner
         isConnected={connected}
+        apiError={apiError}
         lastUpdated={lastSuccessfulUpdate}
-        onRetry={fetchDashboardData}
+        onRetry={() => fetchDashboardData()}
       />
 
       {/* Main Body */}
@@ -116,7 +131,6 @@ export default function DashboardPage() {
           <div className="flex items-center gap-1 sm:gap-2">
             {[
               { id: 'overview', label: 'Monitoring Overview', icon: Activity },
-              { id: 'backups', label: 'Backup History', icon: History },
               { id: 'logs', label: 'Log Inspector', icon: Terminal },
             ].map((tab) => {
               const Icon = tab.icon;
@@ -167,18 +181,13 @@ export default function DashboardPage() {
             {/* Queue State Monitor */}
             <QueueVisibility queueStats={summary?.queueStats} theme={theme} />
 
-            {/* Recent History Preview */}
+            {/* Backup Execution History */}
             <BackupHistory onSelectJob={(job) => setSelectedJob(job)} theme={theme} />
 
           </div>
         )}
 
-        {/* Tab 2: Full Backup History View */}
-        {activeTab === 'backups' && (
-          <BackupHistory onSelectJob={(job) => setSelectedJob(job)} theme={theme} />
-        )}
-
-        {/* Tab 3: Terminal Logs Inspector View */}
+        {/* Tab 2: Terminal Logs Inspector View */}
         {activeTab === 'logs' && (
           <LogsViewer selectedJobId={selectedJob?.id} theme={theme} />
         )}

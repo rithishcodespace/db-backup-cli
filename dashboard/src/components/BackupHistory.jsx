@@ -114,7 +114,6 @@ export default function BackupHistory({ onSelectJob, theme = 'dark' }) {
 
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-2">
-          
           {/* Search Box */}
           <div className="relative">
             <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
@@ -158,7 +157,6 @@ export default function BackupHistory({ onSelectJob, theme = 'dark' }) {
             <option value="mongodb">MongoDB</option>
             <option value="sqlite">SQLite</option>
           </select>
-
         </div>
       </div>
 

@@ -7,25 +7,45 @@ export default function QueueVisibility({ queueStats, theme = 'dark' }) {
   const isLight = theme === 'light';
   const [activeTab, setActiveTab] = useState('backup');
 
-  if (!queueStats) return null;
+  const cardContainer = `border rounded-lg p-5 transition ${
+    isLight
+      ? 'bg-white border-slate-200 text-slate-800 light-card-shadow'
+      : 'bg-[#131924] border-slate-800 text-slate-100 dark-card-shadow'
+  }`;
 
-  const { backupQueue = {}, storageQueue = {}, notificationQueue = {} } = queueStats;
+  if (!queueStats) {
+    return (
+      <div className={`${cardContainer} animate-pulse`}>
+        <div className="h-4 bg-slate-700/40 rounded w-1/3 mb-4" />
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="h-20 bg-slate-700/30 rounded" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const { backupQueue, storageQueue, notificationQueue } = queueStats;
 
   const currentQueue =
     activeTab === 'backup'
-      ? { name: 'Backup Queue', data: backupQueue, desc: 'Handles database export & dump execution' }
+      ? { name: 'Backup Queue', data: backupQueue || {}, desc: 'Handles database export & dump execution' }
       : activeTab === 'storage'
-      ? { name: 'Storage Queue', data: storageQueue, desc: 'Handles compression, S3 upload & retention pruning' }
-      : { name: 'Notification Queue', data: notificationQueue, desc: 'Handles Email & Slack alert delivery' };
+      ? { name: 'Storage Queue', data: storageQueue || {}, desc: 'Handles compression, S3 upload & retention pruning' }
+      : { name: 'Notification Queue', data: notificationQueue || {}, desc: 'Handles Email & Slack alert delivery' };
 
-  const { waiting = 0, active = 0, completed = 0, failed = 0, delayed = 0, total = 0 } = currentQueue.data;
+  const formatVal = (val) => (val === undefined || val === null ? '—' : val);
+
+  const waiting = formatVal(currentQueue.data.waiting);
+  const active = formatVal(currentQueue.data.active);
+  const completed = formatVal(currentQueue.data.completed);
+  const failed = formatVal(currentQueue.data.failed);
+  const delayed = formatVal(currentQueue.data.delayed);
+  const total = formatVal(currentQueue.data.total);
 
   return (
-    <div className={`border rounded-lg p-5 transition ${
-      isLight
-        ? 'bg-white border-slate-200 text-slate-800 light-card-shadow'
-        : 'bg-[#131924] border-slate-800 text-slate-100 dark-card-shadow'
-    }`}>
+    <div className={cardContainer}>
       <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b ${
         isLight ? 'border-slate-100' : 'border-slate-800'
       }`}>
@@ -36,9 +56,16 @@ export default function QueueVisibility({ queueStats, theme = 'dark' }) {
             <Layers className="w-4 h-4" />
           </div>
           <div>
-            <h2 className={`text-sm font-medium ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>
-              Queue State Visibility
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className={`text-sm font-medium ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>
+                Queue State Visibility
+              </h2>
+              <span className={`px-2 py-0.5 text-[11px] font-mono rounded border ${
+                isLight ? 'bg-slate-100 text-slate-700 border-slate-300' : 'bg-slate-800 text-slate-300 border-slate-700'
+              }`}>
+                {currentQueue.name}
+              </span>
+            </div>
             <p className={`text-xs font-normal ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
               BullMQ Redis task state monitor
             </p>

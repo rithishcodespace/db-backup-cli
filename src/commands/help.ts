@@ -9,13 +9,15 @@ export function showHelp(): void {
     db-backup <command> [options]
 
     ${chalk.bold('Commands:')}
-    ${chalk.green('connect')}     Connect to a database and test connection
-    ${chalk.green('backup')}      Perform a database backup
-    ${chalk.green('restore')}     Restore a database from backup (coming soon)
-    ${chalk.green('list')}        List available backups (coming soon)
-    ${chalk.green('schedule')}    Schedule automated backups (coming soon)
-    ${chalk.green('config')}      Manage configuration (coming soon)
-    ${chalk.green('help')}        Show this help message
+    ${chalk.green('init')}         Initialize project setup and onboarding wizard
+    ${chalk.green('config check')}  Verify configuration health and reachability
+    ${chalk.green('dashboard')}     Open companion web monitoring dashboard
+    ${chalk.green('connect')}       Connect to a database and test connection
+    ${chalk.green('backup')}        Perform a database backup
+    ${chalk.green('restore')}       Restore a database from backup
+    ${chalk.green('list')}          List available backups
+    ${chalk.green('schedule')}      Schedule automated backups
+    ${chalk.green('help')}          Show this help message
 
     ${chalk.bold('Global Options:')}
     -c, --config <path>   Path to config file
