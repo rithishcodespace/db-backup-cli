@@ -11,6 +11,8 @@ import { registerScheduleCommand, registerScheduleListCommand } from "./commands
 import { registerStorageCommand } from './commands/storage';
 import { registerNotificationCommand } from './commands/notification';
 import { registerKeyCommand } from './commands/key';
+import { registerInitCommand } from './commands/init';
+import { registerConfigCheckCommand } from './commands/config-check';
 
   // Creates CLI object
   const program = new Command();
@@ -72,6 +74,8 @@ if (process.argv.includes('--worker')) {
     });
 
   // Register commands
+  registerInitCommand(program);
+  registerConfigCheckCommand(program);
   registerConnectCommand(program);
   registerBackupCommand(program);
   registerListCommand(program);

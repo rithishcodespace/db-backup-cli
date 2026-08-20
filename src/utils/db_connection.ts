@@ -103,47 +103,102 @@ async function testPostgresConnection(config: ConnectionConfig): Promise<Connect
 }
 
 async function testMySQLConnection(config: ConnectionConfig): Promise<ConnectionResult> {
-  // Phase 2: Implement actual MySQL connection using 'mysql2' library
-  log.info('Testing MySQL connection (simulated)', { 
-    host: config.host, 
-    database: config.database 
-  });
-  
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  return {
-    success: true,
-    version: 'MySQL 8.0 (simulated - Phase 2 will implement real connection)',
-  };
+  const mysql = require('mysql2/promise');
+  try {
+    log.debug('Connecting to MySQL...');
+    const conn = await mysql.createConnection({
+      host: config.host || '127.0.0.1',
+      port: config.port || 3306,
+      user: config.username || 'root',
+      password: config.password || '',
+      database: config.database,
+      connectTimeout: 5000
+    });
+
+    const [rows] = await conn.query('SELECT VERSION() as version');
+    const version = Array.isArray(rows) && rows[0] ? (rows[0] as any).version : 'MySQL';
+    await conn.end();
+
+    log.info('MySQL connection successful', { version, database: config.database });
+    return {
+      success: true,
+      version: `MySQL ${version}`,
+      details: { database: config.database }
+    };
+  } catch (error: any) {
+    log.error('MySQL connection failed', { error });
+    return {
+      success: false,
+      error: error.message || String(error)
+    };
+  }
 }
 
 async function testMongoDBConnection(config: ConnectionConfig): Promise<ConnectionResult> {
-  // Phase 2: Implement actual MongoDB connection using 'mongodb' library
-  log.info('Testing MongoDB connection (simulated)', { 
-    host: config.host, 
-    database: config.database 
-  });
-  
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  return {
-    success: true,
-    version: 'MongoDB 6.0 (simulated - Phase 2 will implement real connection)',
-  };
+  const { MongoClient } = require('mongodb');
+  try {
+    log.debug('Connecting to MongoDB...');
+    let uri = config.database;
+    if (!uri.startsWith('mongodb://') && !uri.startsWith('mongodb+srv://')) {
+      const authStr = config.username && config.password 
+        ? `${encodeURIComponent(config.username)}:${encodeURIComponent(config.password)}@` 
+        : '';
+      const host = config.host || 'localhost';
+      const port = config.port || 27017;
+      uri = `mongodb://${authStr}${host}:${port}/${config.database}`;
+    }
+
+    const client = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 });
+    await client.connect();
+    await client.db().command({ ping: 1 });
+    await client.close();
+
+    log.info('MongoDB connection successful', { database: config.database });
+    return {
+      success: true,
+      version: 'MongoDB Connected',
+      details: { database: config.database }
+    };
+  } catch (error: any) {
+    log.error('MongoDB connection failed', { error });
+    return {
+      success: false,
+      error: error.message || String(error)
+    };
+  }
 }
 
 async function testSQLiteConnection(config: ConnectionConfig): Promise<ConnectionResult> {
-  // Phase 2: Implement actual SQLite connection
-  log.info('Testing SQLite connection (simulated)', { 
-    database: config.database 
-  });
-  
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  return {
-    success: true,
-    version: 'SQLite 3 (simulated - Phase 2 will implement real connection)',
-  };
+  const fs = require('fs');
+  const Database = require('better-sqlite3');
+  try {
+    log.debug('Connecting to SQLite...');
+    const dbPath = config.database;
+    if (!fs.existsSync(dbPath)) {
+      return {
+        success: false,
+        error: `SQLite database file does not exist at path: ${dbPath}`
+      };
+    }
+
+    const db = new Database(dbPath, { readonly: true });
+    const row = db.prepare('SELECT sqlite_version() as version').get();
+    db.close();
+
+    const version = row ? (row as any).version : '3';
+    log.info('SQLite connection successful', { path: dbPath, version });
+    return {
+      success: true,
+      version: `SQLite ${version}`,
+      details: { path: dbPath }
+    };
+  } catch (error: any) {
+    log.error('SQLite connection failed', { error });
+    return {
+      success: false,
+      error: error.message || String(error)
+    };
+  }
 }
 
 // Helper function to get database size
