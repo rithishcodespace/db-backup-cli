@@ -20,12 +20,15 @@ function loadNotificationCommand(overrides = {}) {
     },
   };
 
+  const httpClient = overrides.httpClient || overrides.axios || {
+    post: async () => ({ status: 200, data: { ok: true } }),
+    get: async () => ({ status: 200, data: {} }),
+  };
+
   const loaded = withMockedModules(
     {
       ora,
-      axios: overrides.axios || {
-        post: async () => ({ status: 200, data: { ok: true } }),
-      },
+      axios: httpClient,
       nodemailer: overrides.nodemailer || {
         createTransport: () => ({
           verify: async () => {},
@@ -34,6 +37,7 @@ function loadNotificationCommand(overrides = {}) {
       },
       '../logger': { createModuleLogger: () => createNoopLogger() },
       '../lib/prisma': { prisma },
+      '../utils/http-client': { __esModule: true, default: httpClient, httpClient },
     },
     () => {
       clearModule(notificationModulePath);
@@ -65,16 +69,19 @@ function loadScheduleCommand(overrides = {}) {
     },
   };
 
+  const httpClient = overrides.httpClient || overrides.axios || {
+    post: async () => ({ data: { success: true, scheduleId: 'schedule-1', nextRun: 'tomorrow' } }),
+    get: async () => ({ data: { success: true, schedules: [], activeCount: 0 } }),
+  };
+
   const loaded = withMockedModules(
     {
       ora,
-      axios: overrides.axios || {
-        post: async () => ({ data: { success: true, scheduleId: 'schedule-1', nextRun: 'tomorrow' } }),
-        get: async () => ({ data: { success: true, schedules: [], activeCount: 0 } }),
-      },
+      axios: httpClient,
       '../logger': { createModuleLogger: () => createNoopLogger() },
       '../config': { config },
       '../lib/prisma': { prisma },
+      '../utils/http-client': { __esModule: true, default: httpClient, httpClient },
     },
     () => {
       clearModule(scheduleModulePath);

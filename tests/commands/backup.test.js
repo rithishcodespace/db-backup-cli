@@ -41,6 +41,8 @@ function loadBackupCommand(overrides = {}) {
     },
   };
 
+  const httpClient = overrides.httpClient || overrides.axios || createAxiosMock();
+
   return withMockedModules(
     {
       ora,
@@ -48,10 +50,11 @@ function loadBackupCommand(overrides = {}) {
       '../logger': { createModuleLogger: () => createNoopLogger() },
       '../config': { config },
       '../lib/prisma': { prisma },
+      '../utils/http-client': { __esModule: true, default: httpClient, httpClient },
     },
     () => {
       clearModule(modulePath);
-      return { ...require(modulePath), ora, axios, prisma, config };
+      return { ...require(modulePath), ora, axios, httpClient, prisma, config };
     }
   );
 }
@@ -81,7 +84,7 @@ test('backup command sends the selected storage configuration to the gateway', a
         findMany: async () => [],
       },
     },
-    axios: {
+    httpClient: {
       post: async (url, payload) => {
         requests.push({ url, payload });
         return { data: { success: true, backupId: 'backup-1', duration: 11.25, fileSize: 1024 } };

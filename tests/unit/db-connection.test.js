@@ -21,15 +21,60 @@ test('testConnection rejects unsupported database types', async () => {
   assert.match(result.error, /Unsupported database type/);
 });
 
-test('testConnection supports mysql, mongodb, and sqlite fallbacks', async () => {
-  clearModule(modulePath);
-  const { testConnection } = require(modulePath);
+test('testConnection supports mysql, mongodb, and sqlite connection testing', async () => {
+  const fsMock = { existsSync: () => true };
+  const mysqlMock = {
+    createConnection: async () => ({
+      query: async () => [[{ version: '8.0.32' }], []],
+      end: async () => {},
+    }),
+  };
+  const MongoClass = class {
+    async connect() {}
+    db() {
+      return { command: async () => ({ ok: 1 }) };
+    }
+    async close() {}
+  };
+  const mongoMock = {
+    __esModule: true,
+    MongoClient: MongoClass,
+    default: { MongoClient: MongoClass },
+  };
+  const sqliteMock = class {
+    prepare() {
+      return { get: () => ({ version: '3.42.0' }) };
+    }
+    close() {}
+  };
 
-  for (const type of ['mysql', 'mongodb', 'sqlite']) {
-    const result = await testConnection({ type, database: 'appdb' });
-    assert.equal(result.success, true, `${type} should succeed`);
-    assert.ok(result.version);
-  }
+  Object.keys(require.cache).forEach((key) => {
+    if (key.includes('mongodb') || key.includes('mysql2') || key.includes('better-sqlite3') || key.includes('db_connection')) {
+      delete require.cache[key];
+    }
+  });
+
+  await withMockedModules(
+    {
+      fs: fsMock,
+      'mysql2/promise': mysqlMock,
+      [require.resolve('mysql2/promise')]: mysqlMock,
+      mongodb: mongoMock,
+      [require.resolve('mongodb')]: mongoMock,
+      'better-sqlite3': sqliteMock,
+      [require.resolve('better-sqlite3')]: sqliteMock,
+      '../logger': { createModuleLogger: () => createNoopLogger() },
+    },
+    async () => {
+      clearModule(modulePath);
+      const loaded = require(modulePath);
+      for (const type of ['mysql', 'mongodb', 'sqlite']) {
+        const result = await loaded.testConnection({ type, database: 'appdb' });
+        assert.equal(result.success, true, `${type} should succeed: ${result.error}`);
+        assert.ok(result.version);
+      }
+    }
+  );
 });
 
 test('testConnection uses the postgres client for PostgreSQL connections', async () => {

@@ -12,9 +12,17 @@ function withMockedModules(mocks, loadModule) {
   };
 
   try {
-    return loadModule();
-  } finally {
+    const result = loadModule();
+    if (result && typeof result.then === 'function') {
+      return result.finally(() => {
+        Module._load = originalLoad;
+      });
+    }
     Module._load = originalLoad;
+    return result;
+  } catch (err) {
+    Module._load = originalLoad;
+    throw err;
   }
 }
 

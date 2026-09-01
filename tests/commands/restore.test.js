@@ -37,12 +37,26 @@ function loadRestoreCommand(overrides = {}) {
     },
   };
 
+  const mockLock = {
+    release: async () => {},
+  };
+
+  class FakeDistributedLock {
+    async acquire() {
+      return true;
+    }
+    async release() {}
+  }
+
   return withMockedModules(
     {
       ora,
       '../logger': { createModuleLogger: () => createNoopLogger() },
       '../config': { config },
       '../lib/prisma': { prisma },
+      '../lib/distributed-lock': { DistributedLock: FakeDistributedLock },
+      '../lib/queue-manager': { connection: { quit: async () => {}, disconnect: async () => {}, on: () => {} } },
+      '../utils/http-client': { __esModule: true, default: {}, httpClient: {} },
     },
     () => {
       clearModule(modulePath);
