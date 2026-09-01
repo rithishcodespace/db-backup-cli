@@ -50,7 +50,11 @@ async function testServices() {
       }
     };
     
-    const response = await axios.post('http://localhost:3000/api/backup', backupRequest);
+    const response = await axios.post('http://localhost:3000/api/backup', backupRequest, {
+      headers: {
+        'x-client-id': 'test-client-id'
+      }
+    });
     
     if (response.data.success) {
       console.log(chalk.green(`✓ Backup test successful`));
