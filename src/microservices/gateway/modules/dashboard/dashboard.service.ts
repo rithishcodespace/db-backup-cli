@@ -510,6 +510,46 @@ export class DashboardService {
       message: `Job ${id} was removed from the waiting queue safely.`,
     };
   }
+
+  async triggerBackup(payload: {
+    dbType: string;
+    dbName: string;
+    backupType?: string;
+    storageType?: string;
+  }): Promise<{ success: boolean; backupId?: string; message: string }> {
+    const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://localhost:3001';
+    const dbType = (payload.dbType || 'postgresql').toLowerCase();
+    const dbName = payload.dbName || 'appdb';
+    const backupType = payload.backupType || 'full';
+    const storageType = payload.storageType || 'local';
+
+    try {
+      const response = await axios.post(`${ORCHESTRATOR_URL}/backup`, {
+        dbConfig: {
+          type: dbType,
+          database: dbName,
+        },
+        backupType,
+        options: {
+          backupName: `${dbName}_${backupType}_${Date.now()}`,
+          storage: {
+            name: storageType,
+            type: storageType,
+          },
+        },
+      });
+
+      return {
+        success: true,
+        backupId: response.data.backupId,
+        message: response.data.message || `Quick backup triggered for ${dbType}/${dbName}`,
+      };
+    } catch (err: any) {
+      const errMsg = err.response?.data?.error || err.message || 'Failed to trigger backup';
+      log.error('Failed to trigger quick backup', { error: errMsg });
+      throw new Error(errMsg);
+    }
+  }
 }
 
 export const dashboardService = new DashboardService();

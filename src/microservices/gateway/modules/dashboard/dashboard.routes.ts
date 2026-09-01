@@ -11,5 +11,6 @@ router.get('/logs', (req, res) => dashboardController.getLogs(req, res));
 router.get('/alerts', (req, res) => dashboardController.getAlerts(req, res));
 router.get('/health', (req, res) => dashboardController.getHealth(req, res));
 router.post('/backups/:id/cancel-waiting', (req, res) => dashboardController.cancelWaitingJob(req, res));
+router.post('/trigger-backup', (req, res) => dashboardController.triggerBackup(req, res));
 
 export default router;

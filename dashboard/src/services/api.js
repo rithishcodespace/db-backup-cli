@@ -80,5 +80,11 @@ export const dashboardApi = {
       method: 'POST',
       ...options,
     }),
+  triggerBackup: (payload, options = {}) =>
+    fetchJSON('/api/dashboard/trigger-backup', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      ...options,
+    }),
 };
 

@@ -7,15 +7,18 @@ import QueueVisibility from '../components/QueueVisibility';
 import BackupHistory from '../components/BackupHistory';
 import ErrorDiagnosticsDrawer from '../components/ErrorDiagnosticsDrawer';
 import LogsViewer from '../components/LogsViewer';
+import SystemHealth from '../components/SystemHealth';
+import QuickBackupModal from '../components/QuickBackupModal';
 import HelpGlossaryModal from '../components/HelpGlossaryModal';
 import { dashboardApi, isBackendConnected, lastSuccessfulUpdate } from '../services/api';
-import { Activity, Terminal, AlertTriangle } from 'lucide-react';
+import { Activity, Terminal, AlertTriangle, Server } from 'lucide-react';
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [pollingInterval, setPollingInterval] = useState(5000);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isQuickBackupOpen, setIsQuickBackupOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('db_backup_theme') || 'dark';
@@ -39,6 +42,7 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState(null);
   const [activeBackups, setActiveBackups] = useState([]);
   const [alerts, setAlerts] = useState([]);
+  const [health, setHealth] = useState(null);
   const [connected, setConnected] = useState(true);
   const [apiError, setApiError] = useState(null);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -46,10 +50,11 @@ export default function DashboardPage() {
   const fetchDashboardData = useCallback(async (signal) => {
     setIsRefreshing(true);
     try {
-      const [sumRes, activeRes, alertsRes] = await Promise.all([
+      const [sumRes, activeRes, alertsRes, healthRes] = await Promise.all([
         dashboardApi.getSummary({ signal }),
         dashboardApi.getActiveBackups({ signal }),
         dashboardApi.getAlerts({ signal }),
+        dashboardApi.getHealth({ signal }),
       ]);
 
       if (sumRes) {
@@ -57,6 +62,7 @@ export default function DashboardPage() {
       }
       setActiveBackups(activeRes || []);
       setAlerts(alertsRes || []);
+      setHealth(healthRes || null);
       setConnected(true);
       setApiError(null);
     } catch (err) {
@@ -106,6 +112,7 @@ export default function DashboardPage() {
         onRefresh={() => fetchDashboardData()}
         isRefreshing={isRefreshing}
         onOpenHelp={() => setIsHelpOpen(true)}
+        onOpenQuickBackup={() => setIsQuickBackupOpen(true)}
         isConnected={connected}
         lastUpdated={lastSuccessfulUpdate}
         theme={theme}
@@ -131,6 +138,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-1 sm:gap-2">
             {[
               { id: 'overview', label: 'Monitoring Overview', icon: Activity },
+              { id: 'health', label: 'Live System Health', icon: Server },
               { id: 'logs', label: 'Log Inspector', icon: Terminal },
             ].map((tab) => {
               const Icon = tab.icon;
@@ -187,7 +195,12 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Tab 2: Terminal Logs Inspector View */}
+        {/* Tab 2: Live System Health Matrix */}
+        {activeTab === 'health' && (
+          <SystemHealth health={health} theme={theme} />
+        )}
+
+        {/* Tab 3: Terminal Logs Inspector View */}
         {activeTab === 'logs' && (
           <LogsViewer selectedJobId={selectedJob?.id} theme={theme} />
         )}
@@ -203,6 +216,17 @@ export default function DashboardPage() {
           <span className="font-mono text-[11px]">Primary execution CLI: db-backup-cli</span>
         </div>
       </footer>
+
+      {/* Quick Backup Dispatcher Modal */}
+      <QuickBackupModal
+        isOpen={isQuickBackupOpen}
+        onClose={() => setIsQuickBackupOpen(false)}
+        onSuccess={() => {
+          setActiveTab('overview');
+          fetchDashboardData();
+        }}
+        theme={theme}
+      />
 
       {/* Error Diagnostics Drawer */}
       <ErrorDiagnosticsDrawer

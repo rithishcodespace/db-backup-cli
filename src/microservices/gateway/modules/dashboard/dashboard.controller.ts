@@ -98,6 +98,16 @@ export class DashboardController {
       res.status(400).json({ error: 'Job cancellation rejected', message: err.message });
     }
   }
+
+  async triggerBackup(req: Request, res: Response) {
+    try {
+      const result = await dashboardService.triggerBackup(req.body);
+      res.json(result);
+    } catch (err: any) {
+      log.error('Failed to trigger quick backup', { error: err.message });
+      res.status(400).json({ error: 'Trigger failed', message: err.message });
+    }
+  }
 }
 
 export const dashboardController = new DashboardController();

@@ -1,7 +1,7 @@
 // dashboard/src/components/Header.jsx
 
 import React from 'react';
-import { Activity, RefreshCw, Cpu, HelpCircle, ShieldAlert, CheckCircle2, Sun, Moon } from 'lucide-react';
+import { Activity, RefreshCw, Cpu, HelpCircle, ShieldAlert, CheckCircle2, Sun, Moon, Play } from 'lucide-react';
 
 export default function Header({
   systemStatus,
@@ -12,6 +12,7 @@ export default function Header({
   onRefresh,
   isRefreshing,
   onOpenHelp,
+  onOpenQuickBackup,
   isConnected,
   theme,
   setTheme,
@@ -76,6 +77,19 @@ export default function Header({
         {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-2">
           
+          {/* Quick Backup Trigger Button */}
+          <button
+            onClick={onOpenQuickBackup}
+            className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg shadow-sm transition ${
+              isLight
+                ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                : 'bg-blue-500 hover:bg-blue-600 text-white'
+            }`}
+          >
+            <Play className="w-3.5 h-3.5 fill-current" />
+            <span>+ Quick Backup</span>
+          </button>
+
           {/* Status Badge */}
           {getStatusBadge()}
 

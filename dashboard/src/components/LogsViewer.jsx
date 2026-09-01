@@ -1,7 +1,7 @@
 // dashboard/src/components/LogsViewer.jsx
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Search, RefreshCw, ArrowDownCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Terminal, Search, RefreshCw, ArrowDownCircle, Radio } from 'lucide-react';
 import { dashboardApi } from '../services/api';
 
 export default function LogsViewer({ selectedJobId, theme = 'dark' }) {
@@ -11,6 +11,7 @@ export default function LogsViewer({ selectedJobId, theme = 'dark' }) {
   const [jobIdFilter, setJobIdFilter] = useState(selectedJobId || '');
   const [searchQuery, setSearchQuery] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
+  const [isLiveStream, setIsLiveStream] = useState(true);
   const [loading, setLoading] = useState(false);
 
   const logsEndRef = useRef(null);
@@ -21,8 +22,8 @@ export default function LogsViewer({ selectedJobId, theme = 'dark' }) {
     }
   }, [selectedJobId]);
 
-  const fetchLogs = async () => {
-    setLoading(true);
+  const fetchLogs = useCallback(async (isSilent = false) => {
+    if (!isSilent) setLoading(true);
     try {
       const data = await dashboardApi.getLogs({
         level: levelFilter,
@@ -34,13 +35,24 @@ export default function LogsViewer({ selectedJobId, theme = 'dark' }) {
     } catch (err) {
       console.error('Failed to fetch logs', err);
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
-  };
+  }, [levelFilter, jobIdFilter, searchQuery]);
 
   useEffect(() => {
-    fetchLogs();
-  }, [levelFilter, jobIdFilter, searchQuery]);
+    fetchLogs(false);
+  }, [fetchLogs]);
+
+  // Real-time Live Log Stream Polling Effect
+  useEffect(() => {
+    if (!isLiveStream) return;
+
+    const interval = setInterval(() => {
+      fetchLogs(true);
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [isLiveStream, fetchLogs]);
 
   useEffect(() => {
     if (autoScroll && logsEndRef.current) {
@@ -66,11 +78,19 @@ export default function LogsViewer({ selectedJobId, theme = 'dark' }) {
             <Terminal className="w-4 h-4" />
           </div>
           <div>
-            <h2 className={`text-sm font-medium ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>
-              Backup Log Inspector
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className={`text-sm font-medium ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>
+                Backup Log Inspector
+              </h2>
+              {isLiveStream && (
+                <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                  LIVE STREAMING
+                </span>
+              )}
+            </div>
             <p className={`text-xs font-normal ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              Application & backup execution Winston log stream
+              Application & backup execution real-time socket log stream
             </p>
           </div>
         </div>
@@ -118,6 +138,23 @@ export default function LogsViewer({ selectedJobId, theme = 'dark' }) {
             <option value="DEBUG">DEBUG</option>
           </select>
 
+          {/* Live Stream Toggle */}
+          <button
+            onClick={() => setIsLiveStream(!isLiveStream)}
+            className={`px-3 py-1.5 rounded border font-normal flex items-center gap-1.5 transition ${
+              isLiveStream
+                ? isLight
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300 font-semibold'
+                  : 'bg-emerald-950/80 text-emerald-300 border-emerald-800 font-semibold'
+                : isLight
+                ? 'bg-slate-100 text-slate-600 border-slate-200'
+                : 'bg-slate-900 text-slate-400 border-slate-800'
+            }`}
+          >
+            <Radio className={`w-3.5 h-3.5 ${isLiveStream ? 'text-emerald-500 animate-spin' : ''}`} />
+            <span>{isLiveStream ? 'Live Socket On' : 'Live Socket Off'}</span>
+          </button>
+
           {/* Auto Scroll Toggle */}
           <button
             onClick={() => setAutoScroll(!autoScroll)}
@@ -135,9 +172,9 @@ export default function LogsViewer({ selectedJobId, theme = 'dark' }) {
             <span>Auto-scroll</span>
           </button>
 
-          {/* Refresh */}
+          {/* Manual Refresh */}
           <button
-            onClick={fetchLogs}
+            onClick={() => fetchLogs(false)}
             disabled={loading}
             className={`p-2 rounded border transition ${
               isLight
@@ -172,7 +209,13 @@ export default function LogsViewer({ selectedJobId, theme = 'dark' }) {
                 <span className="text-[11px] text-slate-400">
                   {new Date(logItem.timestamp).toLocaleTimeString()}
                 </span>
-                <span className="px-1.5 py-0.5 text-[10px] rounded border uppercase bg-slate-800 text-slate-300 border-slate-700">
+                <span className={`px-1.5 py-0.5 text-[10px] rounded border uppercase font-semibold ${
+                  logItem.level === 'ERROR'
+                    ? 'bg-red-950 text-red-300 border-red-800'
+                    : logItem.level === 'WARN'
+                    ? 'bg-amber-950 text-amber-300 border-amber-800'
+                    : 'bg-slate-800 text-slate-300 border-slate-700'
+                }`}>
                   {logItem.level}
                 </span>
               </div>
@@ -199,7 +242,7 @@ export default function LogsViewer({ selectedJobId, theme = 'dark' }) {
       <div className={`mt-3 pt-2 text-[11px] font-mono flex justify-between items-center shrink-0 ${
         isLight ? 'text-slate-500' : 'text-slate-400'
       }`}>
-        <span>Displaying latest {logs.length} log entries</span>
+        <span>Displaying latest {logs.length} log entries {isLiveStream ? '(Streaming)' : ''}</span>
         {jobIdFilter && (
           <button
             onClick={() => setJobIdFilter('')}
