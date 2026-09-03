@@ -59,7 +59,7 @@
     "csstype": "^3.2.3",
     "debug": "^4.4.3",
     "deep-is": "^0.1.4",
-    "deepmerge-ts": "^7.1.5",
+    "deepmerge-ts": "^8.0.2",
     "defu": "^6.1.7",
     "denque": "^2.1.0",
     "destr": "^2.0.5",
