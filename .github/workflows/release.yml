@@ -46,7 +46,7 @@ jobs:
         run: npm run build:all
 
   publish-docker-hub:
-    name: 2. Build & Push Multi-Arch Docker Images to Docker Hub
+    name: 2. Build & Push Microservice Docker Images to Docker Hub
     runs-on: ubuntu-latest
     needs: validate-and-test
     env:
@@ -84,14 +84,30 @@ jobs:
           VERSION="${{ steps.version.outputs.VERSION }}"
           ORG="${{ env.DOCKER_ORG }}"
 
-          echo "Building multi-architecture images for version ${VERSION}..."
+          declare -A SERVICES=(
+            ["gateway"]="docker/Dockerfile.gateway"
+            ["orchestrator"]="docker/Dockerfile.orchestrator"
+            ["postgres-worker"]="docker/Dockerfile.postgres"
+            ["mysql-worker"]="docker/Dockerfile.mysql"
+            ["mongo-worker"]="docker/Dockerfile.mongodb"
+            ["sqlite-worker"]="docker/Dockerfile.sqlite"
+          )
 
-          docker buildx build \
-            --platform linux/amd64,linux/arm64 \
-            --tag "${ORG}/db-backup-gateway:${VERSION}" \
-            --tag "${ORG}/db-backup-gateway:latest" \
-            --file Dockerfile \
-            --push .
+          for SERVICE in "${!SERVICES[@]}"; do
+            DOCKERFILE="${SERVICES[$SERVICE]}"
+            IMAGE_NAME="${ORG}/db-backup-${SERVICE}"
+
+            echo "=========================================="
+            echo "Building multi-arch image: ${IMAGE_NAME}:${VERSION} using ${DOCKERFILE}"
+            echo "=========================================="
+
+            docker buildx build \
+              --platform linux/amd64,linux/arm64 \
+              --tag "${IMAGE_NAME}:${VERSION}" \
+              --tag "${IMAGE_NAME}:latest" \
+              --file "${DOCKERFILE}" \
+              --push .
+          done
 
       - name: Skip Docker Hub push when secrets missing
         if: env.DOCKERHUB_USER == '' || env.DOCKERHUB_PASS == ''
