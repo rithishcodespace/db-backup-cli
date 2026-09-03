@@ -184,6 +184,7 @@ export default function DashboardPage() {
               activeBackups={activeBackups}
               onRefresh={fetchDashboardData}
               theme={theme}
+              onTriggerQuickBackup={() => setIsQuickBackupOpen(true)}
             />
 
             {/* Queue State Monitor */}

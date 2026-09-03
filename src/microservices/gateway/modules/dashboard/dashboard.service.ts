@@ -141,7 +141,7 @@ export class DashboardService {
   async getActiveBackups(): Promise<ActiveBackupDTO[]> {
     try {
       const activeJobs = await prisma.backupJob.findMany({
-        where: { status: 'RUNNING' },
+        where: { status: { in: ['running', 'RUNNING', 'pending', 'PENDING'] } },
         include: { storageLocation: true },
         orderBy: { startedAt: 'desc' },
       });
@@ -205,7 +205,7 @@ export class DashboardService {
 
     const [total24h, failed24h, healthData] = await Promise.all([
       prisma.backupJob.count({ where: { startedAt: { gte: since24h } } }).catch(() => 0),
-      prisma.backupJob.count({ where: { startedAt: { gte: since24h }, status: 'FAILED' } }).catch(() => 0),
+      prisma.backupJob.count({ where: { startedAt: { gte: since24h }, status: { in: ['failed', 'FAILED'] } } }).catch(() => 0),
       this.getSystemHealth().catch(() => null),
     ]);
 
@@ -248,7 +248,8 @@ export class DashboardService {
 
     const whereClause: any = {};
     if (query.status && query.status !== 'all') {
-      whereClause.status = query.status.toUpperCase();
+      const s = query.status.trim();
+      whereClause.status = { in: [s.toLowerCase(), s.toUpperCase()] };
     }
     if (query.dbType && query.dbType !== 'all') {
       whereClause.dbType = query.dbType.toLowerCase();
