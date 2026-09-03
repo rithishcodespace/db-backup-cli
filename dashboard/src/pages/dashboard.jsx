@@ -3,13 +3,10 @@ import Header from '../components/Header';
 import OfflineBanner from '../components/OfflineBanner';
 import MetricCards from '../components/MetricCards';
 import ActiveBackups from '../components/ActiveBackups';
-import QueueVisibility from '../components/QueueVisibility';
 import BackupHistory from '../components/BackupHistory';
 import ErrorDiagnosticsDrawer from '../components/ErrorDiagnosticsDrawer';
 import LogsViewer from '../components/LogsViewer';
 import SystemHealth from '../components/SystemHealth';
-import QuickBackupModal from '../components/QuickBackupModal';
-import HelpGlossaryModal from '../components/HelpGlossaryModal';
 import { dashboardApi, isBackendConnected, lastSuccessfulUpdate } from '../services/api';
 import { Activity, Terminal, AlertTriangle, Server } from 'lucide-react';
 
@@ -17,8 +14,6 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [pollingInterval, setPollingInterval] = useState(5000);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isHelpOpen, setIsHelpOpen] = useState(false);
-  const [isQuickBackupOpen, setIsQuickBackupOpen] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('db_backup_theme') || 'dark';
@@ -45,7 +40,6 @@ export default function DashboardPage() {
   const [health, setHealth] = useState(null);
   const [connected, setConnected] = useState(true);
   const [apiError, setApiError] = useState(null);
-  const [initialLoading, setInitialLoading] = useState(true);
 
   const fetchDashboardData = useCallback(async (signal) => {
     setIsRefreshing(true);
@@ -67,14 +61,12 @@ export default function DashboardPage() {
       setApiError(null);
     } catch (err) {
       if (err.name === 'AbortError') {
-        return; // Ignore intentional request cancellations
+        return;
       }
-      // On failure, preserve existing valid data while updating connection and error status
       setConnected(isBackendConnected);
-      setApiError(lastApiError || err.message);
+      setApiError(err.message);
     } finally {
       setIsRefreshing(false);
-      setInitialLoading(false);
     }
   }, []);
 
@@ -111,10 +103,7 @@ export default function DashboardPage() {
         setPollingInterval={setPollingInterval}
         onRefresh={() => fetchDashboardData()}
         isRefreshing={isRefreshing}
-        onOpenHelp={() => setIsHelpOpen(true)}
-        onOpenQuickBackup={() => setIsQuickBackupOpen(true)}
         isConnected={connected}
-        lastUpdated={lastSuccessfulUpdate}
         theme={theme}
         setTheme={setTheme}
       />
@@ -184,11 +173,7 @@ export default function DashboardPage() {
               activeBackups={activeBackups}
               onRefresh={fetchDashboardData}
               theme={theme}
-              onTriggerQuickBackup={() => setIsQuickBackupOpen(true)}
             />
-
-            {/* Queue State Monitor */}
-            <QueueVisibility queueStats={summary?.queueStats} theme={theme} />
 
             {/* Backup Execution History */}
             <BackupHistory onSelectJob={(job) => setSelectedJob(job)} theme={theme} />
@@ -218,28 +203,10 @@ export default function DashboardPage() {
         </div>
       </footer>
 
-      {/* Quick Backup Dispatcher Modal */}
-      <QuickBackupModal
-        isOpen={isQuickBackupOpen}
-        onClose={() => setIsQuickBackupOpen(false)}
-        onSuccess={() => {
-          setActiveTab('overview');
-          fetchDashboardData();
-        }}
-        theme={theme}
-      />
-
       {/* Error Diagnostics Drawer */}
       <ErrorDiagnosticsDrawer
         job={selectedJob}
         onClose={() => setSelectedJob(null)}
-        theme={theme}
-      />
-
-      {/* Operational Help Modal */}
-      <HelpGlossaryModal
-        isOpen={isHelpOpen}
-        onClose={() => setIsHelpOpen(false)}
         theme={theme}
       />
 

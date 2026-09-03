@@ -12,7 +12,7 @@ const PIPELINE_STAGES = [
   { id: 'finalizing', label: 'Finalizing', minProgress: 95 },
 ];
 
-export default function ActiveBackups({ activeBackups = [], onRefresh, theme = 'dark', onTriggerQuickBackup }) {
+export default function ActiveBackups({ activeBackups = [], onRefresh, theme = 'dark' }) {
   const isLight = theme === 'light';
   const [timers, setTimers] = useState({});
 

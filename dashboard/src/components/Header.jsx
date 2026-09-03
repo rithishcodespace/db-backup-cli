@@ -1,7 +1,7 @@
 // dashboard/src/components/Header.jsx
 
 import React from 'react';
-import { Activity, RefreshCw, Cpu, HelpCircle, ShieldAlert, CheckCircle2, Sun, Moon, Play } from 'lucide-react';
+import { Activity, RefreshCw, Cpu, ShieldAlert, CheckCircle2, Sun, Moon } from 'lucide-react';
 
 export default function Header({
   systemStatus,
@@ -11,8 +11,6 @@ export default function Header({
   setPollingInterval,
   onRefresh,
   isRefreshing,
-  onOpenHelp,
-  onOpenQuickBackup,
   isConnected,
   theme,
   setTheme,
@@ -77,19 +75,6 @@ export default function Header({
         {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-2">
           
-          {/* Quick Backup Trigger Button */}
-          <button
-            onClick={onOpenQuickBackup}
-            className={`flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-lg shadow-sm transition ${
-              isLight
-                ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                : 'bg-blue-500 hover:bg-blue-600 text-white'
-            }`}
-          >
-            <Play className="w-3.5 h-3.5 fill-current" />
-            <span>+ Quick Backup</span>
-          </button>
-
           {/* Status Badge */}
           {getStatusBadge()}
 
@@ -179,19 +164,6 @@ export default function Header({
                 <span>Light</span>
               </>
             )}
-          </button>
-
-          {/* Help Guide */}
-          <button
-            onClick={onOpenHelp}
-            className={`p-1.5 border rounded transition ${
-              isLight
-                ? 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border-slate-700'
-            }`}
-            title="Help & Guide"
-          >
-            <HelpCircle className="w-3.5 h-3.5" />
           </button>
 
         </div>
