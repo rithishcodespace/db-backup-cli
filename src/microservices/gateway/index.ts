@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import path from 'path';
+import fs from 'fs';
 import { RateLimiterRedis } from 'rate-limiter-flexible';
 import { connection } from '../../lib/queue-manager';
 import { clientIdManager } from '../../lib/client-id'; 
@@ -101,6 +103,18 @@ const createRateLimiter = (limiter: RateLimiterRedis) => {
 
 // Dashboard API - no client ID header required for telemetry reading
 app.use('/api/dashboard', dashboardRoutes);
+
+// Static Dashboard serving for production NPM package deployment
+const dashboardDistPath = [
+    path.resolve(__dirname, '../../../dashboard/dist'),
+    path.resolve(__dirname, '../../dashboard/dist'),
+    path.resolve(process.cwd(), 'dashboard/dist'),
+].find(p => fs.existsSync(p)) || path.resolve(__dirname, '../../../dashboard/dist');
+
+app.use('/dashboard', express.static(dashboardDistPath));
+app.get('/dashboard', (_req, res) => {
+    res.sendFile(path.join(dashboardDistPath, 'index.html'));
+});
 
 app.use('/api/backup', clientIdMiddleware, createRateLimiter(rateLimiters.backup));
 app.use('/api/', clientIdMiddleware, createRateLimiter(rateLimiters.api));

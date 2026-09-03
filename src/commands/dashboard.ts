@@ -12,29 +12,33 @@ export function registerDashboardCommand(program: Command) {
     .option('-p, --port <number>', 'Dashboard web server port', '5173')
     .option('--url <url>', 'Dashboard URL')
     .action(async (options) => {
-      const port = options.port || '5173';
-      const dashboardUrl = options.url || `http://localhost:${port}`;
+      const customUrl = options.url;
+      const devUrl = `http://localhost:${options.port || '5173'}`;
+      const gatewayUrl = 'http://localhost:3000/dashboard';
 
       console.log(chalk.bold.blue('\n◆ db-backup Web Dashboard Launcher\n'));
       const spinner = ora('Checking dashboard availability...').start();
 
-      try {
-        const isReachable = await checkDashboardReachable(dashboardUrl);
+      let targetUrl = '';
 
-        if (isReachable) {
-          spinner.succeed(chalk.green(`Dashboard available at ${chalk.bold(dashboardUrl)}`));
-          console.log(chalk.dim(`\nOpening ${dashboardUrl} in your default browser...\n`));
-          openBrowser(dashboardUrl);
-        } else {
-          spinner.fail(chalk.red(`Dashboard is not running at ${dashboardUrl}`));
-          console.log(chalk.yellow('\nTo start the companion web dashboard, run:'));
-          console.log(chalk.cyan('  cd dashboard && npm run dev\n'));
-          process.exit(1);
+      if (customUrl) {
+        if (await checkDashboardReachable(customUrl)) {
+          targetUrl = customUrl;
         }
-      } catch (err: any) {
-        spinner.fail(chalk.red(`Failed to connect to dashboard: ${err.message}`));
-        console.log(chalk.yellow('\nTo start the companion web dashboard, run:'));
-        console.log(chalk.cyan('  cd dashboard && npm run dev\n'));
+      } else if (await checkDashboardReachable(devUrl)) {
+        targetUrl = devUrl;
+      } else if (await checkDashboardReachable(gatewayUrl)) {
+        targetUrl = gatewayUrl;
+      }
+
+      if (targetUrl) {
+        spinner.succeed(chalk.green(`Dashboard available at ${chalk.bold(targetUrl)}`));
+        console.log(chalk.dim(`\nOpening ${targetUrl} in your default browser...\n`));
+        openBrowser(targetUrl);
+      } else {
+        spinner.fail(chalk.red('Dashboard is not reachable.'));
+        console.log(chalk.yellow('\nEnsure background microservices are running via:'));
+        console.log(chalk.cyan('  npm run services:start\n'));
         process.exit(1);
       }
     });
@@ -44,14 +48,17 @@ function checkDashboardReachable(urlStr: string): Promise<boolean> {
   return new Promise((resolve) => {
     try {
       const url = new URL(urlStr);
-      const req = http.get({
-        hostname: url.hostname,
-        port: url.port || 80,
-        path: url.pathname,
-        timeout: 2000,
-      }, (res) => {
-        resolve(res.statusCode !== undefined && res.statusCode < 500);
-      });
+      const req = http.get(
+        {
+          hostname: url.hostname,
+          port: url.port || (url.protocol === 'https:' ? 443 : 80),
+          path: url.pathname,
+          timeout: 2000,
+        },
+        (res) => {
+          resolve(res.statusCode !== undefined && res.statusCode < 500);
+        }
+      );
 
       req.on('error', () => resolve(false));
       req.on('timeout', () => {
