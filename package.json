@@ -43,7 +43,7 @@
     "balanced-match": "^4.0.4",
     "better-result": "^2.9.2",
     "better-sqlite3": "^12.10.1",
-    "binary-extensions": "^2.3.0",
+    "binary-extensions": "^3.1.0",
     "brace-expansion": "^5.0.6",
     "braces": "^3.0.3",
     "bullmq": "^5.79.2",
