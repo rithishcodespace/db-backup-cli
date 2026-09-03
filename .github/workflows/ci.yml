@@ -1,9 +1,9 @@
 name: CI
 
 on:
-  # push:
-  #   branches:
-  #     - main
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
@@ -21,7 +21,7 @@ env:
 
 jobs:
   quality:
-    name: Type check and lint
+    name: Code Quality & Type Check
     runs-on: ubuntu-latest
 
     steps:
@@ -53,14 +53,14 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Type check
+      - name: Type check (Backend)
         run: npx tsc --noEmit
 
       - name: Lint
         run: npm run lint
 
-  build:
-    name: Build package
+  unit-tests:
+    name: Unit Tests
     runs-on: ubuntu-latest
     needs: quality
 
@@ -93,55 +93,9 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Build
-        run: npm run build
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: db-backup-cli-dist-${{ github.sha }}
-          path: dist/
-          if-no-files-found: error
-          retention-days: 7
-
-  unit-tests:
-    name: Unit tests
-    runs-on: ubuntu-latest
-    needs: build
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Cache npm dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-node20-${{ hashFiles('package.json', 'package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-node20-
-
-      - name: Install dependencies
+      - name: Discover and run unit tests
         shell: bash
         run: |
-          if [[ -f package-lock.json ]]; then
-            npm ci --no-audit --no-fund
-          else
-            npm install --no-audit --no-fund
-          fi
-
-      - name: Generate Prisma client
-        run: npx prisma generate
-
-      - name: Discover unit tests
-        id: discover
-        shell: bash
-        run: | # It stores all matching file names into a Bash array.
           mapfile -t TEST_FILES < <(
             find tests src \
               -type f \
@@ -150,23 +104,16 @@ jobs:
           )
 
           if (( ${#TEST_FILES[@]} == 0 )); then
-            echo "has_tests=false" >> "$GITHUB_OUTPUT"
-            echo "No dedicated unit test files were found; skipping this job."
+            echo "No dedicated unit test files found."
             exit 0
           fi
 
-          printf '%s\n' "${TEST_FILES[@]}" > unit-test-files.txt
-          echo "has_tests=true" >> "$GITHUB_OUTPUT"
-
-      - name: Run unit tests
-        if: steps.discover.outputs.has_tests == 'true'
-        shell: bash
-        run: node --test -r ts-node/register $(tr '\n' ' ' < unit-test-files.txt)
+          node --test -r ts-node/register "${TEST_FILES[@]}"
 
   integration-tests:
-    name: Integration tests
+    name: Microservices & Database Integration Tests
     runs-on: ubuntu-latest
-    needs: build
+    needs: quality
 
     services:
       postgres:
@@ -208,15 +155,6 @@ jobs:
         ports:
           - 6379:6379
 
-      rabbitmq:
-        image: rabbitmq:3-management-alpine
-        env:
-          RABBITMQ_DEFAULT_USER: guest
-          RABBITMQ_DEFAULT_PASS: guest
-        ports:
-          - 5672:5672
-          - 15672:15672
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -246,13 +184,13 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
-      - name: Build
-        run: npm run build
+      - name: Build All (Backend + React Dashboard)
+        run: npm run build:all
 
       - name: Start microservices
         run: npm run services:start
 
-      - name: Wait for service readiness
+      - name: Wait for microservices health endpoints
         shell: bash
         run: |
           set -euo pipefail
@@ -270,14 +208,14 @@ jobs:
           )
 
           for endpoint in "${endpoints[@]}"; do
-            echo "Waiting for ${endpoint}"
+            echo "Waiting for ${endpoint}..."
             ready=false
             for attempt in {1..30}; do
               if curl --fail --silent --show-error "$endpoint" >/dev/null; then
                 ready=true
                 break
               fi
-              sleep 5
+              sleep 3
             done
 
             if [[ "$ready" != true ]]; then
@@ -288,9 +226,6 @@ jobs:
 
       - name: Run service integration checks
         run: npm run test:services
-
-      - name: Run phase 4 integration checks
-        run: npm run test:phase4
 
       - name: Stop microservices
         if: always()

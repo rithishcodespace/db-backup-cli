@@ -1,26 +1,19 @@
 version: 2
-
 updates:
-  - package-ecosystem: npm # manage npm packages
-    directory: / # package.json directory path
+  - package-ecosystem: "npm"
+    directory: "/"
     schedule:
-      interval: weekly # running every week
-      day: monday
-      time: "05:00"
-      timezone: UTC
-    groups:
-      npm-dependencies: # instead of creating many PR's group all PR's into one (update express, chalk, etc..)
-        patterns: # every package
-          - "*"
+      interval: "monthly"
+    open-pull-requests-limit: 5
 
-  - package-ecosystem: github-actions
-    directory: /
+  - package-ecosystem: "npm"
+    directory: "/dashboard"
     schedule:
-      interval: weekly
-      day: monday
-      time: "05:00"
-      timezone: UTC
+      interval: "monthly"
+    open-pull-requests-limit: 5
 
-# Checks your project dependencies (npm, Maven, Gradle, pip, Docker, etc.)
-# Looks for newer versions and security vulnerabilities.
-# Creates Pull Requests (PRs) to update your dependencies automatically.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
