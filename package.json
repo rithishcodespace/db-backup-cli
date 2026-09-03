@@ -150,7 +150,7 @@
     "proper-lockfile": "^4.1.2",
     "pstree.remy": "^1.1.8",
     "punycode": "^2.3.1",
-    "pure-rand": "^6.1.0",
+    "pure-rand": "^8.4.2",
     "rate-limiter-flexible": "^11.2.0",
     "rc9": "^3.0.1",
     "react": "^19.2.7",
