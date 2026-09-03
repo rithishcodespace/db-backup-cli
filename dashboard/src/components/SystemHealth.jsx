@@ -11,12 +11,12 @@ export default function SystemHealth({ health, theme = 'dark' }) {
 
   const getStatusIcon = (status) => {
     if (status === 'healthy' || status === 'running') {
-      return <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />;
+      return <CheckCircle2 className={`w-4 h-4 ${isLight ? 'text-emerald-600' : 'text-emerald-400'}`} />;
     }
     if (status === 'degraded') {
-      return <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />;
+      return <AlertTriangle className={`w-4 h-4 ${isLight ? 'text-amber-600' : 'text-amber-400'}`} />;
     }
-    return <XCircle className="w-4 h-4 text-red-600 dark:text-red-400" />;
+    return <XCircle className={`w-4 h-4 ${isLight ? 'text-red-600' : 'text-red-400'}`} />;
   };
 
   const getStatusBadge = (status) => {
@@ -66,13 +66,13 @@ export default function SystemHealth({ health, theme = 'dark' }) {
               <Server className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Microservices Health Matrix</h2>
+              <h2 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>Microservices Health Matrix</h2>
               <p className={`text-xs ${isLight ? 'text-slate-600 font-medium' : 'text-slate-400'}`}>
                 Live health check telemetry for backend microservices
               </p>
             </div>
           </div>
-          <span className={`text-xs font-mono font-semibold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+          <span className={`text-xs font-mono font-semibold ${isLight ? 'text-slate-700' : 'text-slate-400'}`}>
             Pings active: {services.filter((s) => s.status === 'healthy').length}/{services.length}
           </span>
         </div>
@@ -90,11 +90,11 @@ export default function SystemHealth({ health, theme = 'dark' }) {
               <div className="flex items-center gap-3">
                 {getStatusIcon(svc.status)}
                 <div>
-                  <h3 className="text-xs font-bold text-slate-900 dark:text-slate-200">{svc.name}</h3>
-                  <div className={`flex items-center gap-2 text-[11px] font-mono mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-500'}`}>
+                  <h3 className={`text-xs font-bold ${isLight ? 'text-slate-900' : 'text-slate-200'}`}>{svc.name}</h3>
+                  <div className={`flex items-center gap-2 text-[11px] font-mono mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
                     <span>Port: {svc.port || 'N/A'}</span>
                     {svc.responseTimeMs !== undefined && (
-                      <span className="font-semibold text-blue-700 dark:text-blue-400">{svc.responseTimeMs}ms</span>
+                      <span className={`font-semibold ${isLight ? 'text-blue-700' : 'text-blue-400'}`}>{svc.responseTimeMs}ms</span>
                     )}
                   </div>
                 </div>
@@ -121,7 +121,7 @@ export default function SystemHealth({ health, theme = 'dark' }) {
               <Cpu className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Background Worker Processes</h2>
+              <h2 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>Background Worker Processes</h2>
               <p className={`text-xs ${isLight ? 'text-slate-600 font-medium' : 'text-slate-400'}`}>
                 BullMQ queue worker process allocations
               </p>
@@ -139,7 +139,7 @@ export default function SystemHealth({ health, theme = 'dark' }) {
                 }`}
               >
                 <div>
-                  <h3 className="text-xs font-bold text-slate-900 dark:text-slate-200">{w.name}</h3>
+                  <h3 className={`text-xs font-bold ${isLight ? 'text-slate-900' : 'text-slate-200'}`}>{w.name}</h3>
                   <p className={`text-[11px] font-mono mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
                     Concurrency limit: {w.concurrency} | Active tasks: {w.activeCount}
                   </p>
@@ -163,7 +163,7 @@ export default function SystemHealth({ health, theme = 'dark' }) {
               <Wifi className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Queue Transport Health</h2>
+              <h2 className={`text-base font-bold ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>Queue Transport Health</h2>
               <p className={`text-xs ${isLight ? 'text-slate-600 font-medium' : 'text-slate-400'}`}>
                 Redis store & BullMQ connection telemetry
               </p>
@@ -175,7 +175,7 @@ export default function SystemHealth({ health, theme = 'dark' }) {
               isLight ? 'bg-slate-50/80 border-slate-200/90' : 'bg-slate-950/80 border-slate-800'
             }`}>
               <div>
-                <h3 className="text-xs font-bold text-slate-900 dark:text-slate-200">Redis Infrastructure Connection</h3>
+                <h3 className={`text-xs font-bold ${isLight ? 'text-slate-900' : 'text-slate-200'}`}>Redis Infrastructure Connection</h3>
                 <p className={`text-[11px] font-mono mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Host: 127.0.0.1:6379</p>
               </div>
               {getStatusBadge(redisConnected ? 'healthy' : 'offline')}
@@ -185,7 +185,7 @@ export default function SystemHealth({ health, theme = 'dark' }) {
               isLight ? 'bg-slate-50/80 border-slate-200/90' : 'bg-slate-950/80 border-slate-800'
             }`}>
               <div>
-                <h3 className="text-xs font-bold text-slate-900 dark:text-slate-200">Prisma Database Metadata Connection</h3>
+                <h3 className={`text-xs font-bold ${isLight ? 'text-slate-900' : 'text-slate-200'}`}>Prisma Database Metadata Connection</h3>
                 <p className={`text-[11px] font-mono mt-0.5 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>PostgreSQL / SQLite Storage Engine</p>
               </div>
               {getStatusBadge('healthy')}
