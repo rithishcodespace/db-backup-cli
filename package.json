@@ -6,6 +6,14 @@
   "bin": {
     "db-backup": "bin/db_backup.js"
   },
+  "files": [ 
+    "dist",
+    "bin",
+    "prisma",
+    "dashboard/dist",
+    "ecosystem.config.js",
+    "scripts"
+  ],
   "directories": {
     "test": "tests"
   },
