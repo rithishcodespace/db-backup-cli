@@ -159,7 +159,12 @@ async function performBackup(
         };
     }
     
-    let command = `pg_dump -h ${dbConfig.host} -p ${dbConfig.port || 5432} -U ${dbConfig.username} -d ${dbConfig.database}`;
+    const host = dbConfig.host || process.env.POSTGRES_HOST || '127.0.0.1';
+    const port = dbConfig.port || process.env.POSTGRES_PORT || 5432;
+    const username = dbConfig.username || process.env.POSTGRES_USER || 'postgres';
+    const password = dbConfig.password || process.env.POSTGRES_PASSWORD || '';
+
+    let command = `pg_dump -h ${host} -p ${port} -U ${username} -d ${dbConfig.database}`;
     command += ' --format=custom --verbose --no-owner --no-privileges --blobs --clean --if-exists';
     
     if (options.tables && options.tables.length > 0) {
@@ -205,13 +210,14 @@ async function performBackup(
     // Step 1: Spawn pg_dump process
     const pgDump = spawn(command, {
         shell: true,
-        env: { ...process.env, PGPASSWORD: dbConfig.password },
+        env: { ...process.env, PGPASSWORD: password },
         stdio: ['ignore', 'pipe', 'pipe']
     });
     
     // Create a PassThrough to capture errors
     const errorPassthrough = new PassThrough();
     let pgDumpError: Error | null = null;
+    let stderrMessage = '';
     
     pgDump.on('error', (err) => {
         pgDumpError = err;
@@ -220,12 +226,16 @@ async function performBackup(
     
     pgDump.stderr.on('data', (data) => {
         const msg = data.toString();
-        if (msg.includes('ERROR') || msg.includes('FATAL')) {
-            const err = new Error(`pg_dump error: ${msg}`);
+        stderrMessage += msg;
+        log.debug('pg_dump stderr', { backupId, msg: msg.substring(0, 200) });
+    });
+    
+    pgDump.on('close', (code) => {
+        if (code !== 0 && !pgDumpError) {
+            const err = new Error(`pg_dump execution failed with exit code ${code}: ${stderrMessage.trim() || 'Connection failed or database not found'}`);
             pgDumpError = err;
             errorPassthrough.destroy(err);
         }
-        log.debug('pg_dump stderr', { backupId, msg: msg.substring(0, 200) });
     });
     
     // Pipe stdout to errorPassthrough

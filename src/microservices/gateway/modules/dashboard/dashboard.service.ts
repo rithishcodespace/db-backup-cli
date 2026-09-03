@@ -524,20 +524,28 @@ export class DashboardService {
     const storageType = payload.storageType || 'local';
 
     try {
-      const response = await axios.post(`${ORCHESTRATOR_URL}/backup`, {
-        dbConfig: {
-          type: dbType,
-          database: dbName,
-        },
-        backupType,
-        options: {
-          backupName: `${dbName}_${backupType}_${Date.now()}`,
-          storage: {
-            name: storageType,
-            type: storageType,
+      const response = await axios.post(
+        `${ORCHESTRATOR_URL}/backup`,
+        {
+          dbConfig: {
+            type: dbType,
+            database: dbName,
+          },
+          backupType,
+          options: {
+            backupName: `${dbName}_${backupType}_${Date.now()}`,
+            storage: {
+              name: storageType,
+              type: storageType,
+            },
           },
         },
-      });
+        {
+          headers: {
+            'x-client-id': 'dashboard-admin-ui',
+          },
+        }
+      );
 
       return {
         success: true,

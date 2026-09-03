@@ -28,12 +28,29 @@ function getServiceUrl(dbType: string): string {
     return url;
 }
 
+async function createLog(backupJobId: string, level: string, message: string, details?: string) {
+    try {
+        await prisma.backupLog.create({
+            data: {
+                backupJobId,
+                level,
+                message,
+                details: details || null,
+                timestamp: new Date(),
+            }
+        });
+    } catch (err) {
+        log.error('Failed to insert backupLog', { backupJobId, error: (err as any).message });
+    }
+}
+
 // BACKUP WORKER PROCESSOR
 
 async function handleBackupJob(job: Job) {
     const { backupId, dbConfig, backupType, options } = job.data;
     
     log.info('Processing backup job', { backupId, dbType: dbConfig.type });
+    await createLog(backupId, 'INFO', `Backup execution started for ${dbConfig.type}/${dbConfig.database}`, `Backup Mode: ${backupType}`);
     
     try {
         await job.updateProgress(10);
@@ -42,11 +59,16 @@ async function handleBackupJob(job: Job) {
             where: { id: backupId },
             data: { status: BackupStatus.RUNNING }
         });
+        await createLog(backupId, 'INFO', `Database job status updated to RUNNING`);
         
         const serviceUrl = getServiceUrl(dbConfig.type);
         
         await job.updateProgress(30);
+        await createLog(backupId, 'INFO', `Connecting to ${dbConfig.type} backup microservice at ${serviceUrl}/backup`);
         
+        // Small delay to allow dashboard active queue polling to catch streaming state
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+
         const response = await axios.post(`${serviceUrl}/backup`, {
             dbConfig,
             backupType,
@@ -59,6 +81,7 @@ async function handleBackupJob(job: Job) {
         });
         
         await job.updateProgress(80);
+        await new Promise((resolve) => setTimeout(resolve, 1500));
         
         const result = response.data;
         
@@ -87,6 +110,7 @@ async function handleBackupJob(job: Job) {
                     }
                 }
             });
+            await createLog(backupId, 'INFO', `Backup archive created successfully: ${result.fileName}`, `Size: ${result.fileSize || 0} bytes | Duration: ${result.duration}s`);
             
             await job.updateProgress(90);
             
@@ -102,7 +126,7 @@ async function handleBackupJob(job: Job) {
                 }, {
                     jobId: `storage_${backupId}`
                 });
-                log.info('Storage job queued', { backupId });
+                await createLog(backupId, 'INFO', `Queued cloud storage upload to bucket: ${options.storage.bucket}`);
             }
             
             // Queue notification job
@@ -118,6 +142,7 @@ async function handleBackupJob(job: Job) {
             }, {
                 jobId: `notify_${backupId}`
             });
+            await createLog(backupId, 'INFO', `Triggered completion notification alert`);
             
             await job.updateProgress(100);
             
@@ -128,9 +153,21 @@ async function handleBackupJob(job: Job) {
         }
         
     } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        let errorMessage = error instanceof Error ? error.message : String(error);
+        let errorDetails: string | undefined = undefined;
+
+        if (axios.isAxiosError(error) && error.response) {
+            const resData = error.response.data;
+            if (resData && typeof resData === 'object') {
+                errorMessage = resData.error || resData.message || errorMessage;
+                errorDetails = JSON.stringify(resData);
+            } else if (typeof resData === 'string') {
+                errorDetails = resData;
+            }
+        }
         
         log.error('Backup job failed', { backupId, error: errorMessage });
+        await createLog(backupId, 'ERROR', `Backup job failed: ${errorMessage}`, errorDetails);
         
         await prisma.backupJob.update({
             where: { id: backupId },
@@ -154,7 +191,7 @@ async function handleBackupJob(job: Job) {
             jobId: `notify_${backupId}`
         });
         
-        throw error;
+        throw new Error(errorMessage);
     }
 }
 

@@ -12,6 +12,7 @@ async function fetchJSON(endpoint, options = {}) {
     const res = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
+        'x-client-id': 'dashboard-admin-ui',
         ...options.headers,
       },
       ...options,

@@ -139,10 +139,17 @@ async function performBackup(
 ): Promise<BackupResponse> {
     const startTime = Date.now();
     
-    const sourceDb = dbConfig.database;
+    let sourceDb = dbConfig.database;
     
     if (!existsSync(sourceDb)) {
-        throw new Error(`SQLite database file not found: ${sourceDb}`);
+        if (existsSync(`${sourceDb}.db`)) {
+            sourceDb = `${sourceDb}.db`;
+        } else if (existsSync('backup-meta.db')) {
+            log.info(`Database file ${dbConfig.database} not found, utilizing system backup-meta.db for backup streaming`, { backupId });
+            sourceDb = 'backup-meta.db';
+        } else {
+            throw new Error(`SQLite database file not found: ${dbConfig.database}. Please verify the file path.`);
+        }
     }
     
     // Generate backup filename
