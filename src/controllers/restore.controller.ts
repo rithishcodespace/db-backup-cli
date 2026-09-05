@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { restoreService } from './restore.service';
-import { createModuleLogger } from '../../utils/logger';
+import { restoreService } from '../services/restore.service';
+import { createModuleLogger } from '../utils/logger';
 
 const log = createModuleLogger('restore-controller');
 

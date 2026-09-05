@@ -1,2 +1,2 @@
-export * from '../../../../modules/dashboard/dashboard.controller';
-export { default } from '../../../../modules/dashboard/dashboard.controller';
+export * from '../../../../controllers/dashboard.controller';
+export { default } from '../../../../controllers/dashboard.controller';

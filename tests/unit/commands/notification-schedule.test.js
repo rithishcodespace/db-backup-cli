@@ -4,11 +4,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { Command } = require('commander');
 
-const { withMockedModules, clearModule } = require('../helpers/mock-require');
-const { createNoopLogger, createOraMock, createProcessExitInterceptor } = require('../helpers/mocks');
+const { withMockedModules, clearModule } = require('../../helpers/mock-require');
+const { createNoopLogger, createOraMock, createProcessExitInterceptor } = require('../../helpers/mocks');
 
-const notificationModulePath = '../../src/commands/notification.ts';
-const scheduleModulePath = '../../src/commands/schedule.ts';
+const path = require('path');
+const notificationModulePath = path.resolve(__dirname, '../../../src/commands/notification.ts');
+const scheduleModulePath = path.resolve(__dirname, '../../../src/commands/schedule.ts');
 
 function loadNotificationCommand(overrides = {}) {
   const ora = createOraMock();

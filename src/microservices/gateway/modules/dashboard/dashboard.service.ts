@@ -1,2 +1,2 @@
-export * from '../../../../modules/dashboard/dashboard.service';
-export { default } from '../../../../modules/dashboard/dashboard.service';
+export * from '../../../../services/dashboard.service';
+export { default } from '../../../../services/dashboard.service';

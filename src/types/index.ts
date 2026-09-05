@@ -42,4 +42,8 @@ export interface StorageProvider {
 }
 
 export type DatabaseType = 'postgresql' | 'mysql' | 'mongodb' | 'sqlite';
-export type BackupStatus = 'pending' | 'running' | 'success' | 'failed';3.
+export type BackupStatus = 'pending' | 'running' | 'success' | 'failed';
+
+export * from './backup.types';
+export * from './dashboard.types';
+export * from './restore.types';

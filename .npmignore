@@ -41,6 +41,7 @@ Dockerfile*
 docker/
 
 # Scratch & Dev Notes
+docs/
 notes.txt
 flow.txt
 

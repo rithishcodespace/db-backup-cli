@@ -5,7 +5,7 @@ services:
   api-gateway:
     build:
       context: .
-      dockerfile: Dockerfile.gateway
+      dockerfile: docker/Dockerfile.gateway
     ports:
       - "3000:3000"
     environment:
@@ -21,7 +21,7 @@ services:
   backup-orchestrator:
     build:
       context: .
-      dockerfile: Dockerfile.orchestrator
+      dockerfile: docker/Dockerfile.orchestrator
     ports:
       - "3001:3001"
     environment:
@@ -47,7 +47,7 @@ services:
   postgres-backup:
     build:
       context: .
-      dockerfile: Dockerfile.postgres
+      dockerfile: docker/Dockerfile.postgres
     ports:
       - "3010:3010"
     environment:
@@ -64,7 +64,7 @@ services:
   mysql-backup:
     build:
       context: .
-      dockerfile: Dockerfile.mysql
+      dockerfile: docker/Dockerfile.mysql
     ports:
       - "3011:3011"
     environment:
@@ -81,7 +81,7 @@ services:
   mongodb-backup:
     build:
       context: .
-      dockerfile: Dockerfile.mongodb
+      dockerfile: docker/Dockerfile.mongodb
     ports:
       - "3012:3012"
     environment:
@@ -98,7 +98,7 @@ services:
   sqlite-backup:
     build:
       context: .
-      dockerfile: Dockerfile.sqlite
+      dockerfile: docker/Dockerfile.sqlite
     ports:
       - "3013:3013"
     environment:

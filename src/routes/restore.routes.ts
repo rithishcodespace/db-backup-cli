@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import restoreRoutes from '../modules/restore/restore.routes';
+import { restoreController } from '../controllers/restore.controller';
 
 const router = Router();
-router.use('/', restoreRoutes);
+
+router.post('/', (req, res, next) => restoreController.restoreBackup(req, res, next));
 
 export default router;

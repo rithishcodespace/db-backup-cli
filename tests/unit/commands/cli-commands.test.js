@@ -4,12 +4,13 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { Command } = require('commander');
 
-const { withMockedModules, clearModule } = require('../helpers/mock-require');
-const { createNoopLogger, createOraMock, createProcessExitInterceptor } = require('../helpers/mocks');
+const { withMockedModules, clearModule } = require('../../helpers/mock-require');
+const { createNoopLogger, createOraMock, createProcessExitInterceptor } = require('../../helpers/mocks');
 
-const connectModulePath = '../../src/commands/connect.ts';
-const listModulePath = '../../src/commands/list.ts';
-const storageModulePath = '../../src/commands/storage.ts';
+const path = require('path');
+const connectModulePath = path.resolve(__dirname, '../../../src/commands/connect.ts');
+const listModulePath = path.resolve(__dirname, '../../../src/commands/list.ts');
+const storageModulePath = path.resolve(__dirname, '../../../src/commands/storage.ts');
 
 function loadConnectCommand(overrides = {}) {
   const ora = createOraMock();

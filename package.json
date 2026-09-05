@@ -231,11 +231,11 @@
     "docker:down": "docker-compose down",
     "docker:logs": "docker-compose logs -f",
     "docker:build": "docker-compose build",
-    "test:unit": "node --test tests/commands/*.test.js tests/unit/*.test.js",
+    "test:unit": "node --test tests/unit/*.test.js tests/unit/commands/*.test.js",
     "test:e2e": "node --test tests/e2e/*.test.js",
-    "test:services": "node tests/test-microservices.js",
+    "test:services": "node tests/integration/test-microservices.js",
     "test:all": "npm run test:unit && npm run test:e2e && npm run test:services && npm run test:phase4",
-    "test:phase4": "node tests/test-phase4.js",
+    "test:phase4": "node tests/integration/test-phase4.js",
     "worker": "node dist/src/index.js --worker"
   },
   "repository": {

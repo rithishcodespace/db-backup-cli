@@ -1,1 +1,1 @@
-export * from '../../../../modules/dashboard/dashboard.types';
+export * from '../../../../types/dashboard.types';

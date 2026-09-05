@@ -4,10 +4,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { Command } = require('commander');
 
-const { withMockedModules, clearModule } = require('../helpers/mock-require');
-const { createNoopLogger, createOraMock, createProcessExitInterceptor } = require('../helpers/mocks');
+const { withMockedModules, clearModule } = require('../../helpers/mock-require');
+const { createNoopLogger, createOraMock, createProcessExitInterceptor } = require('../../helpers/mocks');
 
-const modulePath = '../../src/commands/config-check.ts';
+const path = require('path');
+const modulePath = path.resolve(__dirname, '../../../src/commands/config-check.ts');
 
 function loadConfigCheckCommand(overrides = {}) {
   const ora = createOraMock();

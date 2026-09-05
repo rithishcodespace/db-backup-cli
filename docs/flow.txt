@@ -1,0 +1,158 @@
+User types:
+db-backup --version
+        │
+        ▼
+Shell (bash/zsh/cmd) looks for "db-backup"
+in PATH
+        │
+        ▼
+Finds executable created by npm link - dev (or) If users installs this project as package, npm will create a common through bin{} in package.json
+(~/.nvm/.../bin/db-backup)
+        │
+        ▼
+OS opens the file
+        │
+        ▼
+Reads first line (shebang)
+
+#!/usr/bin/env node
+        │
+        ▼
+/usr/bin/env finds Node.js in PATH
+        │
+        ▼
+Effectively runs:
+
+node bin/db-backup.js --version
+        │
+        ▼
+Your launcher script executes
+        │
+        ▼
+spawn(
+  'node',
+  ['dist/index.js', '--version']
+)
+        │
+        ▼
+Node starts dist/index.js
+        │
+        ▼
+Commande parser reads from dist/index.js -> program.parse()
+
+process.argv
+
+[
+  "node",
+  "dist/index.js",
+  "--version"
+]
+        │
+        ▼
+Recognizes --version option
+        │
+        ▼
+Prints version
+        │
+        ▼
+Process exits
+
+# backup-restore command flow
+  # connect
+  - db-backup connect --type postgresql --host localhost --port 5432 --user postgres --password Rithish@2006 --database testdb (connect)
+  # add storage location for backup
+  - db-backup storage add --type local --name local-storage --path ./backups/local (add local storage path)
+  - db-backup storage add --type s3 --name postgres-s3 --bucket your-bucket-name --region ap-south-1 --access-key YOUR_ACCESS_KEY --secret-key YOUR_SECRET_KEY --prefix postgres/
+  # backup without adding storage location
+  - db-backup backup --type full --compress --name my_mysql_backup (default -> /backups/local)
+  - db-backup backup --type full --compress --name my_mysql_backup --output /home/rithish/backups
+  - db-backup backup --type full --compress --storage s3 --bucket your-bucket-name --region ap-south-1 --access-key YOUR_ACCESS_KEY --secret-key YOUR_SECRET_KEY --prefix mysql/backups/
+  # backup using storage created
+  - db-backup backup --type full --compress --storage local-storage
+  - db-backup backup --type full --compress --storage postgres-s3
+  # restore using the backupId
+  - db-backup restore --id <>
+  # pg incremental backup
+  - set initial data (like some table creation and data insertion)
+  - db-backup backup --type full (take a full backup)
+  - note down the backupId returned in the console (e54ae9db-83c4-4cc8-af0f-0c90ae115658)
+  - make changes in the table (like insertion of new rows)
+  - db-backup backup --type incremental (yoy can also tag with parent backup --parent-id <backupId>)
+
+
+# notification configuration flow
+  # Configure Email
+   - db-backup notification email configure \
+        --smtp-host smtp.gmail.com \
+        --smtp-port 587 \
+        --smtp-user rithishvkv@gmail.com \
+        --smtp-password nqinkrkttpgoequt \
+        --from rithishvkv@gmail.com
+
+  # Test Email
+  - db-backup notification email test --to admin@company.com
+
+  # Show Email Config
+  - db-backup notification email show
+  
+  # Remove Email Config
+  - db-backup notification email remove
+  
+  # Configure Slack
+  - db-backup notification slack configure --webhook https://hooks.slack.com/services/...
+  
+  # Test Slack
+  - db-backup notification slack test
+  
+  # Show Slack Config
+  - db-backup notification slack show
+  
+  # Remove Slack Config
+  - db-backup notification slack remove
+
+# AES-256 gcm Encryption flow
+  # Backup with auto-generated key (stored locally)
+  - db-backup backup --encrypt
+
+  # Backup with custom key (stored locally)
+  - db-backup backup --encrypt --key "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  
+  # Backup without storing key
+  - db-backup backup --encrypt --no-store-key
+  
+  # Restore (auto-detects key from local keystore)
+  - db-backup restore --id <backup-id>
+  
+  # Restore with manual key (overrides stored key)
+  - db-backup restore --id <backup-id> --key "0123456789abcdef..."
+  
+  # List stored keys
+  - db-backup key list
+  
+  # Show specific key
+  - db-backup key show --id <backup-id>
+  
+  # Delete a key
+  - db-backup key delete --id <backup-id> --force
+  
+  # Export keystore
+  - db-backup key export ./keys-backup.json
+  
+  # Import keystore
+  - db-backup key import ./keys-backup.json --password <password>
+
+# client-id creation flow for rate limiting
+
+        User runs: db-backup backup
+        ↓
+        Command imports httpClient
+        ↓
+        httpClient interceptor calls getClientId()
+        ↓
+        getClientId() checks ~/.db-backup/config.json
+        ↓
+        If file doesn't exist → Create new Client ID
+        ↓
+        Save to ~/.db-backup/config.json
+        ↓
+        Include x-client-id header in HTTP request

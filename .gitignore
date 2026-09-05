@@ -63,6 +63,6 @@ prisma/*.db
 prisma/*.db-journal
 
 # Dev Notes & Scratch
-notes.txt
-flow.txt
+/notes.txt
+/flow.txt
 /generated/prisma

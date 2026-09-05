@@ -1,0 +1,496 @@
+# dependencies:
+   # Core TypeScript
+    typescript -> Adds static typing to JavaScript and compiles .ts files into .js
+    @types/node -> Provides TypeScript type definitions for Node.js APIs
+    ts-node -> Runs TypeScript files directly without manual compilation
+
+    # Development Tools
+    nodemon -> Automatically restarts the application when source files change
+    prettier -> Formats code according to consistent style rules
+    eslint -> Analyzes code and reports errors and bad practices
+    @typescript-eslint/parser -> Allows ESLint to parse TypeScript code
+    @typescript-eslint/eslint-plugin -> Adds TypeScript-specific linting rules
+    supertest -> Tests HTTP APIs by simulating requests and validating responses
+    @types/supertest -> TypeScript type definitions for supertest
+    pm2 -> Production process manager for running and monitoring Node.js applications
+    concurrently -> Runs multiple commands or services simultaneously from a single terminal
+
+    # CLI
+    commander -> Creates and manages command-line commands and options
+    chalk -> Adds colors and styles to terminal output
+    ora -> Displays loading spinners in the terminal
+    progress -> Displays progress bars for long-running operations
+    @types/progress -> TypeScript type definitions for progress
+
+    # Web Server & Security
+    express -> Web framework for building APIs and backend services
+    cors -> Enables Cross-Origin Resource Sharing (CORS) for APIs
+    helmet -> Adds security-related HTTP headers to protect web applications
+    express-rate-limit -> Limits repeated requests to prevent abuse and DDoS attacks
+    @types/express -> TypeScript type definitions for Express
+    @types/cors -> TypeScript type definitions for CORS
+
+    # Environment & Logging
+    dotenv -> Loads environment variables from a .env file
+    dotenv-expand -> Allows environment variables to reference other variables
+    winston -> Provides structured logging with support for log levels and files
+    winston-daily-rotate-file -> Automatically rotates log files daily and manages log retention
+
+    # Messaging, Notifications & Background Jobs
+    amqplib -> RabbitMQ client for sending and receiving messages between microservices
+    bullmq -> BullMQ is a Node.js library for building background job queues on top of Redis.
+    ioredis -> High-performance Redis client for caching, queues, and pub/sub messaging
+    node-cron -> Schedules recurring tasks using cron expressions
+    @slack/webhook -> Sends notifications and alerts to Slack channels using Incoming Webhooks
+
+    # Email Notifications
+    nodemailer -> Sends emails through SMTP providers such as Gmail, Outlook, or custom mail servers
+    @types/nodemailer -> TypeScript type definitions for nodemailer
+
+    # AWS Cloud Storage
+    @aws-sdk/client-s3 -> AWS SDK for interacting with S3 buckets (upload/download/manage backups)
+    @aws-sdk/lib-storage -> High-level utilities for multipart uploads to S3
+    @aws-sdk/s3-request-presigner -> Generates pre-signed URLs for secure temporary access to S3 objects
+
+    # Database (ONLY PostgreSQL for metadata)
+    @prisma/client -> Prisma runtime client used for database operations
+    prisma -> Prisma CLI for schema management and client generation
+    pg -> PostgreSQL driver for Node.js
+    @types/pg -> TypeScript type definitions for pg
+
+    # Backup & File Handling
+    archiver -> Creates ZIP archives for compressed backups
+    @types/archiver -> TypeScript type definitions for archiver
+    proper-lockfile -> Prevents multiple processes from modifying the same backup file
+    crypto (built-in) -> Provides SHA-256 checksum generation, AES-256 encryption/decryption, hashing, HMAC, random key generation, IV generation, and secure random bytes
+    fs (built-in) -> Reads, writes, copies, deletes, and streams backup files and directories
+    path (built-in) -> Handles file and directory paths across different operating systems
+    zlib (built-in) -> Compresses and decompresses backup files using Gzip, Deflate, and Brotli
+    stream (built-in) -> Streams large backup files efficiently without loading them entirely into memory
+
+    # Validation
+    ajv -> Validates JSON data using JSON Schema
+
+    # HTTP & External Services
+    axios -> Promise-based HTTP client for calling external APIs and services
+
+    # Utilities
+    uuid -> Generates unique identifiers
+    @types/uuid -> TypeScript type definitions for uuid
+    retry -> Retries failed operations automatically
+
+# WSL packages needed:
+    sudo apt update && sudo apt upgrade -y && \
+    sudo apt install -y \
+    build-essential \
+    python3 \
+    make \
+    g++ \
+    curl \
+    wget \
+    git \
+    gzip \
+    zip \
+    unzip \
+    postgresql \
+    postgresql-contrib \
+    postgresql-client
+
+# deepseek 
+    - phase_1: https://chat.deepseek.com/share/d5pgov4anh0yevoxia
+    - phase_2 - https://chat.deepseek.com/share/4bf3k0pb6sn9qklscf
+    - phase 4 - https://chat.deepseek.com/share/lpsqxvzcym4psrrgcd
+
+# why scripts
+    - instead of starting each serivces (6) individually eg:(node orchestrator.js, node postgres-service.js, node mysql-service.js, node gateway.js, ..)
+    - We we have 2 scripts one for windows(start-services.ps1), and another for wsl (start-services.sh)
+    - bash -> shell commands, powershell - cmdlet commands
+
+# pending works
+
+    - observability, security, check data integrity via checksum
+    - multiple sender accounts/workspaces for notification service
+    - crud for commands
+    - security, grafana and prometheus
+    - react dashboard
+    - Incremental and differential backups for PostgreSQL, MySQL, MongoDB, and SQLite.
+    - Encryption support (AES-256/GPG) would make it more enterprise-ready.
+    - Parallel backup execution.
+    - Job queue (RabbitMQ/Kafka/Redis Streams).
+    - Worker processes for backup execution.
+    - Encryption and integrity verification.
+    - Prometheus metrics.
+    - Grafana dashboards.
+    - GitHub Actions CI/CD.
+    - Docker Compose for the complete platform.
+    - Kubernetes deployment.
+    - NPM package with documentation.
+    - End-to-end tests.
+
+# IAM CREDNETIALS
+
+    - access_key=AKIAZEVCNI7RJNT7JB5Y
+    - secret_access_key=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
+
+# project phases
+
+    #Phase 1: Project Foundation & Basic CLI Setup
+
+        Initialize TypeScript project with proper config
+
+        Set up Prisma for database connection pooling
+
+        Create basic CLI structure using Commander.js or Yargs
+
+        Implement help command and version display
+
+        Set up logging infrastructure (winston/pino)
+
+        Create configuration file loader (.env + config.json support)
+
+        Validation: Run --help and see proper output
+
+    #Phase 2: Single Database Support (Start with PostgreSQL)
+
+        Implement PostgreSQL connection manager with Prisma
+
+        Add connection parameter validation
+
+        Create full backup functionality (pg_dump wrapper)
+
+        Implement backup compression (zlib/gzip)
+
+        Add local storage saving
+
+        Basic error handling for connection/backup failures
+
+        Validation: Backup a test PostgreSQL database locally
+
+    #Phase 3: Expand Database Support
+
+        Add MySQL/MariaDB support (mysqldump wrapper)
+
+        Add SQLite support (direct file copy)
+
+        Add MongoDB support (mongodump wrapper)
+
+        Create unified interface for all DBMS types
+
+        Implement auto-detection of database type
+
+        Validation: Backup each database type successfully
+
+    #Phase 4: Backup Types & Scheduling
+
+        Implement full backup (already working)
+
+        Add incremental backup (based on WAL/oplog)
+
+        Add differential backup
+
+        Create cron-based scheduler (node-cron)
+
+        Add backup retention policy
+
+        Validation: Run scheduled backup and verify file timestamps
+
+    #Phase 5: Cloud Storage Integration
+
+        Implement AWS S3 upload/download
+
+        Add Google Cloud Storage support
+
+        Add Azure Blob Storage support
+
+        Create unified cloud storage interface
+
+        Add multi-cloud backup strategy
+
+        Validation: Upload backup to at least one cloud provider
+
+    #Phase 6: Restore Operations
+
+        Implement full database restore
+
+        Add selective table/collection restore (if supported)
+
+        Create restore verification mechanism
+
+        Add dry-run mode for restore
+
+        Implement point-in-time recovery (where possible)
+
+        Validation: Restore a database and verify data integrity
+
+    #Phase 7: Monitoring & Notifications
+
+        Implement Slack webhook notifications
+
+        Add email notifications (Nodemailer)
+
+        Create backup success/failure reporting
+
+        Add backup size and duration tracking
+
+        Implement health check endpoint
+
+        Validation: Receive Slack notification after backup completion
+
+    #Phase 8: Performance & Security
+
+        Add backup streaming (avoid temp files)
+
+        Implement parallel backup for large databases
+
+        Add encryption for backup files (AES-256)
+
+        Create backup integrity verification (checksums)
+
+        Add rate limiting to avoid production impact
+
+        Validation: Backup a 10GB+ database efficiently
+
+    #Phase 9: Production Readiness
+
+        Add comprehensive unit/integration tests (Jest)
+
+        Create Docker container for deployment
+
+        Add CI/CD pipeline (GitHub Actions)
+
+        Implement metrics collection (Prometheus)
+
+        Create backup dashboard (optional)
+
+        Write complete documentation
+
+        Validation: Run full test suite and deployment checklist
+
+# bullmq's work
+
+    CLI (--async flag)
+        ↓
+    Orchestrator
+        ↓
+    Backup Queue (BullMQ)
+        ↓
+    ┌─────────────────────────────────────┐
+    │  Workers: PostgreSQL, MySQL, etc.   │
+    │  → Create backup                    │
+    │  → Update progress (0-100%)         │
+    │  → On complete: Add to storage queue│
+    └─────────────────────────────────────┘
+        ↓
+    Storage Queue
+        ↓
+    ┌─────────────────────────────────────┐
+    │  Workers: S3, Local                 │
+    │  → Upload to S3/local               │
+    │  → Retry on failure                 │
+    └─────────────────────────────────────┘
+        ↓
+    Notification Queue
+        ↓
+    ┌─────────────────────────────────────┐
+    │  Workers: Slack, Email              │
+    │  → Send notifications               │
+    │  → Retry on failure                 │
+    └─────────────────────────────────────┘
+
+
+# rate limiting
+    1. API Gateway Rate Limiting
+────────────────────────────────────────────────────────────────
+
+Purpose:
+Protect the Gateway from request flooding, accidental CLI loops,
+or malicious clients sending excessive API requests.
+
+Why?
+Without a request limiter, a client can continuously send backup
+requests, consuming unnecessary Gateway and Redis resources before
+they even reach the backup pipeline.
+
+Implementation:
+• Redis + rate-limiter-flexible
+• Applied as middleware before routing requests
+• Limit based on API Key / User ID
+
+Example Limit:
+100 requests/minute per API Key
+
+Action on Limit Exceeded:
+• Return HTTP 429 (Too Many Requests)
+• Request is rejected immediately
+
+
+2. Backup Orchestrator Resource Limiting (Most Important)
+────────────────────────────────────────────────────────────────
+
+Purpose:
+Prevent expensive backup operations from overwhelming the system.
+
+Why?
+A backup job is CPU, memory, disk, and database intensive.
+Instead of limiting API requests, the Orchestrator limits how many
+backup jobs the system can safely process.
+
+Checks Before Enqueueing:
+
+✓ Active Running Jobs < MAX_RUNNING_BACKUPS
+
+✓ Queue Size < MAX_QUEUE_SIZE
+
+If both checks pass:
+    → Create Backup Metadata
+    → Push Job to BullMQ
+
+Otherwise:
+    → Reject the backup request with an appropriate error.
+
+Example:
+
+Running Jobs = 3
+MAX_RUNNING_BACKUPS = 3
+
+↓
+
+Reject New Backup
+
+Queue Size = 50
+MAX_QUEUE_SIZE = 50
+
+↓
+
+Reject New Backup
+
+
+3. BullMQ Queue
+────────────────────────────────────────────────────────────────
+
+Purpose:
+Buffer incoming backup requests instead of executing all of them
+immediately.
+
+Why?
+Executing every backup instantly can overload the database,
+CPU, and storage. BullMQ acts as a buffer and schedules jobs
+for execution when workers become available.
+
+Job States:
+• Waiting
+• Active
+• Completed
+• Failed
+• Delayed (Scheduled Backups)
+
+Implementation:
+BullMQ Queue (Already Implemented)
+
+
+4. Worker Concurrency Control
+────────────────────────────────────────────────────────────────
+
+Purpose:
+Limit the number of backup jobs executing simultaneously.
+
+Why?
+Running too many backups in parallel can exhaust CPU, RAM,
+database connections, and disk I/O.
+
+Implementation:
+
+new Worker(queue, processor, {
+    concurrency: 3
+})
+
+Meaning:
+• Maximum of 3 backup jobs execute simultaneously.
+• Remaining jobs stay in the BullMQ waiting queue.
+
+
+5. Restore Lock (Distributed Lock)
+────────────────────────────────────────────────────────────────
+
+Purpose:
+Ensure that only one restore operation is performed on the same
+database at any given time.
+
+Why?
+Running multiple restores on the same database simultaneously
+can lead to inconsistent or corrupted data.
+
+Implementation:
+Redis Distributed Lock
+
+Key Format:
+
+restore:<database-name>
+
+Flow:
+
+Acquire Lock
+      ↓
+Perform Restore
+      ↓
+Release Lock
+
+If Lock Already Exists:
+• Reject the restore request.
+• Inform the user that another restore is already running.
+
+
+6. Scheduler Execution Guard
+────────────────────────────────────────────────────────────────
+
+Purpose:
+Prevent duplicate scheduled backups from executing at the same time.
+
+Why?
+If a scheduled backup is still running when the next scheduled
+execution starts, duplicate jobs may be created for the same
+database.
+
+Implementation:
+
+Before creating a scheduled backup:
+
+✓ Check if another backup for the same database is already running.
+
+If Running:
+    Skip Current Execution
+
+Else:
+    Create New Backup Job
+
+Result:
+Only one scheduled backup for a database can run at a time.
+
+sahgjdkgdhgjdhgjghfdshrhrughgudshjsdhushgjrhughrnfhshughsnghthsnghtusbgbusiuitbsjgdksdjgls
+
+# DEPLOYMENT STATUS
+
+V1
+├── Full backups
+├── Restore
+├── Encryption
+├── S3/local storage
+├── Scheduling
+├── Notifications
+├── Async workers
+├── Rate limiting
+└── Interactive CLI onboarding
+
+V2
+├── PostgreSQL incremental/WAL
+├── MySQL binlog incremental
+├── MongoDB oplog
+└── Local execution/agent if required
+
+# PENDING WORKS
+
+Prometheus Metrics: /metrics endpoint on the API Gateway / Orchestrator for tracking backup durations, queue latency, and error counts.
+Grafana Dashboards: Pre-built dashboard templates for system monitoring.
+Support for multiple sender accounts / channels in the notification microservice (currently configured for single Slack webhook / Nodemailer SMTP).
+Kubernetes Manifests: K8s Helm chart or deployment manifests (currently only docker-compose.yaml exists).
+NPM Package Release Automation: CI/CD pipeline step (GitHub Actions) for reproducible builds, binary entrypoint (bin/db_backup.js) verification, and npm publish automation.

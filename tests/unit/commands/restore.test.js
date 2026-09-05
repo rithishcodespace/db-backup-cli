@@ -8,11 +8,11 @@ const path = require('node:path');
 
 const { Command } = require('commander');
 
-const { makeTempDir, cleanupTempDir } = require('../helpers/temp-dir');
-const { withMockedModules, clearModule } = require('../helpers/mock-require');
-const { createNoopLogger, createOraMock, createProcessExitInterceptor } = require('../helpers/mocks');
+const { makeTempDir, cleanupTempDir } = require('../../helpers/temp-dir');
+const { withMockedModules, clearModule } = require('../../helpers/mock-require');
+const { createNoopLogger, createOraMock, createProcessExitInterceptor } = require('../../helpers/mocks');
 
-const modulePath = '../../src/commands/restore.ts';
+const modulePath = path.resolve(__dirname, '../../../src/commands/restore.ts');
 
 function loadRestoreCommand(overrides = {}) {
   const ora = createOraMock();
