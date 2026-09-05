@@ -1,4 +1,5 @@
 import express from 'express';
+import helmet from 'helmet';
 import { prisma } from "../../lib/prisma";
 import { IncomingWebhook } from '@slack/webhook';
 import nodemailer from 'nodemailer';
@@ -6,7 +7,8 @@ import { createModuleLogger } from '../../logger';
 import { validateBody, NotificationRequestSchema } from '../shared/validators';
 
 const app = express();
-app.use(express.json());
+app.use(helmet());
+app.use(express.json({ limit: '10mb' }));
 
 const log = createModuleLogger('notification-service');
 

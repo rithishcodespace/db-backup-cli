@@ -31,6 +31,8 @@ export function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+export { sanitizeErrorMessage, sanitizeObject } from '../../../utils/credential-scrubber';
+
 export function sanitizeConfig(config: any): any {
   const sanitized = { ...config };
   if (sanitized.password) sanitized.password = '***';

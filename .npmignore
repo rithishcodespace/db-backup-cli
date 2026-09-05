@@ -1,0 +1,50 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+
+# SQLite & Metadata Databases
+*.db
+*.db-journal
+*.sqlite*
+backup-meta.db
+backup-meta
+
+# Local Storage, Logs & Temp files
+backups/
+logs/
+tmp/
+temp/
+*.log
+
+# Tests & Coverage
+tests/
+test-cloud-backups/
+coverage/
+.nyc_output/
+*.test.js
+*.test.ts
+
+# TypeScript Source (dist is published)
+src/
+tsconfig.json
+
+# Docker & CI/CD
+docker-compose*
+Dockerfile*
+.dockerignore
+.github/
+docker/
+
+# Scratch & Dev Notes
+notes.txt
+flow.txt
+
+# Config
+config.json
+!config.example.json
+ecosystem.config.js

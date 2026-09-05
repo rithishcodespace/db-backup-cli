@@ -11,8 +11,9 @@ echo -e "${BLUE}═════════════════════�
 
 # Check if PM2 is installed
 if ! command -v pm2 &> /dev/null; then
-    echo -e "${YELLOW}PM2 not found. Installing globally...${NC}"
-    npm install -g pm2
+    echo -e "${YELLOW}PM2 is required to run background microservices.${NC}"
+    echo -e "${YELLOW}Please install PM2 via: npm install -g pm2${NC}"
+    exit 1
 fi
 
 # Create necessary directories

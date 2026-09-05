@@ -142,7 +142,7 @@ class ConfigManager {
       const configToSave = { ...this.config };
       delete configToSave.version;
       
-      fs.writeFileSync(this.configPath, JSON.stringify(configToSave, null, 2));
+      fs.writeFileSync(this.configPath, JSON.stringify(configToSave, null, 2), { mode: 0o600 });
       this.ensureDirectories();
     } catch (error) {
       console.error('Failed to save configuration:', error);
@@ -159,7 +159,7 @@ class ConfigManager {
 
     dirs.forEach(dir => {
       if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+        fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
         console.log(`Created directory: ${dir}`);
       }
     });

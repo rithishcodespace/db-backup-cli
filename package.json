@@ -2,7 +2,8 @@
   "name": "db-backup-cli",
   "version": "1.0.0",
   "description": "A utility to backup databases",
-  "main": "index.js",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
   "bin": {
     "db-backup": "bin/db_backup.js"
   },
@@ -11,7 +12,6 @@
     "bin",
     "prisma",
     "dashboard/dist",
-    "ecosystem.config.js",
     "scripts"
   ],
   "directories": {

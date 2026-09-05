@@ -1,4 +1,5 @@
 import express from 'express';
+import helmet from 'helmet';
 import { prisma } from '../../lib/prisma';
 import cron from 'node-cron';
 import axios from 'axios';
@@ -8,7 +9,8 @@ import { DistributedLock } from '../../lib/distributed-lock';
 import { validateBody, validateParams, ScheduleRequestSchema, IdParamSchema } from '../shared/validators';
 
 const app = express();
-app.use(express.json());
+app.use(helmet());
+app.use(express.json({ limit: '10mb' }));
 
 const log = createModuleLogger('scheduler-service');
 

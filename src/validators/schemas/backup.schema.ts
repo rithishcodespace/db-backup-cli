@@ -9,7 +9,8 @@ export const DatabaseConfigSchema = v.object({
   database: v.pipe(
     v.string('Database name must be a string'),
     v.trim(),
-    v.minLength(1, 'Database name cannot be empty')
+    v.minLength(1, 'Database name cannot be empty'),
+    v.check((name) => !/[\r\n\0;&|`$]/.test(name), 'Database name contains illegal characters')
   ),
   host: v.optional(v.string('Host must be a string')),
   port: v.optional(
@@ -46,14 +47,20 @@ export const StorageOptionsSchema = v.pipe(
   )
 );
 
+const SafeIdentifierSchema = v.pipe(
+  v.string('Table name must be a string'),
+  v.trim(),
+  v.check((name) => !/[\r\n\0;&|`$]/.test(name), 'Table name contains illegal characters')
+);
+
 /**
  * Backup options schema
  */
 export const BackupOptionsSchema = v.pipe(
   v.object({
     compress: v.optional(v.boolean('Compress must be a boolean'), true),
-    tables: v.optional(v.array(v.string('Table name must be a string'))),
-    excludeTables: v.optional(v.array(v.string('Table name must be a string'))),
+    tables: v.optional(v.array(SafeIdentifierSchema)),
+    excludeTables: v.optional(v.array(SafeIdentifierSchema)),
     outputPath: v.optional(v.string('Output path must be a string')),
     backupName: v.optional(v.string('Backup name must be a string')),
     backupId: v.optional(v.string('Backup ID must be a string')),

@@ -12,6 +12,7 @@ import { createModuleLogger } from '../../logger';
 import { swaggerSpec } from '../../swagger/openapi';
 import dashboardRoutes from './modules/dashboard/dashboard.routes';
 import { validateBody, validateParams, BackupRequestSchema, IdParamSchema } from '../shared/validators';
+import { sanitizeErrorMessage } from '../../utils/credential-scrubber';
 
 const app = express();
 const log = createModuleLogger('api-gateway');
@@ -45,8 +46,23 @@ const rateLimiters = {
 };
 
 app.use(helmet());
-app.use(cors());
-app.use(express.json());
+
+const allowedOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map((s: string) => s.trim())
+    : ['http://localhost:5173', 'http://localhost:3000'];
+
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow requests with no origin (e.g. CLI, server-to-server, curl) or allowed origins
+        if (!origin || allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(new Error('Blocked by CORS policy'));
+    },
+    credentials: true,
+}));
+
+app.use(express.json({ limit: '10mb' }));
 
 // client id middleware
 const clientIdMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -247,11 +263,12 @@ app.get('/api/services/health', async (req, res) => {
 });
 
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    log.error('Unhandled error in gateway', { error: err.message, stack: err.stack });
-    res.status(500).json({
+    const cleanMsg = sanitizeErrorMessage(err.message);
+    log.error('Unhandled error in gateway', { error: cleanMsg });
+    res.status(err.status || 500).json({
         success: false,
-        error: 'Internal Server Error',
-        message: process.env.NODE_ENV === 'development' ? err.message : undefined
+        error: err.name || 'Internal Server Error',
+        message: process.env.NODE_ENV === 'development' ? cleanMsg : undefined
     });
 });
 

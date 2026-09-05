@@ -1,6 +1,7 @@
 // src/microservices/database-services/sqlite/service.ts
 
 import express from 'express';
+import helmet from 'helmet';
 import { createReadStream, createWriteStream, existsSync, mkdirSync, statSync } from 'fs';
 import { createGzip } from 'zlib';
 import { createHash, createCipheriv, randomBytes } from 'crypto';
@@ -18,7 +19,8 @@ import { validateBody, BackupRequestSchema } from '../../shared/validators';
 const log = createModuleLogger('sqlite-backup-service');
 
 const app = express();
-app.use(express.json());
+app.use(helmet());
+app.use(express.json({ limit: '10mb' }));
 
 const SERVICE_PORT = process.env.SQLITE_SERVICE_PORT || 3013;
 const SERVICE_NAME = 'sqlite-backup-service';

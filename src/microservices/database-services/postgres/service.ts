@@ -1,4 +1,5 @@
 import express from 'express';
+import helmet from 'helmet';
 import { spawn } from 'child_process';
 import { createGzip } from 'zlib';
 import { createHash, createCipheriv, randomBytes } from 'crypto';
@@ -17,7 +18,8 @@ import { validateBody, BackupRequestSchema } from '../../shared/validators';
 const log = createModuleLogger('postgres-backup-service');
 
 const app = express();
-app.use(express.json());
+app.use(helmet());
+app.use(express.json({ limit: '10mb' }));
 
 const SERVICE_PORT = process.env.POSTGRES_SERVICE_PORT || 3010;
 const SERVICE_NAME = 'postgres-backup-service';
@@ -165,15 +167,26 @@ async function performBackup(
     const username = dbConfig.username || process.env.POSTGRES_USER || 'postgres';
     const password = dbConfig.password || process.env.POSTGRES_PASSWORD || '';
 
-    let command = `pg_dump -h ${host} -p ${port} -U ${username} -d ${dbConfig.database}`;
-    command += ' --format=custom --verbose --no-owner --no-privileges --blobs --clean --if-exists';
+    const pgArgs: string[] = [
+        '-h', String(host),
+        '-p', String(port),
+        '-U', String(username),
+        '-d', String(dbConfig.database),
+        '--format=custom',
+        '--verbose',
+        '--no-owner',
+        '--no-privileges',
+        '--blobs',
+        '--clean',
+        '--if-exists'
+    ];
     
-    if (options.tables && options.tables.length > 0) {
-        options.tables.forEach((table: string) => { command += ` -t ${table}`; });
+    if (options.tables && Array.isArray(options.tables)) {
+        options.tables.forEach((table: string) => { pgArgs.push('-t', table); });
     }
     
-    if (options.excludeTables && options.excludeTables.length > 0) {
-        options.excludeTables.forEach((table: string) => { command += ` -T ${table}`; });
+    if (options.excludeTables && Array.isArray(options.excludeTables)) {
+        options.excludeTables.forEach((table: string) => { pgArgs.push('-T', table); });
     }
     
     // Generate backup filename
@@ -204,13 +217,13 @@ async function performBackup(
         finalFileName = `${baseFileName}_encrypted.enc`;
     }
     
-    log.debug('Executing pg_dump', { backupId, command: command.substring(0, 200) + '...' });
+    log.debug('Executing pg_dump', { backupId, database: dbConfig.database, host, port });
     
     // STREAMING PIPELINE: NO TEMPORARY FILES
     
-    // Step 1: Spawn pg_dump process
-    const pgDump = spawn(command, {
-        shell: true,
+    // Step 1: Spawn pg_dump process safely without shell execution
+    const pgDump = spawn('pg_dump', pgArgs, {
+        shell: false,
         env: { ...process.env, PGPASSWORD: password },
         stdio: ['ignore', 'pipe', 'pipe']
     });

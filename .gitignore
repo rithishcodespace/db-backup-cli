@@ -53,13 +53,16 @@ coverage/
 .nyc_output/
 . jest/
 
-# Prisma
+# Prisma & Databases
+*.db
+*.db-journal
+*.sqlite*
+backup-meta.db
+backup-meta
 prisma/*.db
 prisma/*.db-journal
 
-# Understanding
+# Dev Notes & Scratch
 notes.txt
 flow.txt
-/generated/prisma
-
 /generated/prisma

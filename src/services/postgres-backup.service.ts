@@ -1,7 +1,7 @@
-import { exec } from 'child_process'; // Used to execute shell commands. - exec("pg_dump ...")
-import { promisify } from 'util'; // It converts callback-based functions into Promise-based function
-import { createReadStream, statSync } from 'fs';
-// import { createGzip } from 'zlib'; // Used for compression.
+import { spawn } from 'child_process';
+import { createReadStream, createWriteStream, statSync } from 'fs';
+import { createGzip } from 'zlib';
+import { pipeline } from 'stream/promises';
 import path from 'path';
 import { prisma } from "../lib/prisma";
 import { config } from '../config';
@@ -9,7 +9,6 @@ import { createModuleLogger } from '../logger';
 import { ConnectionConfig } from '../utils/db_connection';
 import { createHash } from 'crypto';
 
-const execAsync = promisify(exec); // now exec, can be used with async/await instead of callbacks
 const log = createModuleLogger('postgres-backup');
 
 export interface BackupOptions {
@@ -160,27 +159,45 @@ export class PostgresBackupService {
   }
   
   private async performBackup(outputPath: string, options: BackupOptions): Promise<void> {
-    // Build pg_dump command
-    let command = this.buildPgDumpCommand(options);
+    const pgArgs = this.buildPgDumpArgs(options);
     
-    // Add output redirection
-    if (options.compress) {
-      command += ` | gzip > "${outputPath}"`;
-    } else {
-      command += ` > "${outputPath}"`;
-    }
-    
-    log.debug('Executing pg_dump', { command: command.substring(0, 200) });
+    log.debug('Executing pg_dump', { database: this.dbConfig.database, host: this.dbConfig.host, port: this.dbConfig.port });
     
     try {
-      const { stderr } = await execAsync(command, { // stdout -> output, stderr -> error
-        maxBuffer: 50 * 1024 * 1024, // 50MB buffer (max output to be stored size)
+      const pgDump = spawn('pg_dump', pgArgs, {
+        shell: false,
         env: {
           ...process.env,
           PGPASSWORD: this.dbConfig.password,
         },
+        stdio: ['ignore', 'pipe', 'pipe']
       });
-      
+
+      let stderr = '';
+      pgDump.stderr.on('data', (chunk) => {
+        stderr += chunk.toString();
+      });
+
+      const writeStream = createWriteStream(outputPath);
+
+      if (options.compress) {
+        const gzip = createGzip();
+        await pipeline(pgDump.stdout, gzip, writeStream);
+      } else {
+        await pipeline(pgDump.stdout, writeStream);
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        pgDump.on('close', (code) => {
+          if (code !== 0) {
+            reject(new Error(`pg_dump exited with code ${code}: ${stderr.trim() || 'Process execution failed'}`));
+          } else {
+            resolve();
+          }
+        });
+        pgDump.on('error', reject);
+      });
+
       if (stderr && !stderr.includes('NOTICE')) {
         log.warn('pg_dump produced warnings', { stderr });
       }
@@ -191,43 +208,40 @@ export class PostgresBackupService {
     }
   }
   
-  private buildPgDumpCommand(options: BackupOptions): string {
+  private buildPgDumpArgs(options: BackupOptions): string[] {
     const host = this.dbConfig.host || 'localhost';
     const port = this.dbConfig.port || 5432;
     const username = this.dbConfig.username || 'postgres';
     const database = this.dbConfig.database;
     
-    let command = `pg_dump -h ${host} -p ${port} -U ${username} -d ${database}`;
+    const args: string[] = [
+      '-h', String(host),
+      '-p', String(port),
+      '-U', String(username),
+      '-d', String(database),
+      '--format=custom',
+      '--verbose',
+      '--no-owner',
+      '--no-privileges',
+    ];
     
-    // Add format option for better compatibility
-    command += ' --format=custom'; // Custom format allows selective restore
-    
-    // Add table filters
     if (options.tables && options.tables.length > 0) {
       options.tables.forEach(table => {
-        command += ` -t ${table}`;
+        args.push('-t', table);
       });
     }
     
-    // Exclude tables
     if (options.excludeTables && options.excludeTables.length > 0) {
       options.excludeTables.forEach(table => {
-        command += ` -T ${table}`;
+        args.push('-T', table);
       });
     }
     
-    // Add other useful options
-    command += ' --verbose';
-    command += ' --no-owner'; // Avoid ownership issues
-    command += ' --no-privileges'; // Skip privilege commands
-    
     if (options.type === 'full') {
-      command += ' --blobs'; // Include large objects
-      command += ' --clean'; // Clean (drop) objects before creating
-      command += ' --if-exists'; // Use IF EXISTS in clean commands
+      args.push('--blobs', '--clean', '--if-exists');
     }
     
-    return command;
+    return args;
   }
   
   private async calculateChecksum(filePath: string): Promise<string> {
