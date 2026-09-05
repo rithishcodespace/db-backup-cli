@@ -55,6 +55,21 @@ graph TD
     SQ --> SQDB[(SQLite)]
 ```
 
+## OpenAPI & Swagger Documentation
+
+The API Gateway hosts interactive **Swagger UI** documentation and raw OpenAPI 3.0 JSON specifications covering all microservice endpoints:
+
+- **Interactive Swagger UI**: [http://localhost:3000/api-docs](http://localhost:3000/api-docs)
+- **OpenAPI 3.0 Spec (JSON)**: [http://localhost:3000/api-docs/json](http://localhost:3000/api-docs/json)
+
+The API specification documents:
+- **Gateway & Health**: Gateway health status, CLI Client ID configuration, rate limit status, and database service health checks.
+- **Backups**: Triggering backups (PostgreSQL, MySQL, MongoDB, SQLite), status tracking, job cancellation, and queue statistics.
+- **Dashboard**: Dashboard telemetry metrics, active backup jobs, queue details, system logs, and alerts.
+- **Scheduler**: Cron-based automated backup schedule registration, listing, and execution controls.
+- **Notification**: Multi-channel notification delivery and test endpoints for Slack webhooks and SMTP Email.
+- **Storage**: Direct storage provider operations for local directories and AWS S3 buckets.
+
 ## Tech Stack
 
 - Node.js

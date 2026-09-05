@@ -7,7 +7,9 @@ import { RateLimiterRedis } from 'rate-limiter-flexible';
 import { connection } from '../../lib/queue-manager';
 import { clientIdManager } from '../../lib/client-id'; 
 import axios from 'axios';
+import swaggerUi from 'swagger-ui-express';
 import { createModuleLogger } from '../../logger';
+import { swaggerSpec } from '../../swagger/openapi';
 import dashboardRoutes from './modules/dashboard/dashboard.routes';
 
 const app = express();
@@ -103,6 +105,13 @@ const createRateLimiter = (limiter: RateLimiterRedis) => {
 
 // Dashboard API - no client ID header required for telemetry reading
 app.use('/api/dashboard', dashboardRoutes);
+
+// Swagger Documentation UI & JSON endpoint
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.get('/api-docs/json', (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(swaggerSpec);
+});
 
 // Static Dashboard serving for production NPM package deployment
 const dashboardDistPath = [
@@ -248,6 +257,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 app.listen(GATEWAY_PORT, () => {
     log.info(`API Gateway listening on port ${GATEWAY_PORT}`);
+    log.info(`Swagger UI documentation available at http://localhost:${GATEWAY_PORT}/api-docs`);
     log.info(`Rate Limit: ${RATE_LIMIT_POINTS} requests per ${RATE_LIMIT_DURATION} seconds`);
     log.info(`Client ID stored at: ${process.env.HOME || process.env.USERPROFILE}/.db-backup/config.json`);
 });
