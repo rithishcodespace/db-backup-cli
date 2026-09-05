@@ -5,6 +5,7 @@ import axios from 'axios';
 import { createModuleLogger } from '../../logger';
 import { connection } from '../../lib/queue-manager';
 import { DistributedLock } from '../../lib/distributed-lock';
+import { validateBody, validateParams, ScheduleRequestSchema, IdParamSchema } from '../shared/validators';
 
 const app = express();
 app.use(express.json());
@@ -93,7 +94,7 @@ app.get('/health', (req, res) => {
 
 // Schedule a Backup
 
-app.post('/api/schedule', async (req, res) => {
+app.post('/api/schedule', validateBody(ScheduleRequestSchema), async (req, res) => {
   const { schedule, dbConfig, backupType, options, storageType, notification } = req.body;
   
   try {
@@ -186,8 +187,8 @@ app.post('/api/schedule', async (req, res) => {
 
 // Stop a Schedule
 
-app.post('/api/schedule/:id/stop', async (req, res) => {
-  const { id } = req.params;
+app.post('/api/schedule/:id/stop', validateParams(IdParamSchema), async (req, res) => {
+  const id = req.params.id as string;
   
   try {
     const task = scheduledTasks.get(id);

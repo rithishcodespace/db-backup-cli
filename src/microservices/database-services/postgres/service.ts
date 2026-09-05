@@ -12,6 +12,7 @@ import { S3StorageProvider } from '../../storage-service/providers/s3';
 import { LocalStorageProvider } from '../../storage-service/providers/local';
 import path from 'path';
 import { PostgresIncrementalService } from '../../../services/postgres-incremental.service';
+import { validateBody, BackupRequestSchema } from '../../shared/validators';
 
 const log = createModuleLogger('postgres-backup-service');
 
@@ -110,7 +111,7 @@ app.get('/health', (req, res) => {
     });
 });
 
-app.post('/backup', async (req, res) => {
+app.post('/backup', validateBody(BackupRequestSchema), async (req, res) => {
     const { dbConfig, backupType, options } = req.body;
     const backupId = options?.backupId || uuidv4();
     

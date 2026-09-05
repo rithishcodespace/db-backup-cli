@@ -3,6 +3,7 @@ import { prisma } from "../../lib/prisma";
 import { IncomingWebhook } from '@slack/webhook';
 import nodemailer from 'nodemailer';
 import { createModuleLogger } from '../../logger';
+import { validateBody, NotificationRequestSchema } from '../shared/validators';
 
 const app = express();
 app.use(express.json());
@@ -24,7 +25,7 @@ app.get('/health', (req, res) => {
 });
 
 // Send notification
-app.post('/api/notify', async (req, res) => {
+app.post('/api/notify', validateBody(NotificationRequestSchema), async (req, res) => {
   const { type, backupId, config, message } = req.body;
   
   log.info('Received notification request', { type, backupId });

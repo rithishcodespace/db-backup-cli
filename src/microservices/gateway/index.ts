@@ -11,6 +11,7 @@ import swaggerUi from 'swagger-ui-express';
 import { createModuleLogger } from '../../logger';
 import { swaggerSpec } from '../../swagger/openapi';
 import dashboardRoutes from './modules/dashboard/dashboard.routes';
+import { validateBody, validateParams, BackupRequestSchema, IdParamSchema } from '../shared/validators';
 
 const app = express();
 const log = createModuleLogger('api-gateway');
@@ -184,7 +185,7 @@ app.get('/api/rate-limit/status', async (req, res) => {
 });
 
 
-app.post('/api/backup', async (req, res) => {
+app.post('/api/backup', validateBody(BackupRequestSchema), async (req, res) => {
     log.info('Backup request received via gateway', {
         clientId: (req as any).clientId?.substring(0, 8) + '...'
     });
@@ -204,7 +205,7 @@ app.post('/api/backup', async (req, res) => {
     }
 });
 
-app.get('/api/backup/:id/status', async (req, res) => {
+app.get('/api/backup/:id/status', validateParams(IdParamSchema), async (req, res) => {
     const { id } = req.params;
     
     try {

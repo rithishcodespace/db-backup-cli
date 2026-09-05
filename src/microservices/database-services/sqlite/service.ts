@@ -13,6 +13,7 @@ import { createModuleLogger } from '../../../logger';
 import { config as appConfig } from '../../../config';
 import { S3StorageProvider } from '../../storage-service/providers/s3';
 import { LocalStorageProvider } from '../../storage-service/providers/local';
+import { validateBody, BackupRequestSchema } from '../../shared/validators';
 
 const log = createModuleLogger('sqlite-backup-service');
 
@@ -111,7 +112,7 @@ app.get('/health', (req, res) => {
     });
 });
 
-app.post('/backup', async (req, res) => {
+app.post('/backup', validateBody(BackupRequestSchema), async (req, res) => {
     const { dbConfig, backupType, options } = req.body;
     const backupId = options?.backupId || uuidv4();
     

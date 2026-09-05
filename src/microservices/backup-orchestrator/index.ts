@@ -5,6 +5,7 @@ import { prisma } from "../../lib/prisma";
 import { createModuleLogger } from '../../logger';
 import { BackupRequest, BackupResponse, BackupStatus } from '../shared/types';
 import { createBackupQueue, createStorageQueue, createNotificationQueue } from '../../lib/queue-manager';
+import { validateBody, validateParams, BackupRequestSchema, IdParamSchema } from '../shared/validators';
 
 const app = express();
 app.use(express.json());
@@ -46,7 +47,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-app.post('/backup', async (req, res) => {
+app.post('/backup', validateBody(BackupRequestSchema), async (req, res) => {
   const { dbConfig, backupType, options } = req.body;
   const backupId = uuidv4();
   
@@ -219,8 +220,8 @@ app.post('/backup', async (req, res) => {
   }
 });
 
-app.get('/backup/:id/status', async (req, res) => {
-  const { id } = req.params;
+app.get('/backup/:id/status', validateParams(IdParamSchema), async (req, res) => {
+  const id = req.params.id as string;
   
   try {
     // Get job from database
@@ -281,8 +282,8 @@ app.get('/backup/:id/status', async (req, res) => {
   }
 });
 
-app.delete('/backup/:id', async (req, res) => {
-  const { id } = req.params;
+app.delete('/backup/:id', validateParams(IdParamSchema), async (req, res) => {
+  const id = req.params.id as string;
   
   try {
     // Check if job exists

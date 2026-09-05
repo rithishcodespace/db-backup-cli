@@ -3,6 +3,13 @@ import { prisma } from '../../lib/prisma';
 import { createModuleLogger } from '../../logger';
 import { LocalStorageProvider } from './providers/local';
 import { S3StorageProvider } from './providers/s3';
+import {
+  validateBody,
+  StorageUploadSchema,
+  StorageDownloadSchema,
+  StorageListSchema,
+  StorageDeleteSchema,
+} from '../shared/validators';
 
 const app = express();
 app.use(express.json());
@@ -55,7 +62,7 @@ app.get('/health', (req, res) => {
 });
 
 // Upload backup
-app.post('/api/storage/upload', async (req, res) => {
+app.post('/api/storage/upload', validateBody(StorageUploadSchema), async (req, res) => {
   const { storageType, config, localPath, remotePath, backupId } = req.body;
   
   log.info('Uploading backup to storage', { storageType, backupId });
@@ -94,7 +101,7 @@ app.post('/api/storage/upload', async (req, res) => {
 });
 
 // Download backup
-app.post('/api/storage/download', async (req, res) => {
+app.post('/api/storage/download', validateBody(StorageDownloadSchema), async (req, res) => {
   const { storageType, config, remotePath, localPath, backupId } = req.body;
   
   log.info('Downloading backup from storage', { storageType, backupId });
@@ -121,7 +128,7 @@ app.post('/api/storage/download', async (req, res) => {
 });
 
 // List backups
-app.post('/api/storage/list', async (req, res) => {
+app.post('/api/storage/list', validateBody(StorageListSchema), async (req, res) => {
   const { storageType, config, prefix } = req.body;
   
   try {
@@ -138,7 +145,7 @@ app.post('/api/storage/list', async (req, res) => {
 });
 
 // Delete backup
-app.post('/api/storage/delete', async (req, res) => {
+app.post('/api/storage/delete', validateBody(StorageDeleteSchema), async (req, res) => {
   const { storageType, config, remotePath } = req.body;
   
   try {

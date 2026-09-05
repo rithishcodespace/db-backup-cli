@@ -2,11 +2,20 @@ import express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { createModuleLogger } from '../../../logger';
 import { MySQLIncrementalBackupManager } from './manager';
+import {
+  validateBody,
+  validateQuery,
+  BackupRequestSchema,
+  MySQLRestoreSchema,
+  MySQLCheckBinlogSchema,
+  MySQLCleanupSchema,
+  MySQLListBackupsQuerySchema,
+} from '../../../validators';
 
 const log = createModuleLogger('mysql-backup-routes');
 const router = express.Router();
 
-router.post('/backup', async (req, res) => {
+router.post('/backup', validateBody(BackupRequestSchema), async (req, res) => {
     const { dbConfig, backupType, options } = req.body;
     const backupId = options?.backupId || uuidv4();
     
@@ -58,7 +67,7 @@ router.post('/backup', async (req, res) => {
     }
 });
 
-router.get('/backups', async (req, res) => {
+router.get('/backups', validateQuery(MySQLListBackupsQuerySchema), async (req, res) => {
     try {
         const { backupDir } = req.query;
         const backupManager = new MySQLIncrementalBackupManager(backupDir as string);
@@ -70,7 +79,7 @@ router.get('/backups', async (req, res) => {
     }
 });
 
-router.post('/restore', async (req, res) => {
+router.post('/restore', validateBody(MySQLRestoreSchema), async (req, res) => {
     const { dbConfig, backupId, targetTime, options } = req.body;
     
     log.info('Received MySQL restore request', { backupId, targetTime });
@@ -99,7 +108,7 @@ router.post('/restore', async (req, res) => {
     }
 });
 
-router.post('/check-binlog', async (req, res) => {
+router.post('/check-binlog', validateBody(MySQLCheckBinlogSchema), async (req, res) => {
     const { dbConfig } = req.body;
     
     try {
@@ -112,7 +121,7 @@ router.post('/check-binlog', async (req, res) => {
     }
 });
 
-router.post('/cleanup', async (req, res) => {
+router.post('/cleanup', validateBody(MySQLCleanupSchema), async (req, res) => {
     const { retentionDays, backupDir } = req.body;
     
     try {
