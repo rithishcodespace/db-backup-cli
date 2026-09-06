@@ -17,6 +17,7 @@ import { keyManager } from '../lib/key-manager';
 import { connection } from '../lib/queue-manager';
 import { DistributedLock } from '../lib/distributed-lock';
 import { PostgresIncrementalService } from '../services/postgres-incremental.service';
+import { infrastructureManager } from '../infrastructure';
 
 const streamPipeline = promisify(pipeline);
 const log = createModuleLogger('restore-command');
@@ -346,6 +347,10 @@ export function registerRestoreCommand(program: Command): void {
                     process.exit(1);
                 }
                 
+                // Ensure Redis infrastructure is available for distributed lock
+                spinner.text = 'Checking infrastructure for restore...';
+                await infrastructureManager.ensureInfrastructure({ requiredServices: ['redis'] });
+
                 // Initialize distributed lock
                 const lockKey = `restore:${getDatabaseIdentifier(dbConfig)}`;
                 lock = new DistributedLock(connection as any, lockKey, { ttl: LOCK_TTL });

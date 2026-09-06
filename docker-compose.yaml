@@ -3,6 +3,7 @@ version: '3.8'
 services:
   # API Gateway
   api-gateway:
+    image: rithishcodespace/db-backup-gateway:1.0.0
     build:
       context: .
       dockerfile: docker/Dockerfile.gateway
@@ -13,12 +14,15 @@ services:
       - ORCHESTRATOR_URL=http://backup-orchestrator:3001
     depends_on:
       - backup-orchestrator
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - backup-network
     restart: unless-stopped
 
   # Backup Orchestrator
   backup-orchestrator:
+    image: rithishcodespace/db-backup-orchestrator:1.0.0
     build:
       context: .
       dockerfile: docker/Dockerfile.orchestrator
@@ -37,14 +41,18 @@ services:
       - mongodb-backup
       - sqlite-backup
     volumes:
-      - ./backups:/app/backups
+      - ${BACKUP_DIR:-./backups}:/app/backups
+      - ${BACKUP_DIR:-~/.db-backup}:/root/.db-backup
       - ./data:/app/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - backup-network
     restart: unless-stopped
 
   # PostgreSQL Backup Service
   postgres-backup:
+    image: rithishcodespace/db-backup-postgres-worker:1.0.0
     build:
       context: .
       dockerfile: docker/Dockerfile.postgres
@@ -54,14 +62,18 @@ services:
       - NODE_ENV=production
       - SERVICE_PORT=3010
     volumes:
-      - ./backups:/app/backups
+      - ${BACKUP_DIR:-./backups}:/app/backups
+      - ${BACKUP_DIR:-~/.db-backup}:/root/.db-backup
       - ./tmp:/app/tmp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - backup-network
     restart: unless-stopped
 
   # MySQL Backup Service
   mysql-backup:
+    image: rithishcodespace/db-backup-mysql-worker:1.0.0
     build:
       context: .
       dockerfile: docker/Dockerfile.mysql
@@ -71,14 +83,18 @@ services:
       - NODE_ENV=production
       - SERVICE_PORT=3011
     volumes:
-      - ./backups:/app/backups
+      - ${BACKUP_DIR:-./backups}:/app/backups
+      - ${BACKUP_DIR:-~/.db-backup}:/root/.db-backup
       - ./tmp:/app/tmp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - backup-network
     restart: unless-stopped
 
   # MongoDB Backup Service
   mongodb-backup:
+    image: rithishcodespace/db-backup-mongo-worker:1.0.0
     build:
       context: .
       dockerfile: docker/Dockerfile.mongodb
@@ -88,14 +104,18 @@ services:
       - NODE_ENV=production
       - SERVICE_PORT=3012
     volumes:
-      - ./backups:/app/backups
+      - ${BACKUP_DIR:-./backups}:/app/backups
+      - ${BACKUP_DIR:-~/.db-backup}:/root/.db-backup
       - ./tmp:/app/tmp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - backup-network
     restart: unless-stopped
 
   # SQLite Backup Service
   sqlite-backup:
+    image: rithishcodespace/db-backup-sqlite-worker:1.0.0
     build:
       context: .
       dockerfile: docker/Dockerfile.sqlite
@@ -105,8 +125,11 @@ services:
       - NODE_ENV=production
       - SERVICE_PORT=3013
     volumes:
-      - ./backups:/app/backups
+      - ${BACKUP_DIR:-./backups}:/app/backups
+      - ${BACKUP_DIR:-~/.db-backup}:/root/.db-backup
       - ./tmp:/app/tmp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - backup-network
     restart: unless-stopped
@@ -116,6 +139,11 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 5
     networks:
       - backup-network
     restart: unless-stopped

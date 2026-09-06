@@ -12,7 +12,9 @@
     "bin",
     "prisma",
     "dashboard/dist",
-    "scripts"
+    "scripts",
+    "docker-compose.yaml",
+    "docker"
   ],
   "directories": {
     "test": "tests"

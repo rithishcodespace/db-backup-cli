@@ -52,6 +52,7 @@ function loadBackupCommand(overrides = {}) {
       '../config': { config },
       '../lib/prisma': { prisma },
       '../utils/http-client': { __esModule: true, default: httpClient, httpClient },
+      '../infrastructure': overrides.infrastructure || { infrastructureManager: { ensureInfrastructure: async () => ({ healthy: true, running: true }) } },
     },
     () => {
       clearModule(modulePath);

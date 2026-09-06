@@ -57,6 +57,7 @@ function loadRestoreCommand(overrides = {}) {
       '../lib/distributed-lock': { DistributedLock: FakeDistributedLock },
       '../lib/queue-manager': { connection: { quit: async () => {}, disconnect: async () => {}, on: () => {} } },
       '../utils/http-client': { __esModule: true, default: {}, httpClient: {} },
+      '../infrastructure': overrides.infrastructure || { infrastructureManager: { ensureInfrastructure: async () => ({ healthy: true, running: true }) } },
     },
     () => {
       clearModule(modulePath);

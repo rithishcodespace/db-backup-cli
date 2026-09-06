@@ -10,6 +10,7 @@ import { prisma } from "../lib/prisma";
 import { keyManager } from '../lib/key-manager';
 import httpClient from '../utils/http-client';
 import crypto from 'crypto';
+import { infrastructureManager } from '../infrastructure';
 
 const log = createModuleLogger('backup-command');
 
@@ -210,6 +211,9 @@ export function registerBackupCommand(program: Command): void {
           }
         };
         
+        spinner.text = 'Checking backup infrastructure...';
+        await infrastructureManager.ensureInfrastructure({ dbType: dbConfig.type });
+
         spinner.text = 'Sending backup request to orchestrator...';
         log.debug('Sending backup request', { 
           dbType: dbConfig.type, 

@@ -23,6 +23,7 @@ function loadConnectCommand(overrides = {}) {
       '../logger': { createModuleLogger: () => createNoopLogger() },
       '../config': { config },
       '../utils/db_connection': { testConnection },
+      '../infrastructure': overrides.infrastructure || { infrastructureManager: { ensureInfrastructure: async () => ({ healthy: true, running: true }) } },
     },
     () => {
       clearModule(connectModulePath);

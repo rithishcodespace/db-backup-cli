@@ -4,6 +4,7 @@ import ora from 'ora';
 import { config } from '../config';
 import { createModuleLogger } from '../logger';
 import { testConnection } from '../utils/db_connection';
+import { infrastructureManager } from '../infrastructure';
 
 const log = createModuleLogger('connect-command');
 
@@ -19,16 +20,24 @@ export function registerConnectCommand(program: Command): void {
     .option('-d, --database <database>', 'Database name')
     .option('--ssl', 'Enable SSL connection')
     .action(async (options) => {
+      // Validate required options
+      if (!options.database && options.type !== 'sqlite') {
+        console.error(chalk.red('\n✗ Error: --database option is required for this database type'));
+        log.error('Connection failed: missing database name');
+        process.exit(1);
+      }
+
+      // Ensure required runtime infrastructure is ready
+      try {
+        await infrastructureManager.ensureInfrastructure({ dbType: options.type });
+      } catch (infraError: any) {
+        console.error(chalk.red(`\n✗ Infrastructure Error: ${infraError.message}`));
+        process.exit(1);
+      }
+
       const spinner = ora('Testing database connection...').start();
       
       try {
-        // Validate required options
-        if (!options.database && options.type !== 'sqlite') {
-          spinner.fail('Database name is required');
-          console.error(chalk.red('Error: --database option is required for this database type'));
-          log.error('Connection failed: missing database name');
-          process.exit(1);
-        }
 
         // Build connection config
         const dbConfig: any = {
