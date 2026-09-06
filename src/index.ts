@@ -15,12 +15,12 @@ import { registerInitCommand } from './commands/init';
 import { registerConfigCheckCommand } from './commands/config-check';
 import { registerDashboardCommand } from './commands/dashboard';
 import { registerInfraCommand } from './commands/infra';
+import { registerDoctorCommand } from './commands/doctor';
 
   // Creates CLI object
   const program = new Command();
 
 // WORKER MODE: Start BullMQ workers
-console.log(process.argv);
 if (process.argv.includes('--worker')) {
   console.log(chalk.blue('\n Starting BullMQ workers...'));
   console.log(chalk.dim('  • Backup Worker (processing backup jobs)'));
@@ -89,6 +89,7 @@ if (process.argv.includes('--worker')) {
   registerKeyCommand(program);
   registerDashboardCommand(program);
   registerInfraCommand(program);
+  registerDoctorCommand(program);
 
   // Default help
   program

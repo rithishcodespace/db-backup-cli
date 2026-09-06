@@ -17,6 +17,8 @@ export function showHelp(): void {
     ${chalk.green('restore')}       Restore a database from backup
     ${chalk.green('list')}          List available backups
     ${chalk.green('schedule')}      Schedule automated backups
+    ${chalk.green('infra')}         Inspect and manage runtime infrastructure
+    ${chalk.green('doctor')}        Diagnose environment, configuration, and infrastructure health
     ${chalk.green('help')}          Show this help message
 
     ${chalk.bold('Global Options:')}
