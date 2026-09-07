@@ -1,17 +1,47 @@
+# ==========================================
+# Stage 1: Build Node.js TypeScript Backend
+# ==========================================
 FROM node:20-alpine AS builder
 WORKDIR /app
-COPY package*.json prisma ./
+COPY package*.json prisma.config.ts ./
+COPY prisma ./prisma/
 RUN npm ci
 COPY . .
-RUN npm run build:all
+RUN npx prisma generate
+RUN npm run build
+RUN npm prune --omit=dev
 
+# ==========================================
+# Stage 2: Production Runner
+# ==========================================
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+ENV ORCHESTRATOR_PORT=3001
+ENV DATABASE_URL=file:/app/data/backup-meta.db
+ENV REDIS_HOST=redis
+ENV REDIS_PORT=6379
+
+RUN apk add --no-cache ca-certificates
+
+# Copy production artifacts
 COPY package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/generated ./generated
 COPY --from=builder /app/prisma ./prisma
 
+# Set up runtime directories, symlink, and non-root user permissions
+RUN mkdir -p /app/data /app/logs /app/tmp /app/backups /root \
+    && ln -sfn /app/backups /root/.db-backup \
+    && chown -R node:node /app /root \
+    && chmod -R 775 /app /root
+
+USER node
+
 EXPOSE 3001
+
+HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=5 \
+  CMD node -e "require('http').get('http://localhost:3001/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+
 CMD ["node", "dist/src/microservices/backup-orchestrator/index.js"]

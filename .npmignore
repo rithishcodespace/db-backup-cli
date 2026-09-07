@@ -34,11 +34,9 @@ src/
 tsconfig.json
 
 # Docker & CI/CD
-docker-compose*
 Dockerfile*
 .dockerignore
 .github/
-docker/
 
 # Scratch & Dev Notes
 docs/

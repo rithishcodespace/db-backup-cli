@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # API Gateway
   api-gateway:
-    image: rithishcodespace/db-backup-gateway:1.0.0
+    image: ${IMAGE_PREFIX:-rithishcodespace/}db-backup-gateway:${VERSION:-1.0.0}
     build:
       context: .
       dockerfile: docker/Dockerfile.gateway
@@ -11,18 +11,34 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+      - GATEWAY_PORT=3000
+      - PORT=3000
       - ORCHESTRATOR_URL=http://backup-orchestrator:3001
+      - DATABASE_URL=file:/app/data/backup-meta.db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     depends_on:
-      - backup-orchestrator
+      backup-orchestrator:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ${BACKUP_DIR:-~/.db-backup}:/app/backups
+      - ${BACKUP_DIR:-~/.db-backup}:/root/.db-backup
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks:
       - backup-network
     restart: unless-stopped
 
   # Backup Orchestrator
   backup-orchestrator:
-    image: rithishcodespace/db-backup-orchestrator:1.0.0
+    image: ${IMAGE_PREFIX:-rithishcodespace/}db-backup-orchestrator:${VERSION:-1.0.0}
     build:
       context: .
       dockerfile: docker/Dockerfile.orchestrator
@@ -30,29 +46,36 @@ services:
       - "3001:3001"
     environment:
       - NODE_ENV=production
+      - ORCHESTRATOR_PORT=3001
       - POSTGRES_SERVICE_URL=http://postgres-backup:3010
       - MYSQL_SERVICE_URL=http://mysql-backup:3011
       - MONGODB_SERVICE_URL=http://mongodb-backup:3012
       - SQLITE_SERVICE_URL=http://sqlite-backup:3013
       - DATABASE_URL=file:/app/data/backup-meta.db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     depends_on:
-      - postgres-backup
-      - mysql-backup
-      - mongodb-backup
-      - sqlite-backup
+      redis:
+        condition: service_healthy
     volumes:
-      - ${BACKUP_DIR:-./backups}:/app/backups
-      - ${BACKUP_DIR:-~/.db-backup}:/root/.db-backup
       - ./data:/app/data
+      - ${BACKUP_DIR:-~/.db-backup}:/app/backups
+      - ${BACKUP_DIR:-~/.db-backup}:/root/.db-backup
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks:
       - backup-network
     restart: unless-stopped
 
   # PostgreSQL Backup Service
   postgres-backup:
-    image: rithishcodespace/db-backup-postgres-worker:1.0.0
+    image: ${IMAGE_PREFIX:-rithishcodespace/}db-backup-postgres-worker:${VERSION:-1.0.0}
     build:
       context: .
       dockerfile: docker/Dockerfile.postgres
@@ -60,20 +83,28 @@ services:
       - "3010:3010"
     environment:
       - NODE_ENV=production
+      - POSTGRES_SERVICE_PORT=3010
       - SERVICE_PORT=3010
+      - BACKUP_PATH=/app/backups
     volumes:
-      - ${BACKUP_DIR:-./backups}:/app/backups
+      - ${BACKUP_DIR:-~/.db-backup}:/app/backups
       - ${BACKUP_DIR:-~/.db-backup}:/root/.db-backup
       - ./tmp:/app/tmp
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3010/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks:
       - backup-network
     restart: unless-stopped
 
   # MySQL Backup Service
   mysql-backup:
-    image: rithishcodespace/db-backup-mysql-worker:1.0.0
+    image: ${IMAGE_PREFIX:-rithishcodespace/}db-backup-mysql-worker:${VERSION:-1.0.0}
     build:
       context: .
       dockerfile: docker/Dockerfile.mysql
@@ -81,20 +112,28 @@ services:
       - "3011:3011"
     environment:
       - NODE_ENV=production
+      - MYSQL_SERVICE_PORT=3011
       - SERVICE_PORT=3011
+      - BACKUP_PATH=/app/backups
     volumes:
-      - ${BACKUP_DIR:-./backups}:/app/backups
+      - ${BACKUP_DIR:-~/.db-backup}:/app/backups
       - ${BACKUP_DIR:-~/.db-backup}:/root/.db-backup
       - ./tmp:/app/tmp
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3011/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks:
       - backup-network
     restart: unless-stopped
 
   # MongoDB Backup Service
   mongodb-backup:
-    image: rithishcodespace/db-backup-mongo-worker:1.0.0
+    image: ${IMAGE_PREFIX:-rithishcodespace/}db-backup-mongo-worker:${VERSION:-1.0.0}
     build:
       context: .
       dockerfile: docker/Dockerfile.mongodb
@@ -102,20 +141,28 @@ services:
       - "3012:3012"
     environment:
       - NODE_ENV=production
+      - MONGODB_SERVICE_PORT=3012
       - SERVICE_PORT=3012
+      - BACKUP_PATH=/app/backups
     volumes:
-      - ${BACKUP_DIR:-./backups}:/app/backups
+      - ${BACKUP_DIR:-~/.db-backup}:/app/backups
       - ${BACKUP_DIR:-~/.db-backup}:/root/.db-backup
       - ./tmp:/app/tmp
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3012/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks:
       - backup-network
     restart: unless-stopped
 
   # SQLite Backup Service
   sqlite-backup:
-    image: rithishcodespace/db-backup-sqlite-worker:1.0.0
+    image: ${IMAGE_PREFIX:-rithishcodespace/}db-backup-sqlite-worker:${VERSION:-1.0.0}
     build:
       context: .
       dockerfile: docker/Dockerfile.sqlite
@@ -123,40 +170,35 @@ services:
       - "3013:3013"
     environment:
       - NODE_ENV=production
+      - SQLITE_SERVICE_PORT=3013
       - SERVICE_PORT=3013
+      - BACKUP_PATH=/app/backups
     volumes:
-      - ${BACKUP_DIR:-./backups}:/app/backups
+      - ${BACKUP_DIR:-~/.db-backup}:/app/backups
       - ${BACKUP_DIR:-~/.db-backup}:/root/.db-backup
       - ./tmp:/app/tmp
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3013/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks:
       - backup-network
     restart: unless-stopped
 
-  # Redis for job queue 
+  # Redis for BullMQ job queue (localhost-only, not public)
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 2s
       timeout: 2s
       retries: 5
-    networks:
-      - backup-network
-    restart: unless-stopped
-
-  # RabbitMQ for message queue 
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
     networks:
       - backup-network
     restart: unless-stopped

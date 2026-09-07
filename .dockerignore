@@ -1,0 +1,54 @@
+# Version Control & CI
+.git
+.gitignore
+.github
+
+# Dependencies
+node_modules
+dashboard/node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test & Coverage
+tests
+test-cloud-backups
+coverage
+.nyc_output
+*.test.js
+*.test.ts
+
+# Build artifacts (compiled fresh inside multi-stage Docker build)
+dist
+coverage
+
+# Local SQLite & Metadata Databases
+*.db
+*.db-journal
+backup-meta.db
+backup-meta.db-journal
+
+# Local Storage, Backups, Logs & Temp files
+backups
+logs
+tmp
+temp
+*.log
+
+# Secrets & Environment variables
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+*.crt
+
+# IDE & Agent workspace data
+.gemini
+.agents
+.vscode
+.idea
+docs
+notes.txt
+flow.txt
