@@ -50,7 +50,7 @@ test('dashboard command detects reachable dashboard web server and opens browser
   const program = new Command();
   registerDashboardCommand(program);
 
-  await program.parseAsync(['node', 'db-backup', 'dashboard', '--port', '5173']);
+  await program.parseAsync(['node', 'dbvault', 'dashboard', '--port', '5173']);
 
   assert.ok(commandExecuted.includes('http://localhost:5173'));
 });
@@ -87,7 +87,7 @@ test('dashboard command exits when dashboard web server is unreachable', async (
     registerDashboardCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'dashboard', '--port', '9999']),
+      program.parseAsync(['node', 'dbvault', 'dashboard', '--port', '9999']),
       /process\.exit:1/
     );
 

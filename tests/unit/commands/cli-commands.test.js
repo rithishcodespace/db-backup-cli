@@ -96,7 +96,7 @@ test('connect command saves database configuration after a successful connection
   const program = new Command();
   registerConnectCommand(program);
 
-  await program.parseAsync(['node', 'db-backup', 'connect', '--type', 'postgresql', '--database', 'appdb', '--host', 'localhost', '--user', 'app', '--password', 'secret']);
+  await program.parseAsync(['node', 'dbvault', 'connect', '--type', 'postgresql', '--database', 'appdb', '--host', 'localhost', '--user', 'app', '--password', 'secret']);
 
   assert.equal(saved.length, 1);
   assert.equal(saved[0].database, 'appdb');
@@ -112,7 +112,7 @@ test('connect command exits when the database name is missing for a non-SQLite d
     registerConnectCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'connect', '--type', 'postgresql']),
+      program.parseAsync(['node', 'dbvault', 'connect', '--type', 'postgresql']),
       /process\.exit:1/
     );
 
@@ -154,7 +154,7 @@ test('list command renders the latest successful backups', async () => {
   try {
     const program = new Command();
     registerListCommand(program);
-    await program.parseAsync(['node', 'db-backup', 'list']);
+    await program.parseAsync(['node', 'dbvault', 'list']);
 
     assert.ok(logs.some((line) => line.includes('backup-1')));
     assert.ok(logs.some((line) => line.includes('appdb')));
@@ -199,8 +199,8 @@ test('storage add and set-default commands persist locations', async () => {
   const program = new Command();
   registerStorageCommand(program);
 
-  await program.parseAsync(['node', 'db-backup', 'storage', 'add', '--type', 'local', '--name', 'offsite', '--path', './backups']);
-  await program.parseAsync(['node', 'db-backup', 'storage', 'set-default', 'offsite']);
+  await program.parseAsync(['node', 'dbvault', 'storage', 'add', '--type', 'local', '--name', 'offsite', '--path', './backups']);
+  await program.parseAsync(['node', 'dbvault', 'storage', 'set-default', 'offsite']);
 
   assert.equal(created[0].name, 'offsite');
   assert.equal(created[0].type, 'local');

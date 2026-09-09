@@ -135,7 +135,7 @@ test('1. Healthy environment exits with code 0', async () => {
     registerDoctorCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'doctor']),
+      program.parseAsync(['node', 'dbvault', 'doctor']),
       /process\.exit:0/
     );
 
@@ -169,7 +169,7 @@ test('2. Docker not installed causes diagnostic failure with exit code 1', async
     registerDoctorCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'doctor']),
+      program.parseAsync(['node', 'dbvault', 'doctor']),
       /process\.exit:1/
     );
 
@@ -207,7 +207,7 @@ test('3. Docker daemon stopped causes diagnostic failure with exit code 1 and ac
     registerDoctorCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'doctor']),
+      program.parseAsync(['node', 'dbvault', 'doctor']),
       /process\.exit:1/
     );
 
@@ -243,7 +243,7 @@ test('4. Docker Compose unavailable causes diagnostic failure with exit code 1',
     registerDoctorCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'doctor']),
+      program.parseAsync(['node', 'dbvault', 'doctor']),
       /process\.exit:1/
     );
 
@@ -281,7 +281,7 @@ test('5. Services unhealthy reports failing services and exits with code 1', asy
     registerDoctorCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'doctor']),
+      program.parseAsync(['node', 'dbvault', 'doctor']),
       /process\.exit:1/
     );
 
@@ -317,7 +317,7 @@ test('6. Inaccessible metadata database causes diagnostic failure with exit code
     registerDoctorCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'doctor']),
+      program.parseAsync(['node', 'dbvault', 'doctor']),
       /process\.exit:1/
     );
 
@@ -353,7 +353,7 @@ test('7. Local engine mode performs local diagnostics without requiring Docker',
     registerDoctorCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'doctor']),
+      program.parseAsync(['node', 'dbvault', 'doctor']),
       /process\.exit:0/
     );
 
@@ -376,7 +376,7 @@ test('8. Doctor NEVER calls ensureInfrastructure(), start(), or restart()', asyn
     registerDoctorCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'doctor']),
+      program.parseAsync(['node', 'dbvault', 'doctor']),
       /process\.exit:0/
     );
 
@@ -421,7 +421,7 @@ test('9. Secrets and passwords are NEVER printed in diagnostic output', async ()
     registerDoctorCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'doctor']),
+      program.parseAsync(['node', 'dbvault', 'doctor']),
       /process\.exit:1/
     );
 

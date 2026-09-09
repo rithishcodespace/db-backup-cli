@@ -15,10 +15,10 @@ if [ ! -L /root/.db-backup ] && [ ! -d /root/.db-backup ]; then
   ln -sfn /app/backups /root/.db-backup
 fi
 
-# 2. Prepare metadata storage (SQLite)
+# 2. Prepare metadata storage (SQLite) with production migrations
 DATABASE_FILE="/app/data/backup-meta.db"
-echo "[entrypoint] Syncing metadata storage schema at ${DATABASE_FILE}..."
-DATABASE_URL="file:${DATABASE_FILE}" npx prisma db push --accept-data-loss || true
+echo "[entrypoint] Applying production metadata migrations at ${DATABASE_FILE}..."
+DATABASE_URL="file:${DATABASE_FILE}" npx prisma migrate deploy
 
 # 3. Verify and set default runtime environment variables
 export NODE_ENV="${NODE_ENV:-production}"

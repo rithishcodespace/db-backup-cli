@@ -1,4 +1,4 @@
-# DB Backup CLI 🛡️
+# DBVault 🛡️
 
 <div align="center">
 
@@ -193,7 +193,7 @@ npm install -g dbvault
 dbvault --help
 ```
 
-> **Note**: The npm package is published as **`dbvault`**, and the executable CLI command registered globally is **`dbvault`** (with `db-backup` supported as an alias).
+> **Note**: The npm package is published as **`dbvault`**, and the executable CLI command registered globally is **`dbvault`**.
 
 #### From Source
 ```bash

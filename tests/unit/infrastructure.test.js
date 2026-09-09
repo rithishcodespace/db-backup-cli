@@ -576,7 +576,7 @@ test('22. --help and --version do NOT call ensureInfrastructure', async () => {
   };
 
   const program = new Command();
-  program.name('db-backup').version('1.0.0');
+  program.name('dbvault').version('1.0.0');
   program.configureOutput({
     writeOut: () => {},
     writeErr: () => {},
@@ -584,13 +584,13 @@ test('22. --help and --version do NOT call ensureInfrastructure', async () => {
   program.exitOverride();
 
   try {
-    program.parse(['node', 'db-backup', '--version']);
+    program.parse(['node', 'dbvault', '--version']);
   } catch {
     // exitOverride throws
   }
 
   try {
-    program.parse(['node', 'db-backup', '--help']);
+    program.parse(['node', 'dbvault', '--help']);
   } catch {
     // exitOverride throws
   }

@@ -125,7 +125,7 @@ test('email notification configuration is saved and verified', async () => {
 
   await program.parseAsync([
     'node',
-    'db-backup',
+    'dbvault',
     'notification',
     'email',
     'configure',
@@ -181,7 +181,7 @@ test('slack notification configuration posts to the webhook and stores credentia
 
   await program.parseAsync([
     'node',
-    'db-backup',
+    'dbvault',
     'notification',
     'slack',
     'configure',
@@ -216,7 +216,7 @@ test('schedule command validates cron expressions and sends schedule payloads', 
 
   await program.parseAsync([
     'node',
-    'db-backup',
+    'dbvault',
     'schedule',
     '--cron',
     '0 2 * * *',
@@ -238,7 +238,7 @@ test('schedule command exits when cron is missing', async () => {
     registerScheduleCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'schedule']),
+      program.parseAsync(['node', 'dbvault', 'schedule']),
       /process\.exit:1/
     );
   } finally {

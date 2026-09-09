@@ -74,7 +74,7 @@ test('config check command passes when database, storage, and identity are valid
     registerConfigCheckCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'config', 'check']),
+      program.parseAsync(['node', 'dbvault', 'config', 'check']),
       /process\.exit:0/
     );
 
@@ -98,7 +98,7 @@ test('config check command fails when client identity is missing', async () => {
     registerConfigCheckCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'config', 'check']),
+      program.parseAsync(['node', 'dbvault', 'config', 'check']),
       /process\.exit:1/
     );
 
@@ -120,7 +120,7 @@ test('config check command reports database connection failure', async () => {
     registerConfigCheckCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'config', 'check']),
+      program.parseAsync(['node', 'dbvault', 'config', 'check']),
       /process\.exit:1/
     );
 

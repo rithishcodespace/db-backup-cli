@@ -6,8 +6,7 @@
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "bin": {
-    "dbvault": "bin/dbvault.js",
-    "db-backup": "bin/dbvault.js"
+    "dbvault": "bin/dbvault.js"
   },
   "files": [
     "bin",

@@ -80,7 +80,7 @@ test('restore command completes a dry run for a local file', async () => {
 
     await program.parseAsync([
       'node',
-      'db-backup',
+      'dbvault',
       'restore',
       '--file',
       backupFile,
@@ -125,7 +125,7 @@ test('restore command verifies checksum when restoring by backup id', async () =
 
     await program.parseAsync([
       'node',
-      'db-backup',
+      'dbvault',
       'restore',
       '--id',
       'backup-1',
@@ -145,7 +145,7 @@ test('restore command exits when the backup file is missing', async () => {
     registerRestoreCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'restore', '--file', '/does/not/exist.sql']),
+      program.parseAsync(['node', 'dbvault', 'restore', '--file', '/does/not/exist.sql']),
       /process\.exit:1/
     );
   } finally {

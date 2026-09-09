@@ -119,7 +119,7 @@ export class MetadataClient {
 
   constructor(config: MetadataClientConfig = {}) {
     this.baseUrl = config.baseUrl || process.env.METADATA_SERVICE_URL || 'http://127.0.0.1:3005';
-    this.maxRetries = config.maxRetries !== undefined ? config.maxRetries : 2;
+    this.maxRetries = config.maxRetries !== undefined ? config.maxRetries : (process.env.METADATA_SERVICE_URL ? 2 : 0);
     this.retryDelayMs = config.retryDelayMs || 150;
 
     const axiosLib: any = axios;

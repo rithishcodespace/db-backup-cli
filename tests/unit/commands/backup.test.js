@@ -99,7 +99,7 @@ test('backup command sends the selected storage configuration to the gateway', a
 
   await program.parseAsync([
     'node',
-    'db-backup',
+    'dbvault',
     'backup',
     '--type',
     'full',
@@ -134,7 +134,7 @@ test('backup command exits when the requested storage location does not exist', 
     registerBackupCommand(program);
 
     await assert.rejects(
-      program.parseAsync(['node', 'db-backup', 'backup', '--storage', 'missing']),
+      program.parseAsync(['node', 'dbvault', 'backup', '--storage', 'missing']),
       /process\.exit:1/
     );
   } finally {

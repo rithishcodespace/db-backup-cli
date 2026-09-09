@@ -18,15 +18,49 @@ export function registerListCommand(program: Command): void {
     .option('--full-id', 'Show full backup IDs (default: true)', true)
     .action(async (options) => {
       try {
-        const repo = new PrismaBackupRepository();
-        const listUseCase = new ListBackupsUseCase(repo);
+        let backups: any[] = [];
+        try {
+          const repo = new PrismaBackupRepository();
+          const listUseCase = new ListBackupsUseCase(repo);
 
-        const backups = await listUseCase.execute({
-          database: options.database,
-          type: options.type,
-          limit: parseInt(options.limit, 10),
-          status: options.status,
-        });
+          backups = await listUseCase.execute({
+            database: options.database,
+            type: options.type,
+            limit: parseInt(options.limit, 10),
+            status: options.status,
+          });
+        } catch {
+          // Metadata service port 3005 is not directly exposed in Docker production mode
+        }
+
+        if (backups.length === 0) {
+          try {
+            const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:3000';
+            const res = await httpClient.get(`${gatewayUrl}/api/dashboard/backups`, {
+              params: {
+                status: options.status,
+                search: options.database,
+                limit: parseInt(options.limit, 10),
+              },
+            });
+            if (res?.data?.backups && res.data.backups.length > 0) {
+              backups = res.data.backups.map((b: any) => ({
+                id: b.id,
+                startedAt: b.startedAt,
+                backupType: b.backupType,
+                status: b.status,
+                dbType: b.dbType,
+                dbName: b.dbName,
+                fileSize: b.fileSizeBytes ?? b.fileSize,
+                duration: b.durationSeconds ?? b.duration,
+                filePath: b.filePath,
+                error: b.error,
+              }));
+            }
+          } catch {
+            // Ignore gateway connection issues if container is stopped
+          }
+        }
         
         if (backups.length === 0) {
           console.log(chalk.yellow('\n📭 No backups found'));

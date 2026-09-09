@@ -47,7 +47,21 @@ export class RestoreUseCase {
 
       // 1. Resolve Backup Record if ID is provided
       if (input.backupId) {
-        backupRecord = await this.backupRepo.findJobById(input.backupId);
+        try {
+          backupRecord = await this.backupRepo.findJobById(input.backupId);
+        } catch {
+          // Fall back to API gateway query if metadata service is internal
+          if (this.httpClient && this.gatewayUrl) {
+            try {
+              const res = await this.httpClient.get(`${this.gatewayUrl}/api/dashboard/backups`, {
+                params: { search: input.backupId },
+              });
+              backupRecord = res.data?.backups?.find((b: any) => b.id === input.backupId) || null;
+            } catch {
+              // ignore
+            }
+          }
+        }
         if (!backupRecord) {
           throw new RestoreExecutionError(`Backup with ID "${input.backupId}" not found.`);
         }
