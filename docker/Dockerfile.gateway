@@ -50,9 +50,9 @@ COPY package*.json prisma.config.ts ./
 # and potentially migrations.
 COPY prisma ./prisma/
 
-# Install all backend dependencies.
-# At this point, both production and development dependencies
-# may be installed because we need development tools to build.
+# Install build dependencies for native Node addons (better-sqlite3)
+RUN apk add --no-cache python3 make g++
+
 RUN npm ci
 
 # Copy the remaining backend source code and project files into /app.

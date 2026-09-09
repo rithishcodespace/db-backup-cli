@@ -6,6 +6,7 @@ WORKDIR /app
 # Install dependencies and Prisma engines
 COPY package*.json prisma.config.ts ./
 COPY prisma ./prisma/
+RUN apk add --no-cache python3 make g++
 RUN npm ci
 
 # Copy source and build TypeScript

@@ -86,7 +86,6 @@
     "clean": "rm -rf dist",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write \"src/**/*.ts\"",
-    "prepare": "npm run build",
     "postinstall": "prisma generate",
     "services:build": "tsc",
     "services:start": "chmod +x scripts/start-services.sh && ./scripts/start-services.sh",
