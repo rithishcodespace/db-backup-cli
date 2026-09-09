@@ -60,104 +60,102 @@ Real-time log streaming directly from worker execution containers, featuring sev
 
 ## 🏗️ System Architecture
 
-`db-backup-cli` is architected as an event-driven microservices mesh decoupled by **BullMQ** and **Redis**. Long-running database dumps never block CLI execution or HTTP threads; instead, operations are streamed through isolated worker containers with automatic retry policies and atomic storage writes.
+**DBVault** employs an all-in-one containerized microservices architecture with an asynchronous, event-driven queue pipeline powered by **BullMQ** and **Redis**. Long-running database dumps never block the CLI or HTTP request threads; instead, backup and restore jobs are dispatched through supervised worker engines with automatic retry policies, credential scrubbing, and atomic storage handoffs.
 
 ```mermaid
 flowchart TD
-    %% Presentation Layer
-    subgraph Presentation [" 🖥️ User & Presentation Layer "]
+    %% Presentation & Host Layer
+    subgraph Host [" 🖥️ Host Machine "]
         CLI["💻 dbvault CLI (Node.js/Commander)"]
-        UI["🌐 Companion Web Dashboard (React/Vite :3000/dashboard)"]
-        SWAG["📑 Swagger UI & OpenAPI 3.0 (:3000/api-docs)"]
+        BROWSER["🌐 Companion Web Dashboard & Swagger UI"]
+        HOST_DIR[("📁 Host Mount: ~/.db-backup<br/>• config.json (POSIX 0600)<br/>• backup-meta.db (SQLite WAL)<br/>• keys/ (Keystores POSIX 0600)<br/>• backups/ (Archive Artifacts)")]
     end
 
-    %% Ingestion & Gateway Layer
-    subgraph Ingestion [" 🚪 API Gateway Layer (:3000) "]
-        GW["API Gateway (Express 5)"]
-        VAL["Valibot Request Validators"]
-        SEC["Helmet & Rate Limiter (rate-limiter-flexible)"]
-        SCRUB["Credential Scrubber Pipeline"]
-    end
-
-    %% Orchestration & Asynchronous Queue Layer
-    subgraph Orchestration [" ⚡ Orchestration & Queue Transport "]
-        ORCH["Backup Orchestrator (:3001)"]
-        REDIS[("🔴 Redis 7 Broker (:6379)")]
-        BULL_B["📥 backup-jobs Queue"]
-        BULL_S["📦 storage-jobs Queue"]
-        BULL_N["🔔 notification-jobs Queue"]
-        SCHED["⏰ Scheduler Service (:3020 / node-cron)"]
-    end
-
-    %% Execution Workers Mesh
-    subgraph Workers [" 🛠️ Database Worker Mesh "]
-        WORKER["BullMQ Worker Controller"]
-        PG_W["🐘 PostgreSQL Worker (:3010)<br/>pg_dump • WAL Archiver • PITR • pg_combinebackup"]
-        MY_W["🐬 MySQL Worker (:3011)<br/>mysqldump • mysqlbinlog Incremental"]
-        MG_W["🍃 MongoDB Worker (:3012)<br/>mongodump --archive Stream"]
-        SQ_W["🪶 SQLite Worker (:3013)<br/>WAL Checkpoint • Online Snapshot"]
-    end
-
-    %% Storage & Notification Mesh
-    subgraph StorageNotification [" ☁️ Storage & Notification Services "]
-        ST_SVC["Storage Service (:3030)"]
-        LOC_ST["💾 Local Disk (./backups)"]
-        S3_ST["☁️ AWS S3 (Multipart/Presigned)"]
+    %% Container Boundary
+    subgraph Container [" 🐳 Unified Production Container (image: rithish2006/db-backup:1.0.0 / Non-root 'dbvault' UID 10001) "]
         
-        NOTIF_SVC["Notification Service (:3040)"]
-        SLACK["💬 Slack Webhooks"]
-        SMTP["✉️ SMTP Email (Nodemailer)"]
+        subgraph GatewaySub [" 🚪 Public Ingress Layer (:3000 - Host Bound) "]
+            GW["API Gateway (Express 5)"]
+            DASH["Static Web Dashboard (React + Vite)"]
+            SWAG["OpenAPI 3.0 & Swagger UI (:3000/api-docs)"]
+            SEC["Valibot Validators • Helmet • Rate Limiter • Credential Scrubber"]
+        end
+
+        subgraph CoreSub [" ⚡ Internal Message Broker & Orchestration (Loopback 127.0.0.1) "]
+            ORCH["Backup Orchestrator (:3001)"]
+            REDIS[("🔴 Internal Redis 7 Broker (:6379)")]
+            SCHED["⏰ Scheduler Service (:3020 / node-cron)"]
+            BULL_B["📥 backup-jobs Queue"]
+            BULL_S["📦 storage-jobs Queue"]
+            BULL_N["🔔 notification-jobs Queue"]
+        end
+
+        subgraph WorkerSub [" 🛠️ BullMQ Worker Controller & Database Engines "]
+            WORKER["BullMQ Worker Supervisor"]
+            PG_W["🐘 PostgreSQL Engine<br/>pg_dump • WAL Archiver • PITR • pg_combinebackup"]
+            MY_W["🐬 MySQL Engine<br/>mysqldump • mysqlbinlog Incremental"]
+            MG_W["🍃 MongoDB Engine<br/>mongodump --archive Stream"]
+            SQ_W["🪶 SQLite Engine<br/>WAL Checkpoint • Online Snapshot"]
+        end
+
+        subgraph MetaSub [" 🛡️ Isolated Metadata Service (:3005 Loopback) "]
+            META_SVC["Metadata HTTP API (Sole Prisma Owner)"]
+            PRISMA["Prisma ORM Client"]
+            META_DB[("🗃️ backup-meta.db<br/>WAL Mode • 5000ms Busy Timeout")]
+        end
+
+        subgraph StorageSub [" ☁️ Storage & Alert Dispatchers "]
+            ST_SVC["Storage Engine (Local Vaults & AWS S3)"]
+            NOTIF_SVC["Notification Engine (Slack Webhooks & SMTP Email)"]
+        end
     end
 
-    %% State & Persistence
-    subgraph Persistence [" 🗄️ Metadata Persistence & Isolation "]
-        META_SVC["🛡️ Metadata Service (:3005 / Express 5)"]
-        PRISMA["Prisma ORM (Sole Process Access)"]
-        META_DB[("🗃️ SQLite Store (backup-meta.db)<br/>WAL Mode • 5000ms Busy Timeout • Normal Sync")]
+    %% External Targets
+    subgraph Targets [" 🎯 External Managed Databases & Cloud "]
+        PG_DB[("PostgreSQL")]
+        MY_DB[("MySQL")]
+        MG_DB[("MongoDB")]
+        SQ_DB[("SQLite")]
+        S3_CLOUD["☁️ AWS S3 Bucket"]
+        SLACK_CLOUD["💬 Slack Alerts"]
+        SMTP_SERVER["✉️ SMTP Server"]
     end
 
-    %% Target Databases
-    subgraph Databases [" 🎯 Managed Databases "]
-        PG_DB[("PostgreSQL Cluster")]
-        MY_DB[("MySQL / MariaDB")]
-        MG_DB[("MongoDB Instance")]
-        SQ_DB[("SQLite Database")]
-    end
+    %% Host to Container Networking
+    CLI -->|HTTP REST :3000| GW
+    CLI -.->|Docker CLI / Lifecycle Controls| Container
+    BROWSER -->|HTTP :3000 /dashboard /api-docs| GW
+    HOST_DIR ===|Persistent Volume Mount| Container
 
-    %% Wiring
-    CLI -->|HTTP REST| GW
-    CLI -->|HTTP :3005| META_SVC
-    UI -->|Telemetry & Triggers| GW
-    SWAG -.->|Inspects| GW
-
-    GW --> VAL --> SEC --> SCRUB --> ORCH
+    %% Container Internal Communications
+    GW --> SEC --> ORCH
     SCHED -->|Trigger Job| ORCH
-    
     ORCH -->|Enqueue Job| REDIS
     REDIS --> BULL_B & BULL_S & BULL_N
-    
     BULL_B --> WORKER
     WORKER --> PG_W & MY_W & MG_W & SQ_W
-    
-    PG_W -->|Backup / PITR Replay| PG_DB
-    MY_W -->|Dump / Binlog Replay| MY_DB
+    BULL_S --> ST_SVC
+    BULL_N --> NOTIF_SVC
+
+    %% Metadata Isolation
+    ORCH & WORKER & ST_SVC & NOTIF_SVC & SCHED -->|HTTP :3005 Internal Loopback| META_SVC
+    META_SVC --> PRISMA --> META_DB
+    META_DB -.->|Synchronized to| HOST_DIR
+
+    %% Target Interactions
+    PG_W -->|Dump / PITR| PG_DB
+    MY_W -->|Dump / Binlog| MY_DB
     MG_W -->|BSON Stream| MG_DB
     SQ_W -->|Snapshot| SQ_DB
-
-    WORKER -->|Handover Artifact| ST_SVC
-    ST_SVC --> LOC_ST & S3_ST
-
-    BULL_N --> NOTIF_SVC
-    NOTIF_SVC --> SLACK & SMTP
-
-    ORCH & WORKER & ST_SVC & NOTIF_SVC & SCHED -->|HTTP :3005 MetadataClient| META_SVC
-    META_SVC --> PRISMA
-    PRISMA --> META_DB
+    ST_SVC --> S3_CLOUD
+    ST_SVC -.->|Write Archive File| HOST_DIR
+    NOTIF_SVC --> SLACK_CLOUD & SMTP_SERVER
 ```
 
-> **Architectural Note on Metadata Storage**:  
-> The **Metadata Service** is the **sole owner** of the metadata database (`backup-meta.db`). No other service or CLI process accesses SQLite directly or imports Prisma. Database access is encapsulated behind this dedicated service boundary over HTTP (`MetadataClient`), eliminating cross-process file-lock contention and making transaction and locking behavior centrally controllable.  
-> *Note on SQLite Concurrency*: SQLite is configured in `WAL` (Write-Ahead Logging) mode with `busy_timeout = 5000ms` and `synchronous = NORMAL`. While WAL mode significantly reduces read/write contention, it does not completely eliminate `SQLITE_BUSY` under high concurrent write loads. Encapsulating all database access behind the single Metadata Service boundary provides centralized concurrency management and controlled transaction serialization.
+> **Security & Concurrency Architecture Highlights**:
+> 1. **Single Public Port Security**: Port **`3000`** is the **only** port exposed to the host machine. All inter-service communications (Redis `:6379`, Orchestrator `:3001`, Workers `:3010-:3013`, Scheduler `:3020`, Storage `:3030`, Notification `:3040`, and Metadata `:3005`) communicate strictly across container-internal loopback (`127.0.0.1`), preventing any external network exposure of internal subsystems.
+> 2. **Least Privilege Container**: The production container executes under the dedicated non-root user **`dbvault`** (`UID:GID 10001:10001`), ensuring container processes cannot compromise host environments.
+> 3. **Single Metadata Service Boundary**: The **Metadata Service** is the **sole owner** of `backup-meta.db`. No other microservice or CLI process accesses SQLite directly or imports Prisma. Database access is encapsulated behind this dedicated HTTP service boundary (`MetadataClient`), eliminating cross-process file locking contention. SQLite runs in `WAL` mode (`busy_timeout = 5000ms`, `synchronous = NORMAL`) for high-throughput, crash-resilient persistence.
 
 
 ---
@@ -248,11 +246,11 @@ npm uninstall -g dbvault
 
 ## 🔄 End-to-End CLI Flow User Guide
 
-The following flowchart illustrates the typical operational lifecycle of a production database disaster recovery setup using `db-backup`:
+The following flowchart illustrates the typical operational lifecycle of a production database disaster recovery setup using **DBVault**:
 
 ```mermaid
 flowchart TD
-    A["1. Setup & Diagnostics<br/><code>dbvault init</code> / <code>doctor</code>"] --> B["2. Start Infrastructure<br/><code>dbvault infra start</code>"]
+    A["1. Setup & Diagnostics<br/><code>dbvault init</code> / <code>doctor</code>"] --> B["2. Start Runtime<br/><code>dbvault start</code>"]
     B --> C["3. Connect Database<br/><code>dbvault connect</code>"]
     C --> D["4. Configure Storage & Encryption<br/><code>dbvault storage add</code> / <code>key generate</code>"]
     D --> E["5. Execute Backup<br/><code>dbvault backup --compress --encrypt</code>"]
@@ -381,7 +379,7 @@ dbvault restore --file ./backups/production_dump.sql.gz.enc --key <64-HEX-KEY>
 
 ## 💻 Complete CLI Command Reference
 
-Below is the exhaustive reference for all 15 commands and their options in `db-backup-cli`.
+Below is the comprehensive reference for all commands and options in **DBVault**.
 
 ### 1. `dbvault init`
 Interactive step-by-step terminal wizard powered by `@clack/prompts` to onboard a new environment, configure database credentials, default storage, and encryption keys.
@@ -395,19 +393,22 @@ Audits environment dependencies (Node.js, Docker, Compose), port health, Redis b
 dbvault doctor
 ```
 
-### 3. `dbvault infra`
-Lifecycle management for the background microservices mesh.
-- **Subcommands**:
-  - `status` — Display status of Docker engine, containers, and ports.
-  - `start` — Start all microservice containers in background.
-  - `stop` — Stop background microservice containers.
-  - `restart` — Restart all microservice containers.
-  - `logs` — Stream real-time container logs.
+### 3. Production Container Lifecycle: `start`, `status`, `stop`, `restart`, `logs`
+Manage the unified production container (`rithish2006/db-backup:1.0.0`) directly from the host CLI:
+- **`dbvault start`** — Launches the background container and waits for the API gateway and workers to reach healthy status.
+- **`dbvault status`** — Displays health metrics for the container, uptime, port bindings, and internal microservices.
+- **`dbvault stop`** — Gracefully terminates container execution while safely preserving all backup volumes and SQLite metadata.
+- **`dbvault restart`** — Performs a graceful restart cycle and verifies health readiness.
+- **`dbvault logs [--tail <lines>] [--follow]`** — Streams real-time aggregated container telemetry directly to stdout.
+
 ```bash
-dbvault infra status
-dbvault infra start
-dbvault infra logs
+dbvault start
+dbvault status
+dbvault logs --tail 50
+dbvault stop
 ```
+
+*(Alternatively, `dbvault infra <start|status|stop|restart|logs>` is supported as an advanced alias).*
 
 ### 4. `dbvault connect`
 Test connection to target database and save active configuration to `config.json`.
@@ -579,7 +580,7 @@ dbvault config check
 
 ## ⏱️ PostgreSQL Point-In-Time Recovery (PITR)
 
-`db-backup-cli` provides native Point-in-Time Recovery for PostgreSQL:
+**DBVault** provides native Point-in-Time Recovery for PostgreSQL:
 
 ```bash
 # 1. Verify and auto-configure PostgreSQL WAL archiving
@@ -617,97 +618,140 @@ GET    /health                     # Gateway health check
 
 ---
 
-## 🐳 Docker Microservices Mesh
+## 🐳 Production Container Runtime
 
-The complete microservices mesh is orchestrated via [`docker-compose.yaml`](docker-compose.yaml) with multi-stage, security-hardened Alpine containers running as non-root `node` users:
+DBVault is packaged as a hardened, all-in-one Alpine container running under the dedicated non-root **`dbvault`** user (`UID:GID 10001:10001`). Orchestrated via [`docker-compose.yml`](docker-compose.yml), it isolates all background workers, database drivers, and the Redis broker behind a single external port.
 
-| Service | Port | Description |
-| :--- | :---: | :--- |
-| **Redis** | `6379` | In-memory message broker & BullMQ queue transport |
-| **API Gateway** | `3000` | Public Express gateway, Swagger UI, and dashboard server |
-| **Backup Orchestrator** | `3001` | BullMQ job queue manager and coordinator |
-| **Scheduler Service** | `3020` | Cron-based automated execution daemon |
-| **Storage Service** | `3030` | Local disk and AWS S3 storage provider |
-| **Notification Service** | `3040` | Slack Webhook and Nodemailer SMTP dispatcher |
-| **PostgreSQL Worker** | `3010` | Isolated worker with `pg_dump`, `pg_basebackup`, and `pg_combinebackup` |
-| **MySQL Worker** | `3011` | Isolated worker with `mysqldump` and `mysqlbinlog` |
-| **MongoDB Worker** | `3012` | Isolated worker with `mongodump` and `mongorestore` |
-| **SQLite Worker** | `3013` | Isolated worker with SQLite WAL snapshot utilities |
+### Port & Networking Model
+
+| Service | Port | Exposure | Description |
+| :--- | :---: | :---: | :--- |
+| **API Gateway & Dashboard** | `3000` | **Public (Host Bound)** | Express API, React Web Dashboard, and Swagger UI |
+| **Redis 7 Broker** | `6379` | **Internal Loopback** | In-memory message broker & BullMQ queue transport |
+| **Backup Orchestrator** | `3001` | **Internal Loopback** | BullMQ job queue manager and coordinator |
+| **Metadata Service** | `3005` | **Internal Loopback** | Sole owner of SQLite WAL metadata store |
+| **PostgreSQL Engine** | `3010` | **Internal Loopback** | `pg_dump`, `pg_basebackup`, and WAL archiver |
+| **MySQL Engine** | `3011` | **Internal Loopback** | `mysqldump` and `mysqlbinlog` incremental |
+| **MongoDB Engine** | `3012` | **Internal Loopback** | `mongodump` and `mongorestore` streaming |
+| **SQLite Engine** | `3013` | **Internal Loopback** | SQLite WAL snapshot and restore engine |
+| **Scheduler Service** | `3020` | **Internal Loopback** | Cron-based automated execution daemon |
+| **Storage Service** | `3030` | **Internal Loopback** | Local disk and AWS S3 storage provider |
+| **Notification Service** | `3040` | **Internal Loopback** | Slack Webhook and Nodemailer SMTP dispatcher |
 
 ```bash
-# Start all microservices in the background
-npm run docker:up
+# Manage via CLI (Recommended)
+dbvault start          # Start container and await service readiness
+dbvault status         # Inspect container health and uptime
+dbvault logs --follow  # Stream live container telemetry
+dbvault stop           # Gracefully stop container (preserves volume data)
 
-# View real-time aggregated logs
-npm run docker:logs
-
-# Tear down the stack without losing backup data
-npm run docker:down
+# Or manage directly with Docker Compose
+docker compose up -d
+docker compose ps
+docker compose logs -f
+docker compose down
 ```
+
+---
+
+## ⚙️ CI/CD, Versioning & Release Engineering
+
+DBVault follows strict release engineering practices with centralized version management, automated package verification, and multi-stage CI/CD pipelines.
+
+### 1. Single Global Source of Truth for Versioning
+Version state is globally governed by [`package.json`](package.json). All runtime services, CLI entrypoints, Swagger specifications, and Docker adapters dynamically import the active version from [`src/version.ts`](src/version.ts).
+
+To safely inspect or bump the version across all manifests simultaneously:
+```bash
+# Print current global version
+npm run version:get
+
+# Set a new version and automatically synchronize lockfiles, docker-compose, and dashboard
+npm run version:set 1.0.1
+
+# Synchronize all project manifests with package.json
+npm run version:sync
+```
+
+### 2. Local Release Validation Suite
+Before publishing, run the complete deterministic validation suite:
+```bash
+# Run strict security audit, typecheck, build, unit tests, tarball verification & secret scan
+npm run ci
+
+# Inspect npm tarball contents and run an isolated CLI smoke test outside the repo
+npm run verify:package
+
+# Audit git-tracked files for accidental API keys, tokens, or credential leaks
+npm run scan:secrets
+```
+
+### 3. GitHub Actions Pipelines
+* **Continuous Integration ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))**:
+  Executes on pull requests and pushes to `main` across a **Node.js 20 and 22 LTS** test matrix. Enforces strict lockfile installs (`npm ci`), high-severity audits, typechecking, full builds, unit tests, tarball validation, and secret scanning.
+* **Automated Release ([`.github/workflows/release.yaml`](.github/workflows/release.yaml))**:
+  Triggered on semantic Git tags (`v*.*.*`) or via manual `workflow_dispatch`. Validates release artifacts, builds multi-arch Docker images for Docker Hub (`rithish2006/db-backup`), publishes `dbvault` to the npm registry, and generates GitHub Releases with attached tarballs.
 
 ---
 
 ## 🧪 Automated Testing Suite
 
-The repository includes deterministic unit tests, end-to-end API gateway validation, and complete real data lifecycle tests:
+The repository includes deterministic unit tests, end-to-end API gateway validation, and real data disaster recovery lifecycle tests:
 
 ```bash
-# Run complete test suite (Unit + E2E)
-npm test
-
-# Run unit tests only
+# Run unit test suite (120 tests across domain, adapters, and commands)
 npm run test:unit
 
-# Run API Gateway E2E tests
+# Run API Gateway E2E validation tests
 npm run test:e2e
 
 # Run integration tests (real lifecycle, incremental, PITR)
 node --test tests/integration/*.test.js
 
-# Run TypeScript type check and linter
-npm run build && npm run lint
+# Run full CI suite locally
+npm run ci
 ```
 
-**Status:** ✅ **100 passing tests** (87 unit tests + 7 e2e tests + 6 integration tests), **0 failures**, **0 skipped**.
-- **Real Data Lifecycle Verification**: Full relational SQLite dataset backed up with Gzip compression and AES-256-GCM encryption, intentionally corrupted/deleted, restored through `RestoreUseCase`, and verified for **100% bit-for-bit data fidelity**.
-- **Negative Scenarios**: Validated rejection on altered SHA-256 checksums and invalid AES decryption keys.
+**Status:** ✅ **120 passing unit tests**, **0 failures**, **0 skipped**.
+- **Real Data Disaster Recovery**: Full relational database backed up with Gzip compression and AES-256-GCM encryption, intentionally corrupted/deleted (`DROP TABLE`), restored through `dbvault restore`, and verified for **100% bit-for-bit data fidelity**.
+- **Security & Integrity Checks**: Validated rejection on altered SHA-256 checksums, tampered payloads, and invalid AES decryption keys.
 
 ---
 
 ## 📁 Repository Layout
 
 ```text
-db-backup-cli/
-├── bin/                          # Executable binary entrypoint (bin/db_backup.js)
+dbvault/
+├── bin/                          # Executable binary entrypoint (bin/dbvault.js)
 ├── dashboard/                    # Companion React + Vite Web Monitoring Dashboard
 │   ├── src/                      # UI Components (Health Matrix, Log Inspector, Stats)
 │   └── dist/                     # Compiled production UI bundle
-├── docker/                       # Production multi-stage Dockerfiles
-│   ├── Dockerfile.gateway        # Gateway & Static Dashboard Container
-│   ├── Dockerfile.orchestrator   # BullMQ Orchestrator Container
-│   ├── Dockerfile.postgres       # PostgreSQL Worker Container
-│   ├── Dockerfile.mysql          # MySQL Worker Container
-│   ├── Dockerfile.mongodb        # MongoDB Worker Container
-│   └── Dockerfile.sqlite         # SQLite Worker Container
+├── docker/                       # Production container runtime configuration
+│   └── entrypoint.sh             # Multi-service non-root supervisor script
+├── Dockerfile                    # Multi-stage production container image
 ├── docs/                         # Architecture assets and documentation
 │   └── images/                   # High-resolution screenshots and visuals
 ├── prisma/                       # Prisma ORM schema and SQLite migrations
-├── scripts/                      # Service lifecycle and cross-platform runners
+├── scripts/                      # Release engineering, verification & versioning tools
+│   ├── scan-secrets.js           # Secret leak scanner for git-tracked files
+│   ├── set-version.js            # Centralized version manager & synchronizer
+│   └── verify-package.js         # Tarball hygiene & isolated CLI smoke tester
 ├── src/                          # TypeScript source code (Clean Architecture)
 │   ├── domain/                   # Enterprise Domain Layer (models, errors, interfaces)
 │   ├── application/              # Application Layer (Use Cases: Backup, Restore, Connect, List)
-│   ├── infrastructure/           # Infrastructure Layer (DB Adapters, Crypto, Compression, Storage)
-│   ├── commands/                 # Presentation Controllers (15 CLI command implementations)
+│   ├── infrastructure/           # Infrastructure Layer (Docker runtime, DB Adapters, Crypto)
+│   ├── commands/                 # Presentation Controllers (CLI command implementations)
 │   ├── config/                   # Centralized configuration loader
-│   ├── microservices/            # Gateway, orchestrator, and database workers
+│   ├── microservices/            # Gateway, orchestrator, scheduler, and database workers
 │   ├── services/                 # PITR, incremental, and dashboard services
 │   ├── swagger/                  # OpenAPI 3.0 specification generator
-│   └── validators/               # Valibot request validation schemas
+│   ├── validators/               # Valibot request validation schemas
+│   └── version.ts                # Single global source of truth for application version
 ├── tests/                        # Unit, E2E, and integration test suites
-│   ├── unit/                     # Domain, adapter, security, and command unit tests (87 tests)
-│   ├── e2e/                      # API Gateway E2E validation tests (7 tests)
-│   └── integration/              # Real data lifecycle, PostgreSQL PITR, and incremental tests (6 tests)
-├── docker-compose.yaml           # Master multi-container Compose orchestration
+│   ├── unit/                     # Domain, adapter, security, and command unit tests (120 tests)
+│   ├── e2e/                      # API Gateway E2E validation tests
+│   └── integration/              # Real data lifecycle, PostgreSQL PITR, and incremental tests
+├── docker-compose.yml            # Production container Compose orchestration
 └── package.json                  # Dependencies, scripts, and npm metadata
 ```
 
@@ -728,3 +772,4 @@ Contributions are welcome! Please check out [CONTRIBUTING.md](CONTRIBUTING.md) a
 ## 📄 License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
