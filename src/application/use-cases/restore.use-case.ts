@@ -41,6 +41,10 @@ export class RestoreUseCase {
       throw new RestoreExecutionError('Either --id <backupId> or direct file path is required for restore.');
     }
 
+    if (input.filePath && !existsSync(input.filePath)) {
+      throw new RestoreExecutionError(`Backup file not found at path: ${input.filePath}`);
+    }
+
     try {
       let backupRecord: any = null;
       let workingFilePath: string = input.filePath || '';
@@ -65,7 +69,78 @@ export class RestoreUseCase {
         if (!backupRecord) {
           throw new RestoreExecutionError(`Backup with ID "${input.backupId}" not found.`);
         }
+      }
 
+      // When running via Gateway (CLI mode), delegate real restore execution to asynchronous queue worker
+      if (!input.dryRun && typeof this.httpClient?.post === 'function' && this.gatewayUrl) {
+        const activeDbConfig = this.configStore.get('database');
+        if (!activeDbConfig) {
+          throw new ConfigurationError('No active database configuration found. Please run connect first.');
+        }
+
+        const targetDbConfig = {
+          ...activeDbConfig,
+          database: input.database || activeDbConfig.database,
+        };
+
+        const dbType = backupRecord?.dbType || targetDbConfig.type;
+
+        log.info('Dispatching restore request to API gateway', {
+          gatewayUrl: this.gatewayUrl,
+          backupId: input.backupId,
+          filePath: input.filePath,
+          dbType,
+        });
+
+        const restoreResponse = await this.httpClient.post(`${this.gatewayUrl}/api/restore`, {
+          dbConfig: targetDbConfig,
+          backupId: input.backupId,
+          filePath: input.filePath,
+          options: {
+            clean: input.clean !== false,
+            ifExists: input.ifExists !== false,
+            dryRun: false,
+            key: input.key,
+            skipChecksum: input.skipChecksum,
+            tables: input.tables,
+          },
+        });
+
+        if (!restoreResponse.data || !restoreResponse.data.success) {
+          throw new RestoreExecutionError(restoreResponse.data?.error || 'Restore request rejected by gateway');
+        }
+
+        const restoreId = restoreResponse.data.restoreId;
+        let jobData = restoreResponse.data;
+
+        // Poll restore status until finished
+        const maxAttempts = 120;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          try {
+            const statusRes = await this.httpClient.get(`${this.gatewayUrl}/api/restore/${encodeURIComponent(restoreId)}/status`);
+            if (statusRes.data && statusRes.data.status && !['waiting', 'active', 'delayed', 'queued'].includes(statusRes.data.status)) {
+              jobData = statusRes.data;
+              break;
+            }
+          } catch {
+            // Ignore transient status polling errors
+          }
+        }
+
+        if (jobData.status === 'failed' || jobData.error) {
+          throw new RestoreExecutionError(jobData.error || 'Restore job failed during queue execution');
+        }
+
+        return {
+          success: true,
+          backupId: input.backupId,
+          message: jobData.message || 'Database restore completed successfully via queue worker.',
+          duration: (Date.now() - startTime) / 1000,
+        };
+      }
+
+      if (input.backupId) {
         // 2. Download from S3 if needed
         if (backupRecord.storageType === 's3' || backupRecord.storageLocation?.type === 's3') {
           const storageLocation = backupRecord.storageLocation;
@@ -91,9 +166,21 @@ export class RestoreUseCase {
           // Local storage resolution
           if (!workingFilePath) {
             workingFilePath = backupRecord.filePath || '';
-            if (!workingFilePath && backupRecord.fileName) {
-              const localBase = this.configStore.get('storage.localPath') || './backups/local';
-              workingFilePath = path.join(localBase, backupRecord.fileName);
+            if (!existsSync(workingFilePath)) {
+              const localBase = this.configStore.get('storage.localPath') || path.join(os.homedir(), '.db-backup', 'backups');
+              if (backupRecord.fileName) {
+                const candidate = path.join(localBase, backupRecord.fileName);
+                if (existsSync(candidate)) {
+                  workingFilePath = candidate;
+                }
+              }
+              if ((!workingFilePath || !existsSync(workingFilePath)) && backupRecord.filePath?.startsWith('/app/backups')) {
+                const rel = path.relative('/app/backups', backupRecord.filePath);
+                const hostCandidate = path.join(os.homedir(), '.db-backup', rel);
+                if (existsSync(hostCandidate)) {
+                  workingFilePath = hostCandidate;
+                }
+              }
             }
           }
         }
@@ -182,63 +269,6 @@ export class RestoreUseCase {
       };
 
       const dbType = backupRecord?.dbType || targetDbConfig.type;
-
-      // When running via Gateway (CLI mode), delegate execution to asynchronous queue worker
-      if (this.httpClient && this.gatewayUrl) {
-        log.info('Dispatching restore request to API gateway', {
-          gatewayUrl: this.gatewayUrl,
-          backupId: input.backupId,
-          filePath: workingFilePath,
-          dbType,
-        });
-
-        const restoreResponse = await this.httpClient.post(`${this.gatewayUrl}/api/restore`, {
-          dbConfig: targetDbConfig,
-          backupId: input.backupId,
-          filePath: workingFilePath,
-          options: {
-            clean: input.clean !== false,
-            ifExists: input.ifExists !== false,
-            dryRun: false,
-            key: input.key,
-            skipChecksum: input.skipChecksum,
-            tables: input.tables,
-          },
-        });
-
-        if (!restoreResponse.data || !restoreResponse.data.success) {
-          throw new RestoreExecutionError(restoreResponse.data?.error || 'Restore request rejected by gateway');
-        }
-
-        const restoreId = restoreResponse.data.restoreId;
-        let jobData = restoreResponse.data;
-
-        // Poll restore status until finished
-        const maxAttempts = 120;
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-          await new Promise((r) => setTimeout(r, 1000));
-          try {
-            const statusRes = await this.httpClient.get(`${this.gatewayUrl}/api/restore/${encodeURIComponent(restoreId)}/status`);
-            if (statusRes.data && statusRes.data.status && !['waiting', 'active', 'delayed', 'queued'].includes(statusRes.data.status)) {
-              jobData = statusRes.data;
-              break;
-            }
-          } catch {
-            // Ignore transient status polling errors
-          }
-        }
-
-        if (jobData.status === 'failed' || jobData.error) {
-          throw new RestoreExecutionError(jobData.error || 'Restore job failed during queue execution');
-        }
-
-        return {
-          success: true,
-          backupId: input.backupId,
-          message: 'Database restore completed successfully via queue worker.',
-          duration: (Date.now() - startTime) / 1000,
-        };
-      }
 
       const adapter = this.adapterFactory.getAdapter(dbType);
 

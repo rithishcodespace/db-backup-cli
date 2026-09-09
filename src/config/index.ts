@@ -3,8 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
-// Load environment variables
-dotenv.config();
+// Load environment variables quietly
+dotenv.config({ quiet: true });
 
 export interface DatabaseConfig {
   type: 'postgresql' | 'mysql' | 'mongodb' | 'sqlite';
@@ -60,10 +60,8 @@ class ConfigManager {
       this.configPath = process.env.CONFIG_PATH;
     } else if (fs.existsSync(localConfig)) {
       this.configPath = localConfig;
-    } else if (fs.existsSync(globalConfig)) {
-      this.configPath = globalConfig;
     } else {
-      this.configPath = localConfig;
+      this.configPath = globalConfig;
     }
 
     this.config = this.loadConfig();
@@ -77,7 +75,6 @@ class ConfigManager {
       try {
         const fileContent = fs.readFileSync(this.configPath, 'utf-8');
         customConfig = JSON.parse(fileContent);
-        console.log(`Loaded configuration from ${this.configPath}`);
       } catch (error) {
         console.warn(`Failed to load config from ${this.configPath}:`, error);
       }
@@ -88,7 +85,7 @@ class ConfigManager {
     const candidatePaths = [
       path.resolve(__dirname, '../../package.json'),
       path.resolve(__dirname, '../../../package.json'),
-      path.resolve(process.cwd(), 'package.json'),
+      path.resolve(__dirname, '../../../../package.json'),
     ];
     for (const p of candidatePaths) {
       if (fs.existsSync(p)) {
@@ -108,14 +105,14 @@ class ConfigManager {
       env: process.env.NODE_ENV || 'development',
       version: version,
       storage: {
-        localPath: process.env.BACKUP_PATH || './backups/local',
-        tempPath: process.env.TEMP_PATH || './tmp',
+        localPath: process.env.BACKUP_PATH || path.join(os.homedir(), '.db-backup', 'backups'),
+        tempPath: process.env.TEMP_PATH || path.join(os.homedir(), '.db-backup', 'tmp'),
         retention: parseInt(process.env.BACKUP_RETENTION_DAYS || '30'),
         maxBackupSize: process.env.MAX_BACKUP_sIZE || '50GB'
       },
       logging: {
         level: process.env.LOG_LEVEL || 'info',
-        path: process.env.LOG_PATH || './logs',
+        path: process.env.LOG_PATH || path.join(os.homedir(), '.db-backup', 'logs'),
         maxFiles: parseInt(process.env.LOG_MAX_FILES || '30'),
         maxSize: process.env.LOG_MAX_SIZE || '20m',
       },
@@ -131,11 +128,23 @@ class ConfigManager {
   }
 
   private mergeConfig(defaultConfig: AppConfig, customConfig: any): AppConfig {
+    const isDocker = fs.existsSync('/.dockerenv') || process.env.DOCKER_CONTAINER === 'true';
+    const mergedStorage = { ...defaultConfig.storage, ...(customConfig.storage || {}) };
+    const mergedLogging = { ...defaultConfig.logging, ...(customConfig.logging || {}) };
+
+    if (isDocker) {
+      mergedStorage.localPath = process.env.BACKUP_PATH
+        ? path.join(process.env.BACKUP_PATH, 'backups')
+        : '/app/backups/backups';
+      mergedStorage.tempPath = '/app/tmp';
+      mergedLogging.path = '/app/logs';
+    }
+
     return {
       ...defaultConfig,
       ...customConfig,
-      storage: { ...defaultConfig.storage, ...(customConfig.storage || {}) },
-      logging: { ...defaultConfig.logging, ...(customConfig.logging || {}) },
+      storage: mergedStorage,
+      logging: mergedLogging,
       database: customConfig.database || defaultConfig.database,
     };
   }
@@ -180,7 +189,7 @@ class ConfigManager {
     }
   }
 
-  private ensureDirectories(): void {
+  ensureDirectories(): void {
     // Ensure required directories exist
     const dirs = [
       this.config.storage.localPath,
@@ -189,9 +198,8 @@ class ConfigManager {
     ];
 
     dirs.forEach(dir => {
-      if (!fs.existsSync(dir)) {
+      if (dir && !fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-        console.log(`Created directory: ${dir}`);
       }
     });
   }

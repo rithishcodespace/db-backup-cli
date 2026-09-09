@@ -16,7 +16,14 @@ const consoleFormat = winston.format.combine(
   winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
   winston.format.printf(({ timestamp, level, message, module, ...meta }) => {
     const moduleStr = module ? `[${module}] ` : '';
-    const metaStr = Object.keys(meta).length ? `\n${JSON.stringify(meta, null, 2)}` : '';
+    let metaStr = '';
+    if (Object.keys(meta).length) {
+      try {
+        metaStr = `\n${JSON.stringify(meta, null, 2)}`;
+      } catch {
+        metaStr = `\n[Circular/Complex Metadata]`;
+      }
+    }
     return `${timestamp} ${level}: ${moduleStr}${message}${metaStr}`;
   })
 );

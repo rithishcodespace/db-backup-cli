@@ -12,9 +12,10 @@ import { config as appConfig } from '../../../config';
 import { S3StorageProvider } from '../../storage-service/providers/s3';
 import { LocalStorageProvider } from '../../storage-service/providers/local';
 import path from 'path';
+import fs from 'fs';
 import { PostgresIncrementalService } from '../../../services/postgres-incremental.service';
 import { validateBody, BackupRequestSchema } from '../../shared/validators';
-import { resolveDatabaseHost } from '../../shared/utils/service-utils';
+import { resolveDatabaseHost, resolveContainerStoragePath } from '../../shared/utils/service-utils';
 
 const log = createModuleLogger('postgres-backup-service');
 
@@ -163,7 +164,20 @@ async function performRestore(
     const password = dbConfig.password || process.env.POSTGRES_PASSWORD || '';
     const database = dbConfig.database;
 
-    const isCustomDump = backupFilePath.endsWith('.dump') || backupFilePath.endsWith('.custom');
+    let isCustomDump = backupFilePath.endsWith('.dump') || backupFilePath.endsWith('.custom');
+    if (!isCustomDump && fs.existsSync(backupFilePath)) {
+        try {
+            const fd = fs.openSync(backupFilePath, 'r');
+            const buffer = Buffer.alloc(5);
+            fs.readSync(fd, buffer, 0, 5, 0);
+            fs.closeSync(fd);
+            if (buffer.toString('utf8') === 'PGDMP') {
+                isCustomDump = true;
+            }
+        } catch {
+            // fallback
+        }
+    }
     const env = { ...process.env, PGPASSWORD: String(password) };
 
     if (isCustomDump) {
@@ -395,7 +409,7 @@ async function performBackup(
             uploadResult = await s3Provider.uploadStream(currentStream, finalFileName);
         } else {
             // Local storage
-            const localPath = storageConfig.basePath || './backups';
+            const localPath = resolveContainerStoragePath(storageConfig.basePath);
             const fs = require('fs');
             
             if (!fs.existsSync(localPath)) {
@@ -438,8 +452,7 @@ async function performBackup(
             const prefix = storageConfig.prefix || '';
             finalPath = `s3://${storageConfig.bucket}/${prefix ? prefix + '/' : ''}${finalFileName}`;
         } else {
-            const localPath = storageConfig.basePath || './backups';
-            finalPath = path.join(localPath, finalFileName);
+            finalPath = path.join(storageConfig.basePath || resolveContainerStoragePath(), finalFileName);
         }
         
         // Build metadata

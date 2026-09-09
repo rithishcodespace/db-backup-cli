@@ -187,15 +187,6 @@ export class DockerRuntime {
       return;
     }
 
-    // Check if local dev image 'db-backup:all-in-one' exists as a local fallback
-    if (!process.env.DB_BACKUP_IMAGE) {
-      const fallbackInspect = await this.runner.exec('docker', ['image', 'inspect', 'db-backup:all-in-one']);
-      if (fallbackInspect.exitCode === 0) {
-        log.debug('Using local development image fallback db-backup:all-in-one');
-        return;
-      }
-    }
-
     log.info('Pulling Docker image from registry...', { imageTag });
     const pullRes = await this.runner.exec('docker', ['pull', imageTag], { timeout: 300000 });
     if (pullRes.exitCode !== 0) {
@@ -327,22 +318,16 @@ export class DockerRuntime {
       if (options.onProgress) options.onProgress('Launching production container...');
       const [cmd, ...baseArgs] = await this.composeAdapter.getComposeCommand();
 
-      // Check if image tag is locally available as db-backup:all-in-one
-      let imageToUse = cfg.imageTag;
-      if (!process.env.DB_BACKUP_IMAGE) {
-        const hasAllInOne = (await this.runner.exec('docker', ['image', 'inspect', 'db-backup:all-in-one'])).exitCode === 0;
-        if (hasAllInOne) {
-          imageToUse = 'db-backup:all-in-one';
-        }
-      }
-
+      const prefix = cfg.imageRepository.includes('/') ? `${cfg.imageRepository.split('/')[0]}/` : '';
       const composeRes = await this.runner.exec(
         cmd,
         [...baseArgs, '-f', cfg.composeFile, 'up', '-d', 'db-backup'],
         {
           env: {
-            IMAGE_PREFIX: '',
-            VERSION: imageToUse.includes(':') ? imageToUse.split(':')[1] : 'latest',
+            ...process.env,
+            IMAGE: cfg.imageTag,
+            IMAGE_PREFIX: prefix,
+            VERSION: cfg.imageVersion,
             PORT: String(cfg.hostPort),
             BACKUP_DIR: cfg.backupDir,
           },

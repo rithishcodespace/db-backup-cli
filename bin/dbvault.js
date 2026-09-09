@@ -12,8 +12,10 @@ if (!fs.existsSync(distPath)) {
 }
 
 // run the compiled cli
+process.env.DOTENV_CONFIG_QUIET = "true";
 const cli = spawn(process.execPath, [distPath, ...process.argv.slice(2)], {
     stdio: 'inherit',
+    env: { ...process.env, DOTENV_CONFIG_QUIET: 'true' },
 });
 
 cli.on('close', (code) => {

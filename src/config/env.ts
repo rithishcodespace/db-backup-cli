@@ -1,6 +1,8 @@
 import dotenv from 'dotenv';
+import path from 'path';
+import os from 'os';
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 export interface EnvironmentConfig {
   NODE_ENV: string;
@@ -60,7 +62,7 @@ export const env: EnvironmentConfig = {
   MAX_CONCURRENT_BACKUPS: parseInt(process.env.MAX_CONCURRENT_BACKUPS || '3', 10),
   MAX_QUEUE_SIZE: parseInt(process.env.MAX_QUEUE_SIZE || '50', 10),
   LOG_LEVEL: process.env.LOG_LEVEL || 'info',
-  LOG_PATH: process.env.LOG_PATH || './logs',
+  LOG_PATH: process.env.LOG_PATH || path.join(os.homedir(), '.db-backup', 'logs'),
   LOG_MAX_SIZE: process.env.LOG_MAX_SIZE || '20971520',
   LOG_MAX_FILES: parseInt(process.env.LOG_MAX_FILES || '30', 10),
   isProduction: nodeEnv === 'production',

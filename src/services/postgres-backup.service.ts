@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { createReadStream, createWriteStream, statSync } from 'fs';
+import { createReadStream, createWriteStream, statSync, mkdirSync, existsSync } from 'fs';
 import { createGzip } from 'zlib';
 import { pipeline } from 'stream/promises';
 import path from 'path';
@@ -163,6 +163,11 @@ export class PostgresBackupService {
       pgDump.stderr.on('data', (chunk) => {
         stderr += chunk.toString();
       });
+
+      const outputDir = path.dirname(outputPath);
+      if (!existsSync(outputDir)) {
+        mkdirSync(outputDir, { recursive: true, mode: 0o700 });
+      }
 
       const writeStream = createWriteStream(outputPath);
 

@@ -64,4 +64,38 @@ export function resolveDatabaseHost(targetHost?: string): string {
     }
   }
   return host;
+}
+
+/**
+ * Resolves local storage directory inside the Docker container.
+ * Maps any host-side directory path targeting ~/.db-backup to the container volume mount (/app/backups).
+ */
+export function resolveContainerStoragePath(targetPath?: string): string {
+  const containerBase = process.env.BACKUP_PATH || '/app/backups';
+  if (!targetPath) return containerBase;
+
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const isContainer =
+      fs.existsSync('/.dockerenv') ||
+      process.env.DOCKER_CONTAINER === 'true' ||
+      process.env.NODE_ENV === 'production';
+
+    if (isContainer) {
+      if (targetPath.startsWith('/app/backups')) {
+        return targetPath;
+      }
+      const idx = targetPath.indexOf('.db-backup');
+      if (idx !== -1) {
+        const sub = targetPath.slice(idx + '.db-backup'.length).replace(/^[/\\]+/, '');
+        return sub ? path.join(containerBase, sub) : containerBase;
+      }
+      return containerBase;
+    }
+  } catch {
+    // fallback
+  }
+
+  return targetPath;
 }

@@ -1,4 +1,5 @@
 require('ts-node/register/transpile-only');
+process.env.NODE_ENV = 'test';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

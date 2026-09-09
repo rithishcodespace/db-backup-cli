@@ -41,6 +41,7 @@ export function registerRestoreCommand(program: Command): void {
       let lock: DistributedLock | null = null;
       let lockAcquired = false;
       let dbConfig: any = null;
+      let hasError = false;
 
       try {
         dbConfig = config.get('database');
@@ -155,7 +156,7 @@ export function registerRestoreCommand(program: Command): void {
         spinner.fail(chalk.red('Restore failed'));
         console.error(chalk.red(`\n✗ Error: ${error.message}`));
         log.error('Restore failed', { error: error.message });
-        process.exit(1);
+        hasError = true;
       } finally {
         if (lock && lockAcquired) {
           try {
@@ -166,6 +167,14 @@ export function registerRestoreCommand(program: Command): void {
             log.error('Failed to release lock', { error: releaseError.message });
             console.error(chalk.red(`\n⚠️ Failed to release lock: ${releaseError.message}`));
           }
+        }
+        try {
+          await (connection as any)?.quit?.().catch(() => {});
+        } catch {
+          // ignore
+        }
+        if (hasError) {
+          process.exit(1);
         }
       }
     });

@@ -8,6 +8,7 @@ import { createModuleLogger } from '../../logger';
 import { S3StorageProvider } from '../storage-service/providers/s3';
 import { AES256CryptoService } from '../../infrastructure/crypto/aes256-crypto.service';
 import { GzipCompressionService } from '../../infrastructure/compression/gzip-compression.service';
+import { resolveContainerStoragePath } from '../shared/utils/service-utils';
 
 const log = createModuleLogger('restore-worker');
 
@@ -56,6 +57,17 @@ export async function handleRestoreJob(job: Job): Promise<{ success: boolean; re
       }
       if (!workingFilePath) {
         workingFilePath = backupRecord.filePath || '';
+      }
+    }
+
+    if (workingFilePath) {
+      workingFilePath = resolveContainerStoragePath(workingFilePath);
+    }
+
+    if ((!workingFilePath || !fs.existsSync(workingFilePath)) && backupRecord?.fileName) {
+      const candidate = path.join(process.env.BACKUP_PATH || '/app/backups', 'backups', backupRecord.fileName);
+      if (fs.existsSync(candidate)) {
+        workingFilePath = candidate;
       }
     }
 
@@ -124,8 +136,8 @@ export async function handleRestoreJob(job: Job): Promise<{ success: boolean; re
       }
 
       const decryptedPath = path.resolve(
-        path.dirname(workingFilePath),
-        `decrypted_${path.basename(workingFilePath).replace(/\.enc$/, '')}`
+        '/tmp',
+        `restore_decrypted_${restoreId}_${path.basename(workingFilePath).replace(/\.enc$/, '')}`
       );
 
       const encMeta = backupRecord?.encryptionMetadata || {};
@@ -143,8 +155,8 @@ export async function handleRestoreJob(job: Job): Promise<{ success: boolean; re
     const isCompressed = compressionService.isCompressed(workingFilePath);
     if (isCompressed) {
       const decompressedPath = path.resolve(
-        path.dirname(workingFilePath),
-        `decompressed_${path.basename(workingFilePath).replace(/\.gz$/, '')}`
+        '/tmp',
+        `restore_decompressed_${restoreId}_${path.basename(workingFilePath).replace(/\.gz$/, '')}`
       );
 
       await compressionService.decompressFile(workingFilePath, decompressedPath);

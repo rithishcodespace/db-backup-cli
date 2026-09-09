@@ -1,6 +1,6 @@
 services:
   db-backup:
-    image: ${IMAGE_PREFIX:-rithish2006/}db-backup:${VERSION:-1.0.0}
+    image: ${IMAGE:-${IMAGE_PREFIX:-rithish2006/}db-backup:${VERSION:-1.0.0}}
     container_name: db-backup
     ports:
       - "${PORT:-3000}:3000"
