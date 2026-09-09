@@ -150,8 +150,43 @@ export class InfrastructureManager {
 
     const start = Date.now();
 
+    // Check through API Gateway deep health endpoint if running
+    try {
+      const res = await axios.get('http://127.0.0.1:3000/health', { timeout: 1500 });
+      if (res.status === 200 && res.data) {
+        const deps = res.data.dependencies || {};
+        let isHealthy = false;
+
+        if (svc.serviceKey === 'api-gateway') {
+          isHealthy = deps.gateway?.status === 'healthy' || res.data.status === 'healthy';
+        } else if (svc.serviceKey === 'redis') {
+          isHealthy = deps.redis?.status === 'healthy';
+        } else if (svc.serviceKey === 'backup-orchestrator') {
+          isHealthy = deps.orchestrator?.status === 'healthy';
+        } else if (svc.serviceKey === 'metadata-service') {
+          isHealthy = deps.metadataService?.status === 'healthy';
+        } else {
+          // Database services supervised under PM2 within all-in-one container
+          isHealthy = deps.orchestrator?.status === 'healthy';
+        }
+
+        if (isHealthy) {
+          return {
+            name: svc.name,
+            serviceKey: svc.serviceKey,
+            port: svc.port,
+            status: 'healthy',
+            responseTimeMs: Date.now() - start,
+            details: res.data,
+          };
+        }
+      }
+    } catch {
+      // Gateway unreachable, fall back to direct local probe below
+    }
+
     if (!svc.isHttp) {
-      // TCP probe for Redis
+      // TCP probe for local standalone Redis
       return new Promise<ServiceHealth>((resolve) => {
         const socket = new net.Socket();
         socket.setTimeout(1500);
@@ -195,7 +230,7 @@ export class InfrastructureManager {
       });
     }
 
-    // HTTP probe for Express microservices
+    // HTTP probe for local microservices
     try {
       const res = await axios.get(svc.healthUrl!, { timeout: 1500 });
       const isHealthy = res.status === 200 && (res.data?.status === 'healthy' || !res.data?.status);

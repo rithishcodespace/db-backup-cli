@@ -174,7 +174,11 @@ export class MetadataClient {
           }
           const serverError = error.response.data?.error || error.response.data?.message;
           const detailMsg = serverError ? `: ${serverError}` : ` (HTTP ${status})`;
-          throw new Error(`${operationName} failed${detailMsg}`);
+          const customErr: any = new Error(`${operationName} failed${detailMsg}`);
+          customErr.status = status;
+          customErr.statusCode = status;
+          customErr.response = error.response;
+          throw customErr;
         }
 
         throw new Error(`${operationName} failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -401,8 +405,8 @@ export class MetadataClient {
         'Get default storage'
       );
     } catch (err: any) {
-      if (axios.isAxiosError(err) && err.response?.status === 404) return null;
-      if (err.message && err.message.includes('HTTP 404')) return null;
+      if (err.status === 404 || err.statusCode === 404 || (axios.isAxiosError(err) && err.response?.status === 404)) return null;
+      if (err.message && (err.message.includes('HTTP 404') || err.message.toLowerCase().includes('not found') || err.message.includes('No default storage'))) return null;
       throw err;
     }
   }
@@ -414,8 +418,8 @@ export class MetadataClient {
         `Get storage '${nameOrId}'`
       );
     } catch (err: any) {
-      if (axios.isAxiosError(err) && err.response?.status === 404) return null;
-      if (err.message && err.message.includes('HTTP 404')) return null;
+      if (err.status === 404 || err.statusCode === 404 || (axios.isAxiosError(err) && err.response?.status === 404)) return null;
+      if (err.message && (err.message.includes('HTTP 404') || err.message.toLowerCase().includes('not found'))) return null;
       throw err;
     }
   }

@@ -9,6 +9,7 @@ import { keyManager } from '../lib/key-manager';
 import { testConnection } from '../utils/db_connection';
 import { sanitizeErrorMessage } from '../utils/credential-scrubber';
 import { infrastructureManager } from '../infrastructure';
+import { dockerRuntime } from '../infrastructure/docker-runtime';
 import { createModuleLogger } from '../logger';
 
 const log = createModuleLogger('doctor-command');
@@ -134,8 +135,23 @@ export function registerDoctorCommand(program: Command): void {
         dbAccessible = health.status === 'healthy';
         dbStatus = 'Accessible (Metadata Service)';
       } catch (err: any) {
-        dbAccessible = false;
-        dbStatus = `Inaccessible (${sanitizeErrorMessage(err.message)})`;
+        // If direct metadata service call failed with ECONNREFUSED on port 3005 (Docker all-in-one container mode where port 3005 is internal), check Gateway health
+        if (err.message && err.message.includes('ECONNREFUSED')) {
+          try {
+            const gatewayProbe = await dockerRuntime.probeGatewayHealth();
+            if (gatewayProbe.healthy && gatewayProbe.data?.dependencies?.metadataService?.status === 'healthy') {
+              dbAccessible = true;
+              dbStatus = 'Accessible (Docker internal SQLite)';
+            }
+          } catch {
+            // Ignore probe errors
+          }
+        }
+
+        if (!dbAccessible) {
+          dbAccessible = false;
+          dbStatus = `Inaccessible (${sanitizeErrorMessage(err.message)})`;
+        }
       }
 
       if (dbAccessible) {
@@ -149,10 +165,10 @@ export function registerDoctorCommand(program: Command): void {
           name: 'Metadata database',
           status: dbStatus,
           success: false,
-          hint: 'Ensure metadata service is running (port 3005) or run "db-backup init".',
+          hint: 'Ensure container is running ("db-backup start") or run "db-backup init".',
         });
         hasProblems = true;
-        suggestions.push('Ensure metadata service is running or run "db-backup init".');
+        suggestions.push('Ensure container is running ("db-backup start") or run "db-backup init".');
       }
 
       // Print Environment Items
@@ -257,10 +273,38 @@ export function registerDoctorCommand(program: Command): void {
             name: 'Compose file',
             status: 'Missing',
             success: false,
-            hint: 'Ensure docker-compose.yaml is present in the package or project root.',
+            hint: 'Ensure docker-compose.yml is present in the package or project root.',
           });
           hasProblems = true;
-          suggestions.push('Locate or restore docker-compose.yaml.');
+          suggestions.push('Locate or restore docker-compose.yml.');
+        }
+
+        // Production container & port checks
+        if (status.dockerAvailable && status.daemonRunning) {
+          try {
+            const rtStatus = await dockerRuntime.status();
+            if (rtStatus.container.exists) {
+              dockerItems.push({
+                name: 'Container state',
+                status: `${rtStatus.config.containerName} (${rtStatus.container.running ? 'Running' : 'Stopped'})`,
+                success: rtStatus.container.running,
+                hint: rtStatus.container.running ? undefined : 'Run "db-backup start" to start container.',
+              });
+            }
+
+            dockerItems.push({
+              name: 'Port 3000 (Gateway)',
+              status: rtStatus.gatewayHealthy
+                ? 'Healthy & Bound'
+                : rtStatus.container.running
+                  ? 'Initializing'
+                  : 'Available',
+              success: rtStatus.gatewayHealthy || !rtStatus.container.running,
+              hint: rtStatus.gatewayHealthy ? undefined : 'Run "db-backup start" to start Gateway on port 3000.',
+            });
+          } catch {
+            // Ignore in diagnostic reporting
+          }
         }
 
         // Print Docker Items
@@ -304,7 +348,7 @@ export function registerDoctorCommand(program: Command): void {
           name: svc.name,
           status: `${statusStr}${portStr}`,
           success: isHealthy,
-          hint: isHealthy ? undefined : `Run "db-backup infra start" to start ${svc.name}.`,
+          hint: isHealthy ? undefined : `Run "db-backup start" (or "db-backup infra start") to start ${svc.name}.`,
         });
       });
 
@@ -315,7 +359,7 @@ export function registerDoctorCommand(program: Command): void {
       });
 
       if (anyServiceOffline) {
-        suggestions.push('Start required services with `db-backup infra start`.');
+        suggestions.push('Start required services with `db-backup start` (or `db-backup infra start`).');
       }
 
       // ==================== 4. CONFIGURATION & STORAGE ====================
@@ -353,6 +397,7 @@ export function registerDoctorCommand(program: Command): void {
       }
 
       // Storage
+      let storageHandled = false;
       try {
         const defaultStorage = await metadataClient.getDefaultStorage();
 
@@ -374,13 +419,22 @@ export function registerDoctorCommand(program: Command): void {
               `  ${chalk.green('✓')} ${'Storage location'.padEnd(22)} ${chalk.green(`S3 (${defaultStorage.bucket || 'configured'})`)}`
             );
           }
-        } else {
-          console.log(
-            `  ${chalk.dim('ℹ')} ${'Storage location'.padEnd(22)} ${chalk.dim('Default local storage (~/.db-backup/backups)')}`
-          );
+          storageHandled = true;
         }
-      } catch {
-        // Fallback gracefully
+      } catch (err: any) {
+        if (err.message && err.message.includes('ECONNREFUSED')) {
+          const localBackupDir = path.join(os.homedir(), '.db-backup');
+          console.log(
+            `  ${chalk.green('✓')} ${'Storage location'.padEnd(22)} ${chalk.green(`Local (${localBackupDir} [Mounted volume])`)}`
+          );
+          storageHandled = true;
+        }
+      }
+
+      if (!storageHandled) {
+        console.log(
+          `  ${chalk.dim('ℹ')} ${'Storage location'.padEnd(22)} ${chalk.dim('Default local storage (~/.db-backup/backups)')}`
+        );
       }
 
       // Keystore

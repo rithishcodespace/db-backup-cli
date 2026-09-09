@@ -39,13 +39,21 @@ export class BackupUseCase {
     let storageLocationId: string | null = null;
 
     if (input.storage) {
-      const storage = await this.backupRepo.findStorageByName(input.storage);
-      if (!storage) {
-        throw new StorageNotFoundError(input.storage);
+      let storage: any = null;
+      try {
+        storage = await this.backupRepo.findStorageByName(input.storage);
+      } catch (err: any) {
+        log.warn('Could not contact metadata service for storage lookup, proceeding with named storage', {
+          storage: input.storage,
+          error: err.message,
+        });
       }
-      storageLocationId = storage.id;
-      const cfg = storage.config || {};
-      if (storage.type === 's3') {
+      if (!storage && !input.storage) {
+        throw new StorageNotFoundError(input.storage || 'default');
+      }
+      storageLocationId = storage?.id || null;
+      const cfg = storage?.config || {};
+      if (storage?.type === 's3') {
         storageConfig = {
           type: 's3',
           name: storage.name,
@@ -57,13 +65,22 @@ export class BackupUseCase {
         };
       } else {
         storageConfig = {
-          type: 'local',
-          name: storage.name,
+          type: storage?.type || 'local',
+          name: storage?.name || input.storage,
           basePath: cfg.basePath || input.output || this.configStore.get('storage.localPath'),
         };
       }
     } else {
-      const defaultStorage = await this.backupRepo.findDefaultStorage();
+      let defaultStorage: any = null;
+      if (process.env.METADATA_SERVICE_URL || process.env.ENGINE === 'local') {
+        try {
+          defaultStorage = await this.backupRepo.findDefaultStorage();
+        } catch (err: any) {
+          log.debug('Could not contact metadata service for default storage lookup, using local defaults', {
+            error: err.message,
+          });
+        }
+      }
       if (defaultStorage) {
         storageLocationId = defaultStorage.id;
         const cfg = defaultStorage.config || {};
@@ -123,11 +140,11 @@ export class BackupUseCase {
         outputPath: input.output || this.configStore.get('storage.localPath'),
         backupName: input.name,
         storage: storageConfig,
-        storageLocationId,
+        storageLocationId: storageLocationId || undefined,
         encrypt: input.encrypt || false,
-        encryptionKey,
+        encryptionKey: encryptionKey || undefined,
         storeKey,
-        parentBackupId: input.parentId,
+        parentBackupId: input.parentId || undefined,
         physical: input.physical || false,
       },
     };

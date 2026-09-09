@@ -85,6 +85,21 @@ function loadDoctorCommand(overrides = {}) {
     },
   };
 
+  const dockerRuntime = overrides.dockerRuntime || {
+    probeGatewayHealth: async () => ({
+      healthy: true,
+      data: {
+        status: 'healthy',
+        dependencies: {
+          gateway: { status: 'healthy' },
+          metadataService: { status: 'healthy' },
+          redis: { status: 'healthy' },
+          orchestrator: { status: 'healthy' },
+        },
+      },
+    }),
+  };
+
   const loaded = withMockedModules(
     {
       '../logger': { createModuleLogger: () => createNoopLogger() },
@@ -94,6 +109,7 @@ function loadDoctorCommand(overrides = {}) {
       '../lib/key-manager': { keyManager },
       '../utils/db_connection': { testConnection },
       '../infrastructure': { infrastructureManager },
+      '../infrastructure/docker-runtime': { dockerRuntime },
     },
     () => {
       clearModule(modulePath);

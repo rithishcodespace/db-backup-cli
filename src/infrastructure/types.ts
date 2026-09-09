@@ -133,3 +133,59 @@ export class InvalidEngineError extends InfrastructureError {
     this.name = 'InvalidEngineError';
   }
 }
+
+export class DockerPermissionDeniedError extends InfrastructureError {
+  constructor(details = '') {
+    super(
+      `Docker permission denied.\n${details}\nPlease ensure your user has permissions to access the Docker daemon socket (e.g. add user to 'docker' group: 'sudo usermod -aG docker $USER').`,
+      'DOCKER_PERMISSION_DENIED',
+      'Add user to docker group or check docker socket permissions'
+    );
+    this.name = 'DockerPermissionDeniedError';
+  }
+}
+
+export class PortConflictError extends InfrastructureError {
+  constructor(port: number, occupant?: string) {
+    const occStr = occupant ? ` (occupied by: ${occupant})` : '';
+    super(
+      `Host port ${port} is already in use by another process${occStr}.\nPlease stop the conflicting process or configure a different port using DB_BACKUP_PORT.`,
+      'PORT_CONFLICT',
+      `Free port ${port} or configure DB_BACKUP_PORT`
+    );
+    this.name = 'PortConflictError';
+  }
+}
+
+export class ImagePullError extends InfrastructureError {
+  constructor(image: string, reason?: string) {
+    super(
+      `Unable to obtain DB Backup image: "${image}".\n${reason ? `Reason: ${reason}\n` : ''}\nTroubleshooting:\n  • Check internet connectivity\n  • Verify Docker registry authentication (docker login)\n  • Verify the configured image and version\n  • You can build the image locally via: docker build -t ${image} .`,
+      'IMAGE_PULL_FAILED',
+      'Check network/registry or build image locally'
+    );
+    this.name = 'ImagePullError';
+  }
+}
+
+export interface ContainerState {
+  exists: boolean;
+  running: boolean;
+  status: 'running' | 'stopped' | 'missing' | 'unknown';
+  health?: string;
+  image?: string;
+  containerId?: string;
+  ports?: string;
+  uptime?: string;
+}
+
+export interface DockerRuntimeConfig {
+  imageRepository: string;
+  imageVersion: string;
+  imageTag: string;
+  containerName: string;
+  hostPort: number;
+  composeFile: string;
+  backupDir: string;
+}
+

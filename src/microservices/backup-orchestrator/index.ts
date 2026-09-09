@@ -76,7 +76,12 @@ app.post('/backup', validateBody(BackupRequestSchema), async (req, res) => {
     const storageConfig = options?.storage || null;
     
     if (storageConfig && storageConfig.name) {
-      const storage = await metadataClient.getStorage(storageConfig.name);
+      let storage: any = null;
+      try {
+        storage = await metadataClient.getStorage(storageConfig.name);
+      } catch (err: any) {
+        log.debug('Storage lookup threw error, will create default storage', { error: err.message });
+      }
       
       if (storage) {
         storageLocationId = storage.id;

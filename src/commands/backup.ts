@@ -121,8 +121,14 @@ export function registerBackupCommand(program: Command): void {
         }
 
         spinner.fail(chalk.red('Backup failed'));
-        console.error(chalk.red(`\n✗ Error: ${error.message}`));
-        log.error('Backup command execution failed', { error: error.message });
+        const detailedMsg = error.response?.data?.message || error.response?.data?.error || error.message;
+        console.error(chalk.red(`\n✗ Error: ${detailedMsg}`));
+        if (error.response?.data?.issues) {
+          error.response.data.issues.forEach((issue: any) => {
+            console.error(chalk.dim(`  • ${issue.field}: ${issue.message}`));
+          });
+        }
+        log.error('Backup command execution failed', { error: detailedMsg });
         process.exit(1);
       }
     });
