@@ -16,6 +16,7 @@ import { LocalStorageProvider } from '../../storage-service/providers/local';
 import path from 'path';
 import { createWriteStream } from 'fs';
 import { validateBody, BackupRequestSchema } from '../../shared/validators';
+import { resolveDatabaseHost } from '../../shared/utils/service-utils';
 
 const log = createModuleLogger('mongodb-backup-service');
 
@@ -143,8 +144,9 @@ async function performBackup(
 ): Promise<BackupResponse> {
     const startTime = Date.now();
     
+    const host = resolveDatabaseHost(dbConfig.host || '127.0.0.1');
     const mongoArgs: string[] = [
-        '--host', String(dbConfig.host || '127.0.0.1'),
+        '--host', String(host),
         '--port', String(dbConfig.port || 27017),
         '--db', String(dbConfig.database),
         '--archive'

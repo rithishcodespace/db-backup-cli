@@ -39,3 +39,29 @@ export function sanitizeConfig(config: any): any {
   if (sanitized.connectionString) sanitized.connectionString = '***';
   return sanitized;
 }
+
+/**
+ * Resolves the database host for containerized and local runtime environments.
+ * If running inside a Docker container and target is 'localhost' or '127.0.0.1',
+ * routes to 'host.docker.internal' so host databases and port-forwarded containers can be reached.
+ */
+export function resolveDatabaseHost(targetHost?: string): string {
+  const host = targetHost || '127.0.0.1';
+  if (host === 'localhost' || host === '127.0.0.1') {
+    if (process.env.DOCKER_HOST_OVERRIDE) {
+      return process.env.DOCKER_HOST_OVERRIDE;
+    }
+    try {
+      const fs = require('fs');
+      if (
+        fs.existsSync('/.dockerenv') ||
+        (fs.existsSync('/etc/hosts') && fs.readFileSync('/etc/hosts', 'utf8').includes('host.docker.internal'))
+      ) {
+        return 'host.docker.internal';
+      }
+    } catch {
+      // Fallback to original host if check fails
+    }
+  }
+  return host;
+}

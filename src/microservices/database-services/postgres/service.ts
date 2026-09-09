@@ -14,6 +14,7 @@ import { LocalStorageProvider } from '../../storage-service/providers/local';
 import path from 'path';
 import { PostgresIncrementalService } from '../../../services/postgres-incremental.service';
 import { validateBody, BackupRequestSchema } from '../../shared/validators';
+import { resolveDatabaseHost } from '../../shared/utils/service-utils';
 
 const log = createModuleLogger('postgres-backup-service');
 
@@ -162,7 +163,7 @@ async function performBackup(
         };
     }
     
-    const host = dbConfig.host || process.env.POSTGRES_HOST || '127.0.0.1';
+    const host = resolveDatabaseHost(dbConfig.host || process.env.POSTGRES_HOST);
     const port = dbConfig.port || process.env.POSTGRES_PORT || 5432;
     const username = dbConfig.username || process.env.POSTGRES_USER || 'postgres';
     const password = dbConfig.password || process.env.POSTGRES_PASSWORD || '';

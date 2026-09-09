@@ -706,4 +706,4 @@ Contributions are welcome! Please check out [CONTRIBUTING.md](CONTRIBUTING.md) a
 
 ## 📄 License
 
-Distributed under the **ISC License**. See [LICENSE](package.json) for more information.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

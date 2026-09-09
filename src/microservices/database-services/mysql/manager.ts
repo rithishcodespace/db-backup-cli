@@ -15,6 +15,7 @@ import { EncryptionTransform } from './transforms/encryption';
 import { DecryptionTransform } from './transforms/decryption';
 import { IncrementalBackupMetadata, BackupChain, BackupResult } from './types';
 import { createHash } from 'crypto';
+import { resolveDatabaseHost } from '../../shared/utils/service-utils';
 
 const log = createModuleLogger('mysql-backup-manager');
 
@@ -71,7 +72,7 @@ export class MySQLIncrementalBackupManager {
 
         if (!this.connectionPromise) {
             this.connectionPromise = mysql.createConnection({
-                host: dbConfig.host,
+                host: resolveDatabaseHost(dbConfig.host),
                 port: dbConfig.port || 3306,
                 user: dbConfig.username,
                 password: dbConfig.password,
@@ -268,7 +269,7 @@ export class MySQLIncrementalBackupManager {
         const binlogStatus = await this.getCurrentBinlogPosition(dbConfig);
 
         const args = [
-            `--host=${dbConfig.host}`,
+            `--host=${resolveDatabaseHost(dbConfig.host)}`,
             `--port=${String(dbConfig.port || 3306)}`,
             `--user=${dbConfig.username}`,
             `--single-transaction`,
@@ -490,7 +491,7 @@ export class MySQLIncrementalBackupManager {
         const envPath = process.env.PATH ? `${binDir}:${process.env.PATH}` : binDir;
         const env = { ...process.env, PATH: envPath, MYSQL_PWD: dbConfig.password };
         const mysqlbinlogArgs = [
-            `--host=${dbConfig.host}`,
+            `--host=${resolveDatabaseHost(dbConfig.host)}`,
             `--port=${String(dbConfig.port || 3306)}`,
             `--user=${dbConfig.username}`,
             `--read-from-remote-server`,
@@ -827,7 +828,7 @@ export class MySQLIncrementalBackupManager {
         this.trackProcess(gunzip);
         
         const mysqlArgs = [
-            `--host=${dbConfig.host}`,
+            `--host=${resolveDatabaseHost(dbConfig.host)}`,
             `--port=${String(dbConfig.port || 3306)}`,
             `--user=${dbConfig.username}`,
             dbConfig.database
@@ -893,7 +894,7 @@ export class MySQLIncrementalBackupManager {
         this.trackProcess(gunzip);
         
         const mysqlArgs = [
-            `--host=${dbConfig.host}`,
+            `--host=${resolveDatabaseHost(dbConfig.host)}`,
             `--port=${String(dbConfig.port || 3306)}`,
             `--user=${dbConfig.username}`,
             dbConfig.database
