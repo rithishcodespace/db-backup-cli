@@ -1,0 +1,31 @@
+services:
+  db-backup:
+    image: ${IMAGE_PREFIX:-rithish2006/}db-backup:${VERSION:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: db-backup
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - GATEWAY_PORT=3000
+      - REDIS_HOST=127.0.0.1
+      - REDIS_PORT=6379
+      - METADATA_SERVICE_URL=http://127.0.0.1:3005
+      - ORCHESTRATOR_URL=http://127.0.0.1:3001
+      - DATABASE_URL=file:/app/data/backup-meta.db
+      - BACKUP_PATH=/app/backups
+    volumes:
+      - backup-data:/app/data
+      - ${BACKUP_DIR:-~/.db-backup}:/app/backups
+      - ${BACKUP_DIR:-~/.db-backup}:/root/.db-backup
+      - backup-logs:/app/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  backup-data:
+  backup-logs:

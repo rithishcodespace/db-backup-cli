@@ -14,7 +14,7 @@
     "prisma",
     "dashboard/dist",
     "scripts",
-    "docker-compose.yaml",
+    "docker-compose.yml",
     "docker"
   ],
   "directories": {

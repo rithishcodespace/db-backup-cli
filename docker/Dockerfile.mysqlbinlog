@@ -1,3 +1,0 @@
-FROM ubuntu:22.04
-RUN apt-get update && apt-get install -y --no-install-recommends mysql-server-core-8.0 && rm -rf /var/lib/apt/lists/*
-ENTRYPOINT ["mysqlbinlog"]

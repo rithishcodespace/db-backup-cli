@@ -65,7 +65,7 @@ export const BackupOptionsSchema = v.pipe(
     backupName: v.optional(v.string('Backup name must be a string')),
     backupId: v.optional(v.string('Backup ID must be a string')),
     parentBackupId: v.optional(v.string('Parent backup ID must be a string')),
-    storage: v.optional(StorageOptionsSchema),
+    storage: v.nullish(StorageOptionsSchema),
     encrypt: v.optional(v.boolean('Encrypt must be a boolean'), false),
     encryptionKey: v.optional(v.string('Encryption key must be a string')),
     physical: v.optional(v.boolean()),

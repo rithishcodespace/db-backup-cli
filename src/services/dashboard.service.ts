@@ -35,6 +35,13 @@ function getQueues() {
   };
 }
 
+function toIso(d: any): string | null {
+  if (!d) return null;
+  if (typeof d.toISOString === 'function') return d.toISOString();
+  const parsed = new Date(d);
+  return isNaN(parsed.getTime()) ? String(d) : parsed.toISOString();
+}
+
 export function humanizeError(rawError: string | null | undefined): string {
   if (!rawError) return 'No detailed error message was recorded.';
   const err = rawError.toString();
@@ -173,7 +180,7 @@ export class DashboardService {
           dbName: job.dbName,
           backupType: job.backupType,
           status: job.status,
-          startedAt: job.startedAt.toISOString(),
+          startedAt: toIso(job.startedAt) || new Date().toISOString(),
           elapsedSeconds,
           stage,
           progress,
@@ -276,8 +283,8 @@ export class DashboardService {
       dbName: job.dbName,
       backupType: job.backupType,
       status: job.status,
-      startedAt: job.startedAt.toISOString(),
-      completedAt: job.completedAt ? job.completedAt.toISOString() : null,
+      startedAt: toIso(job.startedAt) || new Date().toISOString(),
+      completedAt: toIso(job.completedAt),
       durationSeconds: job.duration ? job.duration : null,
       fileSizeBytes: job.fileSize || null,
       formattedSize: formatBytes(job.fileSize),
@@ -321,7 +328,7 @@ export class DashboardService {
     return logs.map((l: any) => ({
       id: l.id,
       backupJobId: l.backupJobId,
-      timestamp: l.timestamp.toISOString(),
+      timestamp: toIso(l.timestamp) || new Date().toISOString(),
       level: (l.level?.toUpperCase() as any) || 'INFO',
       message: l.message,
       details: l.details,
@@ -344,7 +351,7 @@ export class DashboardService {
         title: `Backup Failed: ${job.dbType}/${job.dbName}`,
         message: humanizeError(job.error),
         humanizedAction: 'Check database connectivity and credentials in CLI',
-        timestamp: job.startedAt.toISOString(),
+        timestamp: toIso(job.startedAt) || new Date().toISOString(),
         source: 'Backup Execution',
       });
     }

@@ -1,43 +1,82 @@
-# Multi-stage production Dockerfile for db-backup-cli
-FROM node:20-alpine AS builder
+# ==========================================
+# Stage 1: Build React Dashboard (Vite)
+# ==========================================
+FROM node:20-alpine AS dashboard-builder
+
+WORKDIR /app/dashboard
+COPY dashboard/package*.json ./
+RUN npm ci
+COPY dashboard/ ./
+RUN npm run build
+
+# ==========================================
+# Stage 2: Build Node.js TypeScript Backend
+# ==========================================
+FROM node:20-alpine AS backend-builder
 
 WORKDIR /app
-
-# Install dependencies and Prisma engines
 COPY package*.json prisma.config.ts ./
 COPY prisma ./prisma/
+
 RUN apk add --no-cache python3 make g++
 RUN npm ci
 
-# Copy source and build TypeScript
 COPY . .
 RUN npx prisma generate
 RUN npm run build
+RUN npm prune --omit=dev
 
-# Production runtime stage
-FROM node:20-alpine
+# ==========================================
+# Stage 3: All-in-One Production Runtime
+# ==========================================
+FROM node:20-alpine AS runner
 
 WORKDIR /app
-ENV NODE_ENV=production
 
-# Install native client tools (PostgreSQL, MySQL, SQLite)
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV GATEWAY_PORT=3000
+ENV BACKUP_PATH=/app/backups
+
+# Install native database client tools, redis server, and utilities
 RUN apk add --no-cache \
     postgresql-client \
     mysql-client \
+    mongodb-tools \
     sqlite \
+    redis \
     bash \
-    ca-certificates
+    ca-certificates \
+    curl
 
-COPY package*.json ./
-RUN npm ci --omit=dev
+# Install PM2 process supervisor globally
+RUN npm install -g pm2
 
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/bin ./bin
-COPY --from=builder /app/scripts ./scripts
-COPY --from=builder /app/generated ./generated
+# Copy production artifacts
+COPY package*.json prisma.config.js ./
+COPY --from=backend-builder /app/node_modules ./node_modules
+COPY --from=backend-builder /app/dist ./dist
+COPY --from=backend-builder /app/generated ./generated
+COPY --from=backend-builder /app/prisma ./prisma
+COPY --from=backend-builder /app/bin ./bin
+COPY --from=backend-builder /app/scripts ./scripts
+COPY --from=dashboard-builder /app/dashboard/dist ./dashboard/dist
 
-RUN mkdir -p backups/local tmp logs /app/data && chmod -R 755 backups tmp logs /app/data
+# Copy PM2 configuration and entrypoint
+COPY ecosystem.config.js ./ecosystem.config.js
+COPY docker/entrypoint.sh ./docker/entrypoint.sh
+RUN chmod +x ./docker/entrypoint.sh
 
+# Create runtime directories for data, backups, and logs
+RUN mkdir -p /app/data /app/data/redis /app/backups /app/logs /app/tmp /root/.db-backup \
+    && chmod -R 775 /app/data /app/backups /app/logs /app/tmp /root/.db-backup
+
+# Publish strictly port 3000 (API Gateway)
 EXPOSE 3000
-CMD ["node", "dist/src/server.js"]
+
+# Container healthcheck
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=3 \
+  CMD curl -f http://127.0.0.1:3000/health || exit 1
+
+# Start container through production entrypoint
+ENTRYPOINT ["/app/docker/entrypoint.sh"]

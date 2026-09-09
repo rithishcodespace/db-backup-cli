@@ -172,7 +172,7 @@ app.post('/backup', validateBody(BackupRequestSchema), async (req, res) => {
         ...options,
         backupId,
         storageLocationId,
-        storage: storageConfig
+        ...(storageConfig ? { storage: storageConfig } : {})
       }
     }, {
       jobId: backupId, // Use backupId as jobId for tracking
