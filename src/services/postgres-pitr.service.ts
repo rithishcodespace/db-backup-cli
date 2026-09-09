@@ -233,26 +233,32 @@ export class PostgresPitrService {
 
     const activelyWorking = configured && !restartRequired;
 
-    await prisma.pitrConfig.upsert({
-      where: { dbName: this.dbConfig.database },
-      update: {
-        systemIdentifier,
-        walLevel,
-        archiveMode,
-        archiveCommand,
-        enabled: configured,
-        updatedAt: new Date(),
-      },
-      create: {
-        dbName: this.dbConfig.database,
-        dbType: 'postgresql',
-        systemIdentifier,
-        walLevel,
-        archiveMode,
-        archiveCommand,
-        enabled: configured,
-      },
-    });
+    try {
+      if ((prisma as any).pitrConfig) {
+        await (prisma as any).pitrConfig.upsert({
+          where: { dbName: this.dbConfig.database },
+          update: {
+            systemIdentifier,
+            walLevel,
+            archiveMode,
+            archiveCommand,
+            enabled: configured,
+            updatedAt: new Date(),
+          },
+          create: {
+            dbName: this.dbConfig.database,
+            dbType: 'postgresql',
+            systemIdentifier,
+            walLevel,
+            archiveMode,
+            archiveCommand,
+            enabled: configured,
+          },
+        });
+      }
+    } catch (e: any) {
+      log.warn('Failed to upsert pitrConfig metadata', { error: e.message });
+    }
 
     return {
       dbName: this.dbConfig.database,
@@ -636,9 +642,16 @@ export class PostgresPitrService {
     const dbName = this.dbConfig.database;
     const setupInfo = await this.setupPitr();
 
-    const pitrConfig = await prisma.pitrConfig.findUnique({
-      where: { dbName },
-    });
+    let pitrConfig: any = null;
+    try {
+      if ((prisma as any).pitrConfig) {
+        pitrConfig = await (prisma as any).pitrConfig.findUnique({
+          where: { dbName },
+        });
+      }
+    } catch (e: any) {
+      log.warn('Failed to query pitrConfig', { error: e.message });
+    }
 
     const baseBackups = await prisma.backupJob.findMany({
       where: {
@@ -655,10 +668,17 @@ export class PostgresPitrService {
 
     if (baseBackups.length > 0) {
       earliestRecoverableTime = baseBackups[0].startedAt.toISOString();
-      const lastWal = await prisma.pitrWalLog.findFirst({
-        where: { dbName },
-        orderBy: { archivedAt: 'desc' },
-      });
+      let lastWal: any = null;
+      try {
+        if ((prisma as any).pitrWalLog) {
+          lastWal = await (prisma as any).pitrWalLog.findFirst({
+            where: { dbName },
+            orderBy: { archivedAt: 'desc' },
+          });
+        }
+      } catch (e: any) {
+        log.warn('Failed to query pitrWalLog', { error: e.message });
+      }
       latestRecoverableTime = lastWal ? lastWal.archivedAt.toISOString() : baseBackups[baseBackups.length - 1].completedAt?.toISOString() || null;
     }
 

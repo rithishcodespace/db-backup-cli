@@ -16,6 +16,7 @@ import { registerConfigCheckCommand } from './commands/config-check';
 import { registerDashboardCommand } from './commands/dashboard';
 import { registerInfraCommand } from './commands/infra';
 import { registerDoctorCommand } from './commands/doctor';
+import { registerPitrCommand } from './commands/pitr';
 
   // Creates CLI object
   const program = new Command();
@@ -90,6 +91,7 @@ if (process.argv.includes('--worker')) {
   registerDashboardCommand(program);
   registerInfraCommand(program);
   registerDoctorCommand(program);
+  registerPitrCommand(program);
 
   // Default help
   program

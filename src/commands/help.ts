@@ -19,6 +19,7 @@ export function showHelp(): void {
     ${chalk.green('schedule')}      Schedule automated backups
     ${chalk.green('infra')}         Inspect and manage runtime infrastructure
     ${chalk.green('doctor')}        Diagnose environment, configuration, and infrastructure health
+    ${chalk.green('pitr')}          PostgreSQL Point-in-Time Recovery (PITR) management
     ${chalk.green('help')}          Show this help message
 
     ${chalk.bold('Global Options:')}

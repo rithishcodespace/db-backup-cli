@@ -22,6 +22,7 @@ ENV SERVICE_PORT=3012
 ENV BACKUP_PATH=/app/backups
 
 # Install MongoDB database tools (mongodump, mongorestore)
+# apk -> alpine's package manager
 RUN apk add --no-cache mongodb-tools bash ca-certificates
 
 # Copy production artifacts
