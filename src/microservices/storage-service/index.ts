@@ -1,6 +1,6 @@
 import express from 'express';
 import helmet from 'helmet';
-import { prisma } from '../../lib/prisma';
+import { metadataClient } from '../../lib/metadata-client';
 import { createModuleLogger } from '../../logger';
 import { LocalStorageProvider } from './providers/local';
 import { S3StorageProvider } from './providers/s3';
@@ -74,14 +74,11 @@ app.post('/api/storage/upload', validateBody(StorageUploadSchema), async (req, r
     const result = await provider.upload(localPath, remotePath);
     
     // Update backup record
-    await prisma.backupJob.update({
-      where: { id: backupId },
-      data: {
-        storageType: storageType,
-        storagePath: remotePath,
-        metadata: {
-          uploadResult: result
-        }
+    await metadataClient.updateJob(backupId, {
+      storageType: storageType,
+      storagePath: remotePath,
+      metadata: {
+        uploadResult: result
       }
     });
     

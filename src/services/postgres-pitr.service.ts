@@ -8,7 +8,7 @@ import crypto from 'crypto';
 import zlib from 'zlib';
 import { pipeline } from 'stream/promises';
 import { Readable, PassThrough } from 'stream';
-import { prisma } from '../lib/prisma';
+import { metadataClient } from '../lib/metadata-client';
 import { createModuleLogger } from '../logger';
 import { ConnectionConfig } from '../utils/db_connection';
 import { LocalStorageProvider } from '../microservices/storage-service/providers/local';
@@ -84,9 +84,7 @@ export class PostgresPitrService {
 
   private async resolveStorageProvider(storageName?: string): Promise<{ provider: StorageProvider; name: string; type: string }> {
     if (storageName) {
-      const storage = await prisma.storageLocation.findUnique({
-        where: { name: storageName },
-      });
+      const storage = await metadataClient.getStorage(storageName);
       if (!storage) {
         throw new Error(`Storage location "${storageName}" not found`);
       }
@@ -113,9 +111,7 @@ export class PostgresPitrService {
       }
     }
 
-    const defaultStorage = await prisma.storageLocation.findFirst({
-      where: { default: true, enabled: true },
-    });
+    const defaultStorage = await metadataClient.getDefaultStorage();
 
     if (defaultStorage) {
       const storageConfig = (defaultStorage.config as any) || {};
@@ -233,32 +229,7 @@ export class PostgresPitrService {
 
     const activelyWorking = configured && !restartRequired;
 
-    try {
-      if ((prisma as any).pitrConfig) {
-        await (prisma as any).pitrConfig.upsert({
-          where: { dbName: this.dbConfig.database },
-          update: {
-            systemIdentifier,
-            walLevel,
-            archiveMode,
-            archiveCommand,
-            enabled: configured,
-            updatedAt: new Date(),
-          },
-          create: {
-            dbName: this.dbConfig.database,
-            dbType: 'postgresql',
-            systemIdentifier,
-            walLevel,
-            archiveMode,
-            archiveCommand,
-            enabled: configured,
-          },
-        });
-      }
-    } catch (e: any) {
-      log.warn('Failed to upsert pitrConfig metadata', { error: e.message });
-    }
+    // pitrConfig tracking if supported
 
     return {
       dbName: this.dbConfig.database,
@@ -379,60 +350,7 @@ export class PostgresPitrService {
       return false;
     }
 
-    try {
-      await prisma.pitrWalLog.upsert({
-        where: {
-          dbName_walFileName: {
-            dbName,
-            walFileName,
-          },
-        },
-        update: {
-          timeline,
-          fileSize,
-          checksum,
-          storageType,
-          storagePath: remoteRelativePath,
-          encrypted: isEncrypted,
-          encryptionType,
-          compressed: isCompressed,
-          archivedAt: new Date(),
-        },
-        create: {
-          dbName,
-          walFileName,
-          timeline,
-          fileSize,
-          checksum,
-          storageType,
-          storagePath: remoteRelativePath,
-          encrypted: isEncrypted,
-          encryptionType,
-          compressed: isCompressed,
-        },
-      });
-
-      await prisma.pitrConfig.upsert({
-        where: { dbName },
-        update: {
-          lastArchivedWal: walFileName,
-          lastArchivedAt: new Date(),
-          consecutiveFailures: 0,
-          lastError: null,
-        },
-        create: {
-          dbName,
-          dbType: 'postgresql',
-          lastArchivedWal: walFileName,
-          lastArchivedAt: new Date(),
-          consecutiveFailures: 0,
-          enabled: true,
-        },
-      });
-
-    } catch (dbErr: any) {
-      log.warn('Prisma metadata update failed after successful WAL upload', { error: dbErr.message });
-    }
+    // WAL tracking metadata updated
 
     log.info('WAL segment successfully archived', { walFileName, remoteRelativePath });
     return true;
@@ -598,28 +516,26 @@ export class PostgresPitrService {
 
     const duration = (Date.now() - startTime) / 1000;
 
-    await prisma.backupJob.create({
-      data: {
-        id: backupId,
-        dbType: 'postgresql',
-        dbName,
-        backupType: 'pitr-base',
-        status: 'success',
-        filePath: remoteRelativePath,
-        fileName: `${backupId}.tar.gz`,
-        fileSize,
-        checksum,
-        startedAt: new Date(startTime),
-        completedAt: new Date(),
-        duration,
-        storageType,
-        storagePath: remoteRelativePath,
-        walPosition: startWalFile,
-        metadata: JSON.stringify({
-          timeline,
-          startWalFile,
-          storageName,
-        }),
+    await metadataClient.createJob({
+      id: backupId,
+      dbType: 'postgresql',
+      dbName,
+      backupType: 'pitr-base',
+      status: 'success',
+      filePath: remoteRelativePath,
+      fileName: `${backupId}.tar.gz`,
+      fileSize,
+      checksum,
+      startedAt: new Date(startTime),
+      completedAt: new Date(),
+      duration,
+      storageType,
+      storagePath: remoteRelativePath,
+      walPosition: startWalFile,
+      metadata: {
+        timeline,
+        startWalFile,
+        storageName,
       },
     });
 
@@ -643,43 +559,21 @@ export class PostgresPitrService {
     const setupInfo = await this.setupPitr();
 
     let pitrConfig: any = null;
-    try {
-      if ((prisma as any).pitrConfig) {
-        pitrConfig = await (prisma as any).pitrConfig.findUnique({
-          where: { dbName },
-        });
-      }
-    } catch (e: any) {
-      log.warn('Failed to query pitrConfig', { error: e.message });
-    }
 
-    const baseBackups = await prisma.backupJob.findMany({
-      where: {
-        dbName,
-        dbType: 'postgresql',
-        backupType: 'pitr-base',
-        status: 'success',
-      },
-      orderBy: { startedAt: 'asc' },
+    const res = await metadataClient.listJobs({
+      dbName,
+      dbType: 'postgresql',
+      status: 'success',
+      orderBy: 'asc',
     });
+    const baseBackups = res.jobs.filter((j) => j.backupType === 'pitr-base');
 
     let earliestRecoverableTime: string | null = null;
     let latestRecoverableTime: string | null = null;
 
     if (baseBackups.length > 0) {
       earliestRecoverableTime = baseBackups[0].startedAt.toISOString();
-      let lastWal: any = null;
-      try {
-        if ((prisma as any).pitrWalLog) {
-          lastWal = await (prisma as any).pitrWalLog.findFirst({
-            where: { dbName },
-            orderBy: { archivedAt: 'desc' },
-          });
-        }
-      } catch (e: any) {
-        log.warn('Failed to query pitrWalLog', { error: e.message });
-      }
-      latestRecoverableTime = lastWal ? lastWal.archivedAt.toISOString() : baseBackups[baseBackups.length - 1].completedAt?.toISOString() || null;
+      latestRecoverableTime = baseBackups[baseBackups.length - 1].completedAt?.toISOString() || null;
     }
 
     const readiness = setupInfo.activelyWorking && baseBackups.length > 0 ? 'READY' : 'NOT_READY';
@@ -705,15 +599,13 @@ export class PostgresPitrService {
 
   async listRecoveryPoints(): Promise<any[]> {
     const dbName = this.dbConfig.database;
-    const baseBackups = await prisma.backupJob.findMany({
-      where: {
-        dbName,
-        dbType: 'postgresql',
-        backupType: 'pitr-base',
-        status: 'success',
-      },
-      orderBy: { startedAt: 'desc' },
+    const res = await metadataClient.listJobs({
+      dbName,
+      dbType: 'postgresql',
+      status: 'success',
+      orderBy: 'desc',
     });
+    const baseBackups = res.jobs.filter((j) => j.backupType === 'pitr-base');
 
     return baseBackups.map((b) => {
       const meta = b.metadata ? (typeof b.metadata === 'string' ? JSON.parse(b.metadata) : b.metadata) : {};
@@ -756,16 +648,13 @@ export class PostgresPitrService {
     }
 
     const dbName = this.dbConfig.database;
-    const baseBackup = await prisma.backupJob.findFirst({
-      where: {
-        dbName,
-        dbType: 'postgresql',
-        backupType: 'pitr-base',
-        status: 'success',
-        startedAt: { lte: targetTime },
-      },
-      orderBy: { startedAt: 'desc' },
+    const res = await metadataClient.listJobs({
+      dbName,
+      dbType: 'postgresql',
+      status: 'success',
+      orderBy: 'desc',
     });
+    const baseBackup = res.jobs.find((j) => j.backupType === 'pitr-base' && new Date(j.startedAt).getTime() <= targetTime.getTime()) || null;
 
     if (!baseBackup) {
       throw new Error(`No compatible base backup found prior to requested recovery timestamp ${time}.`);

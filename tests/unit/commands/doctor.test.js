@@ -76,11 +76,21 @@ function loadDoctorCommand(overrides = {}) {
     },
   };
 
+  const metadataClient = overrides.metadataClient || {
+    health: async () => {
+      if (overrides.prisma && overrides.prisma.backupJob && overrides.prisma.backupJob.findMany) {
+        await overrides.prisma.backupJob.findMany();
+      }
+      return { status: 'healthy', database: 'connected' };
+    },
+  };
+
   const loaded = withMockedModules(
     {
       '../logger': { createModuleLogger: () => createNoopLogger() },
       '../config': { config },
       '../lib/prisma': { prisma },
+      '../lib/metadata-client': { metadataClient },
       '../lib/key-manager': { keyManager },
       '../utils/db_connection': { testConnection },
       '../infrastructure': { infrastructureManager },

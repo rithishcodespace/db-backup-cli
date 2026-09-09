@@ -1,7 +1,6 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { prisma } from '../lib/prisma';
 import { createModuleLogger } from '../logger';
 import { config } from '../config';
 import { connection } from '../lib/queue-manager';
@@ -103,7 +102,7 @@ export function registerRestoreCommand(program: Command): void {
           spinner.start('Continuing restore...');
         }
 
-        const backupRepo = new PrismaBackupRepository(prisma as any);
+        const backupRepo = new PrismaBackupRepository();
         const cryptoService = new AES256CryptoService();
         const compressionService = new GzipCompressionService();
         const adapterFactory = new DatabaseAdapterFactory();

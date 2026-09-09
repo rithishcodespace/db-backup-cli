@@ -8,7 +8,7 @@ import * as clack from '@clack/prompts';
 import { config } from '../config';
 import { clientIdManager } from '../lib/client-id';
 import { testConnection } from '../utils/db_connection';
-import { prisma } from '../lib/prisma';
+import { metadataClient } from '../lib/metadata-client';
 import { keyManager } from '../lib/key-manager';
 import { S3StorageProvider } from '../microservices/storage-service/providers/s3';
 import httpClient from '../utils/http-client';
@@ -34,8 +34,8 @@ export function registerInitCommand(program: Command): void {
 
       // ==================== 1. IDEMPOTENCY CHECK ====================
       const existingDbConfig = config.get('database');
-      const existingStorageCount = await prisma.storageLocation.count().catch(() => 0);
-      const existingNotificationCount = await prisma.notificationConfig.count().catch(() => 0);
+      const existingStorageCount = await metadataClient.countStorage().catch(() => 0);
+      const existingNotificationCount = await metadataClient.countNotificationConfigs().catch(() => 0);
 
       const hasExistingConfig = existingDbConfig || existingStorageCount > 0 || existingNotificationCount > 0;
 
@@ -287,11 +287,12 @@ export function registerInitCommand(program: Command): void {
           fs.writeFileSync(testFile, 'test');
           fs.unlinkSync(testFile);
 
-          await prisma.storageLocation.updateMany({ where: { default: true }, data: { default: false } });
-          await prisma.storageLocation.upsert({
-            where: { name: 'default-local' },
-            update: { type: 'local', config: { basePath: resolvedPath }, default: true, enabled: true },
-            create: { name: 'default-local', type: 'local', config: { basePath: resolvedPath }, default: true, enabled: true },
+          await metadataClient.createStorage({
+            name: 'default-local',
+            type: 'local',
+            config: { basePath: resolvedPath },
+            default: true,
+            enabled: true,
           });
 
           storageSpinner.succeed(chalk.green('Storage is writable and configured'));
@@ -345,30 +346,16 @@ export function registerInitCommand(program: Command): void {
           });
           await s3Provider.initialize();
 
-          await prisma.storageLocation.updateMany({ where: { default: true }, data: { default: false } });
-          await prisma.storageLocation.upsert({
-            where: { name: 'default-s3' },
-            update: {
-              type: 's3',
-              bucket: String(bucket),
-              region: String(region),
-              accessKey: String(accessKey),
-              secretKey: String(secretKey),
-              config: { prefix: String(prefix || '') },
-              default: true,
-              enabled: true,
-            },
-            create: {
-              name: 'default-s3',
-              type: 's3',
-              bucket: String(bucket),
-              region: String(region),
-              accessKey: String(accessKey),
-              secretKey: String(secretKey),
-              config: { prefix: String(prefix || '') },
-              default: true,
-              enabled: true,
-            },
+          await metadataClient.createStorage({
+            name: 'default-s3',
+            type: 's3',
+            bucket: String(bucket),
+            region: String(region),
+            accessKey: String(accessKey),
+            secretKey: String(secretKey),
+            config: { prefix: String(prefix || '') },
+            default: true,
+            enabled: true,
           });
 
           s3Spinner.succeed(chalk.green('S3 storage connection verified and saved'));
@@ -459,17 +446,15 @@ export function registerInitCommand(program: Command): void {
         }
 
         const primaryDb = configuredDbNames[0] || 'postgresql';
-        await prisma.backupSchedule.create({
-          data: {
-            name: `${primaryDb}_auto_backup`,
-            dbType: primaryDb,
-            dbName: config.get('database')?.database || 'default_db',
-            schedule: cronExpr,
-            backupType: 'full',
-            storageType: storageType === 's3' ? 's3' : 'local',
-            compress: true,
-            enabled: true,
-          },
+        await metadataClient.createSchedule({
+          name: `${primaryDb}_auto_backup`,
+          dbType: primaryDb,
+          dbName: config.get('database')?.database || 'default_db',
+          schedule: cronExpr,
+          backupType: 'full',
+          storageType: storageType === 's3' ? 's3' : 'local',
+          compress: true,
+          enabled: true,
         });
 
         clack.log.success(chalk.green(`Automated schedule created (${cronExpr})`));
@@ -512,10 +497,9 @@ export function registerInitCommand(program: Command): void {
             });
             handleCancel(webhook);
 
-            await prisma.notificationConfig.upsert({
-              where: { type: 'slack' },
-              update: { webhook: String(webhook), enabled: true },
-              create: { type: 'slack', webhook: String(webhook), enabled: true },
+            await metadataClient.upsertNotificationConfig('slack', {
+              webhook: String(webhook),
+              enabled: true,
             });
             configuredProviders.push('Slack');
           } else if (provider === 'email') {
@@ -560,27 +544,14 @@ export function registerInitCommand(program: Command): void {
             });
             handleCancel(to);
 
-            await prisma.notificationConfig.upsert({
-              where: { type: 'email' },
-              update: {
-                smtpHost: String(smtpHost),
-                smtpPort: parseInt(String(smtpPort), 10),
-                smtpUser: String(smtpUser),
-                smtpPassword: String(smtpPassword),
-                from: String(from),
-                to: String(to),
-                enabled: true,
-              },
-              create: {
-                type: 'email',
-                smtpHost: String(smtpHost),
-                smtpPort: parseInt(String(smtpPort), 10),
-                smtpUser: String(smtpUser),
-                smtpPassword: String(smtpPassword),
-                from: String(from),
-                to: String(to),
-                enabled: true,
-              },
+            await metadataClient.upsertNotificationConfig('email', {
+              smtpHost: String(smtpHost),
+              smtpPort: parseInt(String(smtpPort), 10),
+              smtpUser: String(smtpUser),
+              smtpPassword: String(smtpPassword),
+              from: String(from),
+              to: String(to),
+              enabled: true,
             });
             configuredProviders.push('Email');
           }

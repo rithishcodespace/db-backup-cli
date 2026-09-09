@@ -1,15 +1,12 @@
-import { prisma } from '../../lib/prisma';
+import { metadataClient, MetadataClient } from '../../lib/metadata-client';
 import { IBackupRepository } from '../../domain/interfaces/backup-repository.interface';
 import { BackupJobModel, StorageLocationModel } from '../../domain/models';
 
 export class PrismaBackupRepository implements IBackupRepository {
-  constructor(private readonly prismaClient: any = prisma) {}
+  constructor(private readonly client: MetadataClient = metadataClient) {}
 
   async findJobById(id: string): Promise<BackupJobModel | null> {
-    const job = await this.prismaClient.backupJob.findUnique({
-      where: { id },
-      include: { storageLocation: true },
-    });
+    const job = await this.client.getJob(id);
     return (job as unknown as BackupJobModel) || null;
   }
 
@@ -19,48 +16,40 @@ export class PrismaBackupRepository implements IBackupRepository {
     skip?: number;
     orderBy?: any;
   }): Promise<BackupJobModel[]> {
-    const jobs = await this.prismaClient.backupJob.findMany({
-      where: params?.where,
+    const res = await this.client.listJobs({
+      status: params?.where?.status,
+      dbType: params?.where?.dbType,
+      dbName: params?.where?.dbName,
       take: params?.take,
       skip: params?.skip,
-      orderBy: params?.orderBy || { startedAt: 'desc' },
-      include: { storageLocation: true },
+      orderBy: params?.orderBy?.startedAt === 'asc' ? 'asc' : 'desc',
     });
-    return jobs as unknown as BackupJobModel[];
+    return (res.jobs || []) as unknown as BackupJobModel[];
   }
 
   async createJob(data: any): Promise<BackupJobModel> {
-    const job = await this.prismaClient.backupJob.create({ data });
+    const job = await this.client.createJob(data);
     return job as unknown as BackupJobModel;
   }
 
   async updateJob(id: string, data: any): Promise<BackupJobModel> {
-    const job = await this.prismaClient.backupJob.update({
-      where: { id },
-      data,
-    });
+    const job = await this.client.updateJob(id, data);
     return job as unknown as BackupJobModel;
   }
 
   async findStorageByName(name: string): Promise<StorageLocationModel | null> {
-    const storage = await this.prismaClient.storageLocation.findUnique({
-      where: { name },
-    });
+    const storage = await this.client.getStorage(name);
     return (storage as unknown as StorageLocationModel) || null;
   }
 
   async findDefaultStorage(): Promise<StorageLocationModel | null> {
-    const storage = await this.prismaClient.storageLocation.findFirst({
-      where: { default: true, enabled: true },
-    });
+    const storage = await this.client.getDefaultStorage();
     return (storage as unknown as StorageLocationModel) || null;
   }
 
   async listStorages(enabledOnly = true): Promise<StorageLocationModel[]> {
-    const storages = await this.prismaClient.storageLocation.findMany({
-      where: enabledOnly ? { enabled: true } : undefined,
-    });
-    return storages as unknown as StorageLocationModel[];
+    const storages = await this.client.listStorage(enabledOnly);
+    return (storages || []) as unknown as StorageLocationModel[];
   }
 }
 

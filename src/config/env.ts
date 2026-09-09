@@ -7,6 +7,7 @@ export interface EnvironmentConfig {
   GATEWAY_PORT: number;
   PORT: number;
   ORCHESTRATOR_URL: string;
+  METADATA_SERVICE_URL: string;
   DATABASE_URL: string;
   REDIS_HOST: string;
   REDIS_PORT: number;
@@ -47,6 +48,7 @@ export const env: EnvironmentConfig = {
   GATEWAY_PORT: gatewayPort,
   PORT: gatewayPort,
   ORCHESTRATOR_URL: process.env.ORCHESTRATOR_URL || 'http://localhost:3001',
+  METADATA_SERVICE_URL: process.env.METADATA_SERVICE_URL || 'http://127.0.0.1:3005',
   DATABASE_URL: process.env.DATABASE_URL || 'file:./backup-meta.db',
   REDIS_HOST: process.env.REDIS_HOST || 'localhost',
   REDIS_PORT: parsePort(process.env.REDIS_PORT, 6379),

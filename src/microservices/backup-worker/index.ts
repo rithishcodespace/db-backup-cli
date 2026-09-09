@@ -3,7 +3,7 @@
 import { registerBackupWorker, registerStorageWorker, registerNotificationWorker } from '../../lib/queue-manager';
 import { Job } from 'bullmq';
 import axios from 'axios';
-import { prisma } from '../../lib/prisma';
+import { metadataClient } from '../../lib/metadata-client';
 import { BackupStatus } from '../shared/types';
 import { createModuleLogger } from '../../logger';
 
@@ -30,14 +30,10 @@ function getServiceUrl(dbType: string): string {
 
 async function createLog(backupJobId: string, level: string, message: string, details?: string) {
     try {
-        await prisma.backupLog.create({
-            data: {
-                backupJobId,
-                level,
-                message,
-                details: details || null,
-                timestamp: new Date(),
-            }
+        await metadataClient.addLog(backupJobId, {
+            level,
+            message,
+            details: details || undefined,
         });
     } catch (err) {
         log.error('Failed to insert backupLog', { backupJobId, error: (err as any).message });
@@ -55,9 +51,8 @@ async function handleBackupJob(job: Job) {
     try {
         await job.updateProgress(10);
         
-        await prisma.backupJob.update({
-            where: { id: backupId },
-            data: { status: BackupStatus.RUNNING }
+        await metadataClient.updateJob(backupId, {
+            status: BackupStatus.RUNNING
         });
         await createLog(backupId, 'INFO', `Database job status updated to RUNNING`);
         
@@ -86,28 +81,25 @@ async function handleBackupJob(job: Job) {
         const result = response.data;
         
         if (result.success) {
-            await prisma.backupJob.update({
-                where: { id: backupId },
-                data: {
-                    status: BackupStatus.SUCCESS,
-                    filePath: result.filePath,
-                    fileSize: result.fileSize,
-                    duration: result.duration,
-                    completedAt: new Date(),
-                    fileName: result.fileName,
-                    checksum: result.checksum,
-                    encrypted: result.encrypted,
-                    encryptionType: result.encryptionType,
-                    encryptionMetadata: result.encryptionMetadata,
-                    parentBackupId: result.parentBackupId || result.metadata?.parentBackupId || null,
-                    baseBackupId: result.baseBackupId || result.metadata?.baseBackupId || null,
-                    backupLevel: result.backupLevel !== undefined ? result.backupLevel : (result.metadata?.backupLevel ?? null),
-                    binlogFile: result.binlogFile || result.metadata?.startBinlogFile || null,
-                    binlogPosition: result.binlogPosition ?? result.metadata?.startBinlogPosition ?? null,
-                    metadata: {
-                        ...result.metadata,
-                        completedAt: new Date().toISOString()
-                    }
+            await metadataClient.updateJob(backupId, {
+                status: BackupStatus.SUCCESS,
+                filePath: result.filePath,
+                fileSize: result.fileSize,
+                duration: result.duration,
+                completedAt: new Date(),
+                fileName: result.fileName,
+                checksum: result.checksum,
+                encrypted: result.encrypted,
+                encryptionType: result.encryptionType,
+                encryptionMetadata: result.encryptionMetadata,
+                parentBackupId: result.parentBackupId || result.metadata?.parentBackupId || null,
+                baseBackupId: result.baseBackupId || result.metadata?.baseBackupId || null,
+                backupLevel: result.backupLevel !== undefined ? result.backupLevel : (result.metadata?.backupLevel ?? null),
+                binlogFile: result.binlogFile || result.metadata?.startBinlogFile || null,
+                binlogPosition: result.binlogPosition ?? result.metadata?.startBinlogPosition ?? null,
+                metadata: {
+                    ...result.metadata,
+                    completedAt: new Date().toISOString()
                 }
             });
             await createLog(backupId, 'INFO', `Backup archive created successfully: ${result.fileName}`, `Size: ${result.fileSize || 0} bytes | Duration: ${result.duration}s`);
@@ -169,13 +161,10 @@ async function handleBackupJob(job: Job) {
         log.error('Backup job failed', { backupId, error: errorMessage });
         await createLog(backupId, 'ERROR', `Backup job failed: ${errorMessage}`, errorDetails);
         
-        await prisma.backupJob.update({
-            where: { id: backupId },
-            data: {
-                status: BackupStatus.FAILED,
-                error: errorMessage,
-                completedAt: new Date()
-            }
+        await metadataClient.updateJob(backupId, {
+            status: BackupStatus.FAILED,
+            error: errorMessage,
+            completedAt: new Date()
         });
         
         // Queue failure notification

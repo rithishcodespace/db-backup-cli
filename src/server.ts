@@ -1,7 +1,6 @@
 import http from 'http';
 import { app } from './app';
 import { env } from './config/env';
-import { disconnectDatabase } from './config/database';
 import { createModuleLogger } from './utils/logger';
 
 const log = createModuleLogger('server');
@@ -25,12 +24,6 @@ async function gracefulShutdown(signal: string) {
       log.info('HTTP server closed successfully');
     }
 
-    try {
-      await disconnectDatabase();
-      log.info('Database connection disconnected cleanly');
-    } catch (dbErr: any) {
-      log.error('Error during database disconnect', { error: dbErr?.message });
-    }
 
     process.exit(err ? 1 : 0);
   });

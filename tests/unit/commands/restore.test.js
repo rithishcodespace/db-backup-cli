@@ -61,6 +61,7 @@ function loadRestoreCommand(overrides = {}) {
     },
     () => {
       clearModule(modulePath);
+      clearModule(path.resolve(__dirname, '../../../src/infrastructure/repositories/prisma-backup.repository.ts'));
       return { ...require(modulePath), ora, prisma, config };
     }
   );

@@ -1,19 +1,14 @@
-import { prisma } from '../config/database';
+import { metadataClient, MetadataClient } from '../lib/metadata-client';
 
 export class BackupRepository {
+  constructor(private readonly client: MetadataClient = metadataClient) {}
+
   async findActiveJobs() {
-    return prisma.backupJob.findMany({
-      where: { status: { in: ['running', 'RUNNING', 'pending', 'PENDING'] } },
-      include: { storageLocation: true },
-      orderBy: { startedAt: 'desc' },
-    });
+    return this.client.getActiveJobs();
   }
 
   async findJobById(id: string) {
-    return prisma.backupJob.findUnique({
-      where: { id },
-      include: { storageLocation: true },
-    });
+    return this.client.getJob(id);
   }
 
   async findManyJobs(params: {
@@ -23,59 +18,61 @@ export class BackupRepository {
     orderBy?: any;
     include?: any;
   }) {
-    return prisma.backupJob.findMany({
-      where: params.where,
+    const result = await this.client.listJobs({
+      status: params.where?.status?.in || params.where?.status,
+      dbType: params.where?.dbType,
+      dbName: params.where?.dbName,
+      since: params.where?.startedAt?.gte,
       take: params.take,
       skip: params.skip,
-      orderBy: params.orderBy || { startedAt: 'desc' },
-      include: params.include ?? { storageLocation: true },
+      orderBy: params.orderBy?.startedAt === 'asc' ? 'asc' : 'desc',
     });
+    return result.jobs;
   }
 
   async countJobs(where?: any): Promise<number> {
-    return prisma.backupJob.count({ where });
+    return this.client.countJobs(where);
   }
 
   async createJob(data: any) {
-    return prisma.backupJob.create({ data });
+    return this.client.createJob(data);
   }
 
   async updateJob(id: string, data: any) {
-    return prisma.backupJob.update({
-      where: { id },
-      data,
-    });
+    return this.client.updateJob(id, data);
   }
 
   async findLogs(params: { where?: any; take?: number; orderBy?: any }) {
-    return prisma.backupLog.findMany({
-      where: params.where,
+    return this.client.getLogs({
+      backupJobId: params.where?.backupJobId,
+      level: params.where?.level,
       take: params.take,
-      orderBy: params.orderBy || { timestamp: 'desc' },
     });
   }
 
   async createLog(data: any) {
-    return prisma.backupLog.create({ data });
+    return this.client.addLog(data.backupJobId, {
+      level: data.level,
+      message: data.message,
+      details: data.details,
+    });
   }
 
   async countJobsSince(sinceDate: Date, statusList?: string[]): Promise<number> {
-    const where: any = { startedAt: { gte: sinceDate } };
-    if (statusList && statusList.length > 0) {
-      where.status = { in: statusList };
-    }
-    return prisma.backupJob.count({ where });
+    return this.client.countJobs({
+      startedAt: { gte: sinceDate },
+      status: statusList ? { in: statusList } : undefined,
+    });
   }
 
   async findRecentFailedJobs(sinceDate: Date, limit = 5) {
-    return prisma.backupJob.findMany({
-      where: {
-        status: { in: ['FAILED', 'failed'] },
-        startedAt: { gte: sinceDate },
-      },
-      orderBy: { startedAt: 'desc' },
+    const res = await this.client.listJobs({
+      status: ['FAILED', 'failed'],
+      since: sinceDate,
       take: limit,
+      orderBy: 'desc',
     });
+    return res.jobs;
   }
 }
 

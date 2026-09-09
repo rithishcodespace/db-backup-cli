@@ -1,6 +1,6 @@
 import express from 'express';
 import helmet from 'helmet';
-import { prisma } from "../../lib/prisma";
+import { metadataClient } from "../../lib/metadata-client";
 import { IncomingWebhook } from '@slack/webhook';
 import nodemailer from 'nodemailer';
 import { createModuleLogger } from '../../logger';
@@ -63,8 +63,8 @@ async function sendNotification(type: string, backupId: string, config: any, mes
   }
   
   // Record notification
-  await prisma.notification.create({
-    data: {
+  try {
+    await metadataClient.recordNotification({
       backupJobId: backupId || null,
       type: type,
       status: 'sent',
@@ -72,8 +72,10 @@ async function sendNotification(type: string, backupId: string, config: any, mes
       subject: message.subject,
       message: message.text,
       sentAt: new Date()
-    }
-  });
+    });
+  } catch (auditErr: any) {
+    log.warn('Failed to record notification audit in metadata service', { error: auditErr?.message });
+  }
   
   return result;
 }

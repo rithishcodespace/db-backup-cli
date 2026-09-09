@@ -2,7 +2,7 @@ import express from 'express';
 import helmet from 'helmet';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import { prisma } from "../../lib/prisma";
+import { metadataClient } from "../../lib/metadata-client";
 import { createModuleLogger } from '../../logger';
 import { BackupRequest, BackupResponse, BackupStatus } from '../shared/types';
 import { createBackupQueue, createStorageQueue, createNotificationQueue } from '../../lib/queue-manager';
@@ -73,9 +73,7 @@ app.post('/backup', validateBody(BackupRequestSchema), async (req, res) => {
     const storageConfig = options?.storage || null;
     
     if (storageConfig && storageConfig.name) {
-      const storage = await prisma.storageLocation.findUnique({
-        where: { name: storageConfig.name }
-      });
+      const storage = await metadataClient.getStorage(storageConfig.name);
       
       if (storage) {
         storageLocationId = storage.id;
@@ -86,20 +84,18 @@ app.post('/backup', validateBody(BackupRequestSchema), async (req, res) => {
       } else {
         // Storage not found - create it if it has all required fields
         if (storageConfig.type === 's3' && storageConfig.bucket) {
-          const newStorage = await prisma.storageLocation.create({
-            data: {
-              name: storageConfig.name,
-              type: 's3',
-              bucket: storageConfig.bucket,
-              region: storageConfig.region || 'us-east-1',
-              accessKey: storageConfig.accessKey,
-              secretKey: storageConfig.secretKey,
-              config: {
-                prefix: storageConfig.prefix || ''
-              },
-              enabled: true,
-              default: false
-            }
+          const newStorage = await metadataClient.createStorage({
+            name: storageConfig.name,
+            type: 's3',
+            bucket: storageConfig.bucket,
+            region: storageConfig.region || 'us-east-1',
+            accessKey: storageConfig.accessKey,
+            secretKey: storageConfig.secretKey,
+            config: {
+              prefix: storageConfig.prefix || ''
+            },
+            enabled: true,
+            default: false
           });
           storageLocationId = newStorage.id;
           log.debug('Created new storage location', { 
@@ -108,16 +104,14 @@ app.post('/backup', validateBody(BackupRequestSchema), async (req, res) => {
           });
         } else {
           // Local storage
-          const newStorage = await prisma.storageLocation.create({
-            data: {
-              name: storageConfig.name,
-              type: 'local',
-              config: {
-                basePath: storageConfig.basePath || './backups'
-              },
-              enabled: true,
-              default: false
-            }
+          const newStorage = await metadataClient.createStorage({
+            name: storageConfig.name,
+            type: 'local',
+            config: {
+              basePath: storageConfig.basePath || './backups'
+            },
+            enabled: true,
+            default: false
           });
           storageLocationId = newStorage.id;
           log.debug('Created new storage location', { 
@@ -146,22 +140,20 @@ app.post('/backup', validateBody(BackupRequestSchema), async (req, res) => {
     }
 
     // CREATE BackupJob record with RUNNING status
-    await prisma.backupJob.create({
-      data: {
-        id: backupId,
-        dbType: dbConfig.type,
-        dbName: dbConfig.database,
-        backupType: backupType,
-        status: BackupStatus.RUNNING,
-        startedAt: new Date(),
-        fileName: backupName,
-        storageLocationId: storageLocationId,
-        metadata: JSON.stringify({ 
-          options,
-          backupName,
-          storageLocationId,
-          requestedAt: new Date().toISOString()
-        })
+    await metadataClient.createJob({
+      id: backupId,
+      dbType: dbConfig.type,
+      dbName: dbConfig.database,
+      backupType: backupType,
+      status: BackupStatus.RUNNING,
+      startedAt: new Date(),
+      fileName: backupName,
+      storageLocationId: storageLocationId,
+      metadata: { 
+        options,
+        backupName,
+        storageLocationId,
+        requestedAt: new Date().toISOString()
       }
     });
     
@@ -202,14 +194,11 @@ app.post('/backup', validateBody(BackupRequestSchema), async (req, res) => {
     
     // UPDATE BackupJob to FAILED on error
     try {
-      await prisma.backupJob.update({
-        where: { id: backupId },
-        data: {
-          status: BackupStatus.FAILED,
-          error: errorMessage,
-          completedAt: new Date(),
-          duration: (Date.now() - startTime) / 1000
-        }
+      await metadataClient.updateJob(backupId, {
+        status: BackupStatus.FAILED,
+        error: errorMessage,
+        completedAt: new Date(),
+        duration: (Date.now() - startTime) / 1000
       });
     } catch (updateError) {
       log.error('Failed to update backup status to FAILED', { backupId, error: updateError });
@@ -229,12 +218,7 @@ app.get('/backup/:id/status', validateParams(IdParamSchema), async (req, res) =>
   
   try {
     // Get job from database
-    const job = await prisma.backupJob.findUnique({
-      where: { id },
-      include: {
-        storageLocation: true
-      }
-    });
+    const job = await metadataClient.getJob(id);
     
     if (!job) {
       res.status(404).json({ error: 'Backup job not found' });
@@ -291,9 +275,7 @@ app.delete('/backup/:id', validateParams(IdParamSchema), async (req, res) => {
   
   try {
     // Check if job exists
-    const job = await prisma.backupJob.findUnique({
-      where: { id }
-    });
+    const job = await metadataClient.getJob(id);
     
     if (!job) {
       res.status(404).json({ error: 'Backup job not found' });
@@ -313,12 +295,9 @@ app.delete('/backup/:id', validateParams(IdParamSchema), async (req, res) => {
     }
     
     // Update status to cancelled
-    await prisma.backupJob.update({
-      where: { id },
-      data: {
-        status: 'cancelled',
-        completedAt: new Date()
-      }
+    await metadataClient.updateJob(id, {
+      status: 'cancelled',
+      completedAt: new Date()
     });
     
     res.json({

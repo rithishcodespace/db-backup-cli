@@ -1,6 +1,6 @@
 import express from 'express';
 import helmet from 'helmet';
-import { prisma } from '../../lib/prisma';
+import { metadataClient } from '../../lib/metadata-client';
 import cron from 'node-cron';
 import axios from 'axios';
 import { createModuleLogger } from '../../logger';
@@ -126,27 +126,25 @@ app.post('/api/schedule', validateBody(ScheduleRequestSchema), async (req, res) 
     }
     
     // Create schedule record
-    const scheduleRecord = await prisma.backupSchedule.create({
-      data: {
-        name: options.name || `${dbConfig.type}_${dbConfig.database}_backup`,
-        dbType: dbConfig.type,
-        dbName: dbConfig.database,
-        schedule: schedule,
-        backupType: backupType,
-        compress: options.compress || true,
+    const scheduleRecord = await metadataClient.createSchedule({
+      name: options.name || `${dbConfig.type}_${dbConfig.database}_backup`,
+      dbType: dbConfig.type,
+      dbName: dbConfig.database,
+      schedule: schedule,
+      backupType: backupType,
+      compress: options.compress || true,
+      storageType: storageType || 'local',
+      retention: options.retention || 30,
+      enabled: true,
+      notifyOnSuccess: providers.length > 0,
+      notifyOnError: true,
+      slackWebhook: slackWebhook,
+      emailRecipients: emailRecipients,
+      metadata: {
+        dbConfig,
+        options,
         storageType: storageType || 'local',
-        retention: options.retention || 30,
-        enabled: true,
-        notifyOnSuccess: providers.length > 0,
-        notifyOnError: true,
-        slackWebhook: slackWebhook,
-        emailRecipients: emailRecipients,
-        metadata: {
-          dbConfig,
-          options,
-          storageType: storageType || 'local',
-          notification: normalizedNotification // Store full notification with providers
-        } as any
+        notification: normalizedNotification // Store full notification with providers
       }
     });
     
@@ -199,10 +197,7 @@ app.post('/api/schedule/:id/stop', validateParams(IdParamSchema), async (req, re
       scheduledTasks.delete(id);
     }
     
-    await prisma.backupSchedule.update({
-      where: { id },
-      data: { enabled: false }
-    });
+    await metadataClient.updateSchedule(id, { enabled: false });
     
     log.info('Schedule stopped', { id });
     res.json({ success: true });
@@ -219,9 +214,7 @@ app.post('/api/schedule/:id/stop', validateParams(IdParamSchema), async (req, re
 
 app.get('/api/schedule', async (req, res) => {
   try {
-    const schedules = await prisma.backupSchedule.findMany({
-      where: { enabled: true }
-    });
+    const schedules = await metadataClient.listSchedules(true);
     
     res.json({
       success: true,
@@ -289,11 +282,8 @@ async function executeScheduledBackup(
     
     try {
       // Update schedule last run
-      await prisma.backupSchedule.update({
-        where: { id: scheduleId },
-        data: {
-          lastRunAt: new Date()
-        }
+      await metadataClient.updateSchedule(scheduleId, {
+        lastRunAt: new Date()
       });
       
       // Call backup orchestrator
@@ -319,12 +309,9 @@ async function executeScheduledBackup(
           duration 
         });
         
-        await prisma.backupSchedule.update({
-          where: { id: scheduleId },
-          data: {
-            lastRunStatus: 'success',
-            error: null
-          }
+        await metadataClient.updateSchedule(scheduleId, {
+          lastRunStatus: 'success',
+          error: null
         });
         
         // Send success notifications to all providers
@@ -349,12 +336,9 @@ async function executeScheduledBackup(
       
       log.error('Scheduled backup failed', { scheduleId, error: errorMessage });
       
-      await prisma.backupSchedule.update({
-        where: { id: scheduleId },
-        data: {
-          lastRunStatus: 'failed',
-          error: errorMessage
-        }
+      await metadataClient.updateSchedule(scheduleId, {
+        lastRunStatus: 'failed',
+        error: errorMessage
       });
       
       // Send failure notifications to all providers
@@ -431,9 +415,7 @@ async function sendBackupNotifications(params: {
   });
   
   // Get schedule details for additional context
-  const schedule = await prisma.backupSchedule.findUnique({
-    where: { id: scheduleId }
-  });
+  const schedule = await metadataClient.getSchedule(scheduleId);
   
   // Build the common message
   const message = {
@@ -539,9 +521,7 @@ ${errorMessage ? `Error: ${errorMessage}` : ''}`,
 
 async function loadSchedules() {
   try {
-    const schedules = await prisma.backupSchedule.findMany({
-      where: { enabled: true }
-    });
+    const schedules = await metadataClient.listSchedules(true);
     
     log.info(`Loading ${schedules.length} schedules`);
     

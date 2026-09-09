@@ -2,9 +2,9 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import axios from 'axios';
+import { metadataClient } from '../lib/metadata-client';
 import { createModuleLogger } from '../logger';
 import { config } from '../config';
-import { prisma } from "../lib/prisma";
 import httpClient from '../utils/http-client';
 
 const log = createModuleLogger('schedule-command');
@@ -69,11 +69,9 @@ async function validateAndGetNotificationConfigs(
   for (const provider of providers) {
     switch (provider) {
       case 'email': {
-        const config = await prisma.notificationConfig.findUnique({
-          where: { type: 'email', enabled: true }
-        });
+        const config = await metadataClient.getNotificationConfig('email');
 
-        if (!config) {
+        if (!config || !config.enabled) {
           console.error(chalk.red(`\n❌ Email notification is not configured.\n`));
           console.error(chalk.yellow('Configure it with:'));
           console.error(chalk.dim('  db-backup notification email configure \\'));
@@ -99,11 +97,9 @@ async function validateAndGetNotificationConfigs(
       }
 
       case 'slack': {
-        const config = await prisma.notificationConfig.findUnique({
-          where: { type: 'slack', enabled: true }
-        });
+        const config = await metadataClient.getNotificationConfig('slack');
 
-        if (!config) {
+        if (!config || !config.enabled) {
           console.error(chalk.red(`\n❌ Slack notification is not configured.\n`));
           console.error(chalk.yellow('Configure it with:'));
           console.error(chalk.dim('  db-backup notification slack configure \\'));

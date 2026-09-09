@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { config } from '../config';
-import { prisma } from '../lib/prisma';
+import { metadataClient } from '../lib/metadata-client';
 import { keyManager } from '../lib/key-manager';
 import { testConnection } from '../utils/db_connection';
 import { sanitizeErrorMessage } from '../utils/credential-scrubber';
@@ -126,13 +126,13 @@ export function registerDoctorCommand(program: Command): void {
         suggestions.push(`Ensure write permissions for ${backupDir}.`);
       }
 
-      // Metadata database (Prisma SQLite)
+      // Metadata Service health
       let dbAccessible = false;
       let dbStatus = '';
       try {
-        await prisma.backupJob.findMany({ take: 1 });
-        dbAccessible = true;
-        dbStatus = 'Accessible (SQLite)';
+        const health = await metadataClient.health();
+        dbAccessible = health.status === 'healthy';
+        dbStatus = 'Accessible (Metadata Service)';
       } catch (err: any) {
         dbAccessible = false;
         dbStatus = `Inaccessible (${sanitizeErrorMessage(err.message)})`;
@@ -149,10 +149,10 @@ export function registerDoctorCommand(program: Command): void {
           name: 'Metadata database',
           status: dbStatus,
           success: false,
-          hint: 'Run "npx prisma db push" or check permissions on the SQLite database.',
+          hint: 'Ensure metadata service is running (port 3005) or run "db-backup init".',
         });
         hasProblems = true;
-        suggestions.push('Verify access to local SQLite database or run "npx prisma db push".');
+        suggestions.push('Ensure metadata service is running or run "db-backup init".');
       }
 
       // Print Environment Items
@@ -354,9 +354,7 @@ export function registerDoctorCommand(program: Command): void {
 
       // Storage
       try {
-        const defaultStorage = await prisma.storageLocation.findFirst({
-          where: { default: true },
-        });
+        const defaultStorage = await metadataClient.getDefaultStorage();
 
         if (defaultStorage) {
           if (defaultStorage.type === 'local') {

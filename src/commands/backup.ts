@@ -5,7 +5,6 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { createModuleLogger } from '../logger';
 import { config } from '../config';
-import { prisma } from '../lib/prisma';
 import { keyManager } from '../lib/key-manager';
 import httpClient from '../utils/http-client';
 import { infrastructureManager } from '../infrastructure';
@@ -38,6 +37,7 @@ export function registerBackupCommand(program: Command): void {
     .option('--no-store-key', 'Do not store the encryption key in local keystore', false)
     .action(async (options) => {
       const spinner = ora('Preparing backup request...').start();
+      const backupRepo = new PrismaBackupRepository();
 
       try {
         const dbConfig = config.get('database');
@@ -55,16 +55,6 @@ export function registerBackupCommand(program: Command): void {
         await infrastructureManager.ensureInfrastructure({ dbType: dbConfig.type });
 
         spinner.text = 'Sending backup request to orchestrator...';
-
-        const backupRepo: any = {
-          findJobById: (id: string) => prisma.backupJob.findUnique({ where: { id } }),
-          findManyJobs: (params?: any) => prisma.backupJob.findMany(params),
-          createJob: (data: any) => prisma.backupJob.create({ data }),
-          updateJob: (id: string, data: any) => prisma.backupJob.update({ where: { id }, data }),
-          findStorageByName: (name: string) => prisma.storageLocation.findUnique({ where: { name } }),
-          findDefaultStorage: () => prisma.storageLocation.findFirst({ where: { default: true, enabled: true } }),
-          listStorages: (enabledOnly = true) => prisma.storageLocation.findMany({ where: enabledOnly ? { enabled: true } : undefined }),
-        };
 
         const backupUseCase = new BackupUseCase(
           config,
@@ -120,14 +110,12 @@ export function registerBackupCommand(program: Command): void {
         if (error instanceof StorageNotFoundError) {
           spinner.fail(`Storage location "${options.storage}" not found`);
           console.error(chalk.yellow(`\n💡 Available storages:`));
-          const storages = await prisma.storageLocation.findMany({
-            where: { enabled: true },
-          });
+          const storages = await backupRepo.listStorages(true);
           if (storages.length === 0) {
             console.error(chalk.dim('  No storage locations configured.'));
             console.error(chalk.dim('  Run: db-backup storage add --type local --name my-storage'));
           } else {
-            storages.forEach((s) => console.log(chalk.dim(`  • ${s.name} (${s.type})`)));
+            storages.forEach((s: any) => console.log(chalk.dim(`  • ${s.name} (${s.type})`)));
           }
           process.exit(1);
         }

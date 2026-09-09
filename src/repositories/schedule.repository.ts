@@ -1,38 +1,30 @@
-import { prisma } from '../config/database';
+import { metadataClient, MetadataClient } from '../lib/metadata-client';
 
 export class ScheduleRepository {
+  constructor(private readonly client: MetadataClient = metadataClient) {}
+
   async findById(id: string) {
-    return prisma.backupSchedule.findUnique({
-      where: { id },
-    });
+    return this.client.getSchedule(id);
   }
 
   async findMany(where?: any) {
-    return prisma.backupSchedule.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-    });
+    return this.client.listSchedules(where?.enabled);
   }
 
   async count(where?: any): Promise<number> {
-    return prisma.backupSchedule.count({ where });
+    return this.client.countSchedules(where);
   }
 
   async create(data: any) {
-    return prisma.backupSchedule.create({ data });
+    return this.client.createSchedule(data);
   }
 
   async update(id: string, data: any) {
-    return prisma.backupSchedule.update({
-      where: { id },
-      data,
-    });
+    return this.client.updateSchedule(id, data);
   }
 
   async delete(id: string) {
-    return prisma.backupSchedule.delete({
-      where: { id },
-    });
+    return this.client.deleteSchedule(id);
   }
 }
 

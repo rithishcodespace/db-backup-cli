@@ -1,4 +1,4 @@
-import { prisma } from '../config/database';
+import { metadataClient, MetadataClient } from '../lib/metadata-client';
 
 export interface NotificationConfigData {
   enabled?: boolean;
@@ -13,42 +13,26 @@ export interface NotificationConfigData {
 }
 
 export class NotificationRepository {
+  constructor(private readonly client: MetadataClient = metadataClient) {}
+
   async findByType(type: string) {
-    return prisma.notificationConfig.findUnique({
-      where: { type },
-    });
+    return this.client.getNotificationConfig(type);
   }
 
-  async findMany(where?: any) {
-    return prisma.notificationConfig.findMany({
-      where,
-    });
+  async findMany(_where?: any) {
+    return this.client.listNotificationConfigs();
   }
 
-  async count(where?: any): Promise<number> {
-    return prisma.notificationConfig.count({ where });
+  async count(_where?: any): Promise<number> {
+    return this.client.countNotificationConfigs();
   }
 
   async upsert(type: string, data: NotificationConfigData) {
-    const { enabled = true, ...fields } = data;
-    return prisma.notificationConfig.upsert({
-      where: { type },
-      update: {
-        ...fields,
-        enabled,
-      },
-      create: {
-        type,
-        enabled,
-        ...fields,
-      },
-    });
+    return this.client.upsertNotificationConfig(type, data);
   }
 
   async delete(type: string) {
-    return prisma.notificationConfig.delete({
-      where: { type },
-    });
+    return this.client.deleteNotificationConfig(type);
   }
 }
 

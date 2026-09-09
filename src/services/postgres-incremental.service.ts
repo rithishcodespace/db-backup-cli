@@ -4,7 +4,7 @@ import { createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync, r
 import path from 'path';
 import os from 'os';
 import { createHash } from 'crypto';
-import { prisma } from '../lib/prisma';
+import { metadataClient } from '../lib/metadata-client';
 import { createModuleLogger } from '../logger';
 import { ConnectionConfig } from '../utils/db_connection';
 
@@ -133,9 +133,7 @@ export class PostgresIncrementalService {
 
   public async getParentBackup(requestedParentId?: string): Promise<any> {
     if (requestedParentId) {
-      const parent = await prisma.backupJob.findUnique({
-        where: { id: requestedParentId }
-      });
+      const parent = await metadataClient.getJob(requestedParentId);
       if (!parent || parent.status !== 'success') {
         throw new Error(`Parent backup ${requestedParentId} not found or has invalid status.`);
       }
@@ -145,16 +143,13 @@ export class PostgresIncrementalService {
       return parent;
     }
 
-    const backups = await prisma.backupJob.findMany({
-      where: {
-        dbType: 'postgresql',
-        dbName: this.dbConfig.database,
-        status: 'success'
-      },
-      orderBy: {
-        startedAt: 'desc'
-      }
+    const res = await metadataClient.listJobs({
+      dbType: 'postgresql',
+      dbName: this.dbConfig.database,
+      status: 'success',
+      orderBy: 'desc',
     });
+    const backups = res.jobs;
 
     const physicalParent = backups.find(job => {
       if (job.backupLevel !== null) return true;
@@ -325,7 +320,7 @@ export class PostgresIncrementalService {
     let currentId: string | null = targetBackupId;
 
     while (currentId) {
-      const jobRecord: any = await prisma.backupJob.findUnique({ where: { id: currentId } });
+      const jobRecord: any = await metadataClient.getJob(currentId);
       if (!jobRecord || jobRecord.status !== 'success') {
         throw new Error(`Backup record ${currentId} in chain not found or invalid.`);
       }

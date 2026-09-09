@@ -110,9 +110,10 @@ flowchart TD
     end
 
     %% State & Persistence
-    subgraph Persistence [" 🗄️ Metadata Persistence "]
-        PRISMA["Prisma ORM Client"]
-        META_DB[("🗃️ SQLite Metadata Store (backup-meta.db)<br/>BackupJob • StorageLocation • Schedules • Logs")]
+    subgraph Persistence [" 🗄️ Metadata Persistence & Isolation "]
+        META_SVC["🛡️ Metadata Service (:3005 / Express 5)"]
+        PRISMA["Prisma ORM (Sole Process Access)"]
+        META_DB[("🗃️ SQLite Store (backup-meta.db)<br/>WAL Mode • 5000ms Busy Timeout • Normal Sync")]
     end
 
     %% Target Databases
@@ -125,7 +126,7 @@ flowchart TD
 
     %% Wiring
     CLI -->|HTTP REST| GW
-    CLI -->|Direct CLI Queries| PRISMA
+    CLI -->|HTTP :3005| META_SVC
     UI -->|Telemetry & Triggers| GW
     SWAG -.->|Inspects| GW
 
@@ -149,9 +150,15 @@ flowchart TD
     BULL_N --> NOTIF_SVC
     NOTIF_SVC --> SLACK & SMTP
 
-    ORCH & WORKER & ST_SVC & NOTIF_SVC -->|Audit Logs & State| PRISMA
+    ORCH & WORKER & ST_SVC & NOTIF_SVC & SCHED -->|HTTP :3005 MetadataClient| META_SVC
+    META_SVC --> PRISMA
     PRISMA --> META_DB
 ```
+
+> **Architectural Note on Metadata Storage**:  
+> The **Metadata Service** is the **sole owner** of the metadata database (`backup-meta.db`). No other service or CLI process accesses SQLite directly or imports Prisma. Database access is encapsulated behind this dedicated service boundary over HTTP (`MetadataClient`), eliminating cross-process file-lock contention and making transaction and locking behavior centrally controllable.  
+> *Note on SQLite Concurrency*: SQLite is configured in `WAL` (Write-Ahead Logging) mode with `busy_timeout = 5000ms` and `synchronous = NORMAL`. While WAL mode significantly reduces read/write contention, it does not completely eliminate `SQLITE_BUSY` under high concurrent write loads. Encapsulating all database access behind the single Metadata Service boundary provides centralized concurrency management and controlled transaction serialization.
+
 
 ---
 

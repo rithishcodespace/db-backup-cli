@@ -182,5 +182,4 @@ class ConfigManager {
 // Singleton instance
 export const config = new ConfigManager();
 export { env } from './env';
-export { prisma, connectDatabase, disconnectDatabase } from './database';
 export default config;

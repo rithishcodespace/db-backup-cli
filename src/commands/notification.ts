@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { prisma } from "../lib/prisma";
+import { metadataClient } from '../lib/metadata-client';
 import { createModuleLogger } from '../logger';
 import nodemailer from 'nodemailer';
 import axios from 'axios';
@@ -33,9 +33,7 @@ function maskString(str: string): string {
 }
 
 async function getEmailConfig(): Promise<EmailConfig | null> {
-  const config = await prisma.notificationConfig.findUnique({
-    where: { type: 'email' }
-  });
+  const config = await metadataClient.getNotificationConfig('email');
   
   if (!config || !config.enabled) return null;
   
@@ -59,9 +57,7 @@ async function getEmailConfig(): Promise<EmailConfig | null> {
 }
 
 async function getSlackConfig(): Promise<SlackConfig | null> {
-  const config = await prisma.notificationConfig.findUnique({
-    where: { type: 'slack' }
-  });
+  const config = await metadataClient.getNotificationConfig('slack');
   
   if (!config || !config.enabled) return null;
   
@@ -71,57 +67,30 @@ async function getSlackConfig(): Promise<SlackConfig | null> {
 }
 
 async function saveEmailConfig(config: EmailConfig): Promise<void> {
-  await prisma.notificationConfig.upsert({
-    where: { type: 'email' },
-    update: {
-      smtpHost: config.smtpHost,
-      smtpPort: config.smtpPort,
-      smtpUser: config.smtpUser,
-      smtpPassword: config.smtpPassword,
-      from: config.from,
-      to: config.to, // ✅ NEW: Save recipient
-      enabled: true,
-      updatedAt: new Date()
-    },
-    create: {
-      type: 'email',
-      smtpHost: config.smtpHost,
-      smtpPort: config.smtpPort,
-      smtpUser: config.smtpUser,
-      smtpPassword: config.smtpPassword,
-      from: config.from,
-      to: config.to, // ✅ NEW: Save recipient
-      enabled: true
-    }
+  await metadataClient.upsertNotificationConfig('email', {
+    smtpHost: config.smtpHost,
+    smtpPort: config.smtpPort,
+    smtpUser: config.smtpUser,
+    smtpPassword: config.smtpPassword,
+    from: config.from,
+    to: config.to,
+    enabled: true,
   });
 }
 
 async function saveSlackConfig(config: SlackConfig): Promise<void> {
-  await prisma.notificationConfig.upsert({
-    where: { type: 'slack' },
-    update: {
-      webhook: config.webhook,
-      enabled: true,
-      updatedAt: new Date()
-    },
-    create: {
-      type: 'slack',
-      webhook: config.webhook,
-      enabled: true
-    }
+  await metadataClient.upsertNotificationConfig('slack', {
+    webhook: config.webhook,
+    enabled: true,
   });
 }
 
 async function deleteEmailConfig(): Promise<void> {
-  await prisma.notificationConfig.delete({
-    where: { type: 'email' }
-  });
+  await metadataClient.deleteNotificationConfig('email');
 }
 
 async function deleteSlackConfig(): Promise<void> {
-  await prisma.notificationConfig.delete({
-    where: { type: 'slack' }
-  });
+  await metadataClient.deleteNotificationConfig('slack');
 }
 
 // ==================== Notification Command Registration ====================

@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { prisma } from "../lib/prisma";
+import { metadataClient } from '../lib/metadata-client';
 import { createModuleLogger } from '../logger';
 
 const log = createModuleLogger('storage-command');
@@ -35,9 +35,7 @@ export function registerStorageCommand(program: Command): void {
         }
         
         // Check if name already exists
-        const existing = await prisma.storageLocation.findUnique({
-          where: { name: options.name }
-        });
+        const existing = await metadataClient.getStorage(options.name);
         
         if (existing) {
           spinner.fail(`Storage location "${options.name}" already exists`);
@@ -57,18 +55,16 @@ export function registerStorageCommand(program: Command): void {
             };
         
         // Create storage location
-        const storage = await prisma.storageLocation.create({
-          data: {
-            name: options.name,
-            type: options.type,
-            bucket: options.type === 's3' ? options.bucket : null,
-            region: options.type === 's3' ? options.region : null,
-            accessKey: options.type === 's3' ? options.accessKey : null,
-            secretKey: options.type === 's3' ? options.secretKey : null,
-            config: config,
-            default: false,
-            enabled: true
-          }
+        const storage = await metadataClient.createStorage({
+          name: options.name,
+          type: options.type,
+          bucket: options.type === 's3' ? options.bucket : null,
+          region: options.type === 's3' ? options.region : null,
+          accessKey: options.type === 's3' ? options.accessKey : null,
+          secretKey: options.type === 's3' ? options.secretKey : null,
+          config: config,
+          default: false,
+          enabled: true
         });
         
         spinner.succeed(chalk.green('Storage location added successfully!'));
@@ -104,9 +100,7 @@ export function registerStorageCommand(program: Command): void {
     .description('List all storage locations')
     .action(async () => {
       try {
-        const storages = await prisma.storageLocation.findMany({
-          orderBy: { createdAt: 'desc' }
-        });
+        const storages = await metadataClient.listStorage();
         
         if (storages.length === 0) {
           console.log(chalk.yellow('\n📭 No storage locations configured'));
@@ -157,14 +151,12 @@ export function registerStorageCommand(program: Command): void {
     .argument('<name>', 'Storage name to show')
     .action(async (name) => {
       try {
-        const storage = await prisma.storageLocation.findUnique({
-          where: { name }
-        });
+        const storage = await metadataClient.getStorage(name);
         
         if (!storage) {
           console.error(chalk.red(`\n✗ Storage location "${name}" not found`));
           console.log(chalk.yellow('\n💡 Available storages:'));
-          const storages = await prisma.storageLocation.findMany();
+          const storages = await metadataClient.listStorage();
           storages.forEach(s => console.log(chalk.dim(`  • ${s.name} (${s.type})`)));
           process.exit(1);
         }
@@ -208,9 +200,7 @@ export function registerStorageCommand(program: Command): void {
     .option('-f, --force', 'Force removal without confirmation')
     .action(async (name, options) => {
       try {
-        const storage = await prisma.storageLocation.findUnique({
-          where: { name }
-        });
+        const storage = await metadataClient.getStorage(name);
         
         if (!storage) {
           console.error(chalk.red(`\n✗ Storage location "${name}" not found`));
@@ -238,9 +228,7 @@ export function registerStorageCommand(program: Command): void {
           }
         }
         
-        await prisma.storageLocation.delete({
-          where: { name }
-        });
+        await metadataClient.deleteStorage(name);
         
         console.log(chalk.green(`\n✓ Storage location "${name}" removed successfully`));
         process.exit(0);
@@ -260,29 +248,17 @@ export function registerStorageCommand(program: Command): void {
       const spinner = ora(`Setting "${name}" as default storage...`).start();
       
       try {
-        const storage = await prisma.storageLocation.findUnique({
-          where: { name }
-        });
+        const storage = await metadataClient.getStorage(name);
         
         if (!storage) {
           spinner.fail(`Storage location "${name}" not found`);
           console.log(chalk.yellow('\n💡 Available storages:'));
-          const storages = await prisma.storageLocation.findMany();
+          const storages = await metadataClient.listStorage();
           storages.forEach(s => console.log(chalk.dim(`  • ${s.name} (${s.type})`)));
           process.exit(1);
         }
         
-        // Unset all defaults
-        await prisma.storageLocation.updateMany({
-          where: { default: true },
-          data: { default: false }
-        });
-        
-        // Set new default
-        await prisma.storageLocation.update({
-          where: { name },
-          data: { default: true }
-        });
+        await metadataClient.setDefaultStorage(name);
         
         spinner.succeed(chalk.green(`✓ "${name}" set as default storage`));
         console.log(chalk.dim(`\n  Type: ${storage.type}`));

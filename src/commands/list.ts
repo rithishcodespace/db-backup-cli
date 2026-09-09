@@ -1,6 +1,5 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { prisma } from "../lib/prisma";
 import httpClient from '../utils/http-client';
 import { createModuleLogger } from '../logger';
 import { ListBackupsUseCase } from '../application/use-cases/list-backups.use-case';
@@ -19,7 +18,7 @@ export function registerListCommand(program: Command): void {
     .option('--full-id', 'Show full backup IDs (default: true)', true)
     .action(async (options) => {
       try {
-        const repo = new PrismaBackupRepository(prisma as any);
+        const repo = new PrismaBackupRepository();
         const listUseCase = new ListBackupsUseCase(repo);
 
         const backups = await listUseCase.execute({

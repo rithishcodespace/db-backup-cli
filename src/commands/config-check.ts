@@ -6,7 +6,7 @@ import path from 'path';
 import { config } from '../config';
 import { clientIdManager } from '../lib/client-id';
 import { testConnection } from '../utils/db_connection';
-import { prisma } from '../lib/prisma';
+import { metadataClient } from '../lib/metadata-client';
 import { keyManager } from '../lib/key-manager';
 import httpClient from '../utils/http-client';
 import { createModuleLogger } from '../logger';
@@ -76,9 +76,7 @@ export function registerConfigCheckCommand(program: Command): void {
 
       // ==================== 3. STORAGE ====================
       try {
-        const defaultStorage = await prisma.storageLocation.findFirst({
-          where: { default: true },
-        });
+        const defaultStorage = await metadataClient.getDefaultStorage();
 
         if (defaultStorage) {
           if (defaultStorage.type === 'local') {
@@ -170,7 +168,7 @@ export function registerConfigCheckCommand(program: Command): void {
 
       // ==================== 6. SCHEDULE ====================
       try {
-        const schedules = await prisma.backupSchedule.findMany({ where: { enabled: true } });
+        const schedules = await metadataClient.listSchedules(true);
         results.push({
           category: 'Schedule',
           name: 'Automated Schedules',
@@ -190,7 +188,8 @@ export function registerConfigCheckCommand(program: Command): void {
 
       // ==================== 7. NOTIFICATIONS ====================
       try {
-        const notifications = await prisma.notificationConfig.findMany({ where: { enabled: true } });
+        const configs = await metadataClient.listNotificationConfigs();
+        const notifications = configs.filter((c: any) => c.enabled);
         results.push({
           category: 'Notifications',
           name: 'Alert Providers',

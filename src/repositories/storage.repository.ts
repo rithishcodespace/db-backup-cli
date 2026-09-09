@@ -1,65 +1,51 @@
-import { prisma } from '../config/database';
+import { metadataClient, MetadataClient } from '../lib/metadata-client';
 
 export class StorageRepository {
+  constructor(private readonly client: MetadataClient = metadataClient) {}
+
   async findById(id: string) {
-    return prisma.storageLocation.findUnique({
-      where: { id },
-    });
+    return this.client.getStorage(id);
   }
 
   async findByName(name: string) {
-    return prisma.storageLocation.findUnique({
-      where: { name },
-    });
+    return this.client.getStorage(name);
   }
 
   async findDefault() {
-    return prisma.storageLocation.findFirst({
-      where: { default: true },
-    });
+    return this.client.getDefaultStorage();
   }
 
   async findMany(where?: any) {
-    return prisma.storageLocation.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-    });
+    return this.client.listStorage(where?.enabled);
   }
 
   async count(where?: any): Promise<number> {
-    return prisma.storageLocation.count({ where });
+    return this.client.countStorage(where);
   }
 
   async create(data: any) {
-    return prisma.storageLocation.create({ data });
+    return this.client.createStorage(data);
   }
 
   async update(id: string, data: any) {
-    return prisma.storageLocation.update({
-      where: { id },
-      data,
-    });
+    return this.client.updateStorage(id, data);
   }
 
   async delete(id: string) {
-    return prisma.storageLocation.delete({
-      where: { id },
-    });
+    return this.client.deleteStorage(id);
   }
 
   async clearDefaults(): Promise<void> {
-    await prisma.storageLocation.updateMany({
-      where: { default: true },
-      data: { default: false },
-    });
+    const storages = await this.client.listStorage();
+    for (const s of storages) {
+      if (s.default) {
+        await this.client.updateStorage(s.id, { default: false });
+      }
+    }
   }
 
   async setDefault(id: string) {
-    await this.clearDefaults();
-    return prisma.storageLocation.update({
-      where: { id },
-      data: { default: true },
-    });
+    return this.client.setDefaultStorage(id);
   }
 }
 

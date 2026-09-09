@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream, statSync } from 'fs';
 import { createGzip } from 'zlib';
 import { pipeline } from 'stream/promises';
 import path from 'path';
-import { prisma } from "../lib/prisma";
+import { metadataClient } from "../lib/metadata-client";
 import { config } from '../config';
 import { createModuleLogger } from '../logger';
 import { ConnectionConfig } from '../utils/db_connection';
@@ -50,19 +50,17 @@ export class PostgresBackupService {
     
     try {
       // Create backup job record
-      await prisma.backupJob.create({
-        data: {
-          id: backupId,
-          dbType: 'postgresql',
-          dbName: this.dbConfig.database || 'unknown',
-          backupType: options.type,
-          status: 'running',
-          startedAt: new Date(),
-          metadata: JSON.stringify({
-            tables: options.tables,
-            excludeTables: options.excludeTables,
-            host: this.dbConfig.host,
-          }),
+      await metadataClient.createJob({
+        id: backupId,
+        dbType: 'postgresql',
+        dbName: this.dbConfig.database || 'unknown',
+        backupType: options.type,
+        status: 'running',
+        startedAt: new Date(),
+        metadata: {
+          tables: options.tables,
+          excludeTables: options.excludeTables,
+          host: this.dbConfig.host,
         },
       });
       
@@ -85,30 +83,24 @@ export class PostgresBackupService {
       const duration = (Date.now() - startTime) / 1000;
       
       // Update job record
-      await prisma.backupJob.update({
-        where: { id: backupId },
-        data: {
-          status: 'success',
-          filePath: backupPath,
-          fileName: backupFileName,
-          fileSize: fileSize,
-          compressedSize: options.compress ? fileSize : undefined,
-          checksum: checksum,
-          completedAt: new Date(),
-          duration: duration,
-          compressionType: options.compress ? 'gzip' : 'none',
-          backupVersion: '1.0',
-        },
+      await metadataClient.updateJob(backupId, {
+        status: 'success',
+        filePath: backupPath,
+        fileName: backupFileName,
+        fileSize: fileSize,
+        compressedSize: options.compress ? fileSize : undefined,
+        checksum: checksum,
+        completedAt: new Date(),
+        duration: duration,
+        compressionType: options.compress ? 'gzip' : 'none',
+        backupVersion: '1.0',
       });
       
       // Create log entry
-      await prisma.backupLog.create({
-        data: {
-          backupJobId: backupId,
-          level: 'info',
-          message: 'Backup completed successfully',
-          details: JSON.stringify({ duration, fileSize }),
-        },
+      await metadataClient.addLog(backupId, {
+        level: 'info',
+        message: 'Backup completed successfully',
+        details: JSON.stringify({ duration, fileSize }),
       });
       
       log.info('Backup completed', { backupId, duration, fileSize });
@@ -130,23 +122,17 @@ export class PostgresBackupService {
       log.error('Backup failed', { error: errorMessage, duration });
       
       // Update job with error
-      await prisma.backupJob.update({
-        where: { id: backupId },
-        data: {
-          status: 'failed',
-          error: errorMessage,
-          completedAt: new Date(),
-          duration,
-        },
+      await metadataClient.updateJob(backupId, {
+        status: 'failed',
+        error: errorMessage,
+        completedAt: new Date(),
+        duration,
       });
       
-      await prisma.backupLog.create({
-        data: {
-          backupJobId: backupId,
-          level: 'error',
-          message: 'Backup failed',
-          details: JSON.stringify({ error: errorMessage }),
-        },
+      await metadataClient.addLog(backupId, {
+        level: 'error',
+        message: 'Backup failed',
+        details: JSON.stringify({ error: errorMessage }),
       });
       
       return {
@@ -256,27 +242,17 @@ export class PostgresBackupService {
   }
   
   async listBackups(): Promise<any[]> {
-    const backups = await prisma.backupJob.findMany({
-      where: {
-        dbType: 'postgresql',
-        dbName: this.dbConfig.database,
-        status: 'success',
-      },
-      orderBy: {
-        startedAt: 'desc',
-      },
+    const res = await metadataClient.listJobs({
+      dbType: 'postgresql',
+      dbName: this.dbConfig.database,
+      status: 'success',
       take: 50,
+      orderBy: 'desc',
     });
-    
-    return backups;
+    return res.jobs;
   }
   
   async getBackupStatus(backupId: string): Promise<any> {
-    return await prisma.backupJob.findUnique({
-      where: { id: backupId },
-      include: {
-        logs: true,
-      },
-    });
+    return await metadataClient.getJob(backupId, true);
   }
 }
