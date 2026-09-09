@@ -83,7 +83,10 @@ export function registerConnectCommand(program: Command): void {
           log.error('Database connection failed', { error: result.error });
           process.exit(1);
         }
-      } catch (error) {
+      } catch (error: any) {
+        if (error?.message?.startsWith('process.exit')) {
+          throw error;
+        }
         spinner.fail(chalk.red('Connection error'));
         console.error(chalk.red(`\n✗ Unexpected error: ${error instanceof Error ? error.message : String(error)}`));
         log.error('Unexpected error during connection', { error });

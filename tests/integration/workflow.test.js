@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const { Command } = require('commander');
 
 const { withMockedModules, clearModule } = require('../helpers/mock-require');
-const { createNoopLogger } = require('../helpers/mocks');
+const { createNoopLogger, createProcessExitInterceptor } = require('../helpers/mocks');
 
 const connectModulePath = '../../src/commands/connect.ts';
 const backupModulePath = '../../src/commands/backup.ts';
@@ -21,6 +21,8 @@ test('mocked workflow connects, backs up, and lists backups end to end', async (
     {
       ora: () => ({ start() { return this; }, succeed() { return this; }, fail() { return this; }, stop() { return this; } }),
       axios: {
+        create() { return this; },
+        interceptors: { request: { use: () => {} }, response: { use: () => {} } },
         post: async (url, payload) => {
           if (url.includes('/api/backup')) {
             const record = {
@@ -71,6 +73,11 @@ test('mocked workflow connects, backs up, and lists backups end to end', async (
           },
         },
       },
+      '../infrastructure': {
+        infrastructureManager: {
+          ensureInfrastructure: async () => ({ healthy: true, running: true }),
+        },
+      },
     },
     () => {
       clearModule(connectModulePath);
@@ -84,14 +91,33 @@ test('mocked workflow connects, backs up, and lists backups end to end', async (
     }
   );
 
-  const program = new Command();
-  modules.registerConnectCommand(program);
-  modules.registerBackupCommand(program);
-  modules.registerListCommand(program);
+  const exit = createProcessExitInterceptor();
+  try {
+    const program = new Command();
+    modules.registerConnectCommand(program);
+    modules.registerBackupCommand(program);
+    modules.registerListCommand(program);
 
-  await program.parseAsync(['node', 'db-backup', 'connect', '--type', 'postgresql', '--database', 'appdb']);
-  await program.parseAsync(['node', 'db-backup', 'backup', '--type', 'full']);
-  await program.parseAsync(['node', 'db-backup', 'list']);
+    try {
+      await program.parseAsync(['node', 'db-backup', 'connect', '--type', 'postgresql', '--database', 'appdb']);
+    } catch (e) {
+      if (!e.message.startsWith('process.exit')) throw e;
+    }
+
+    try {
+      await program.parseAsync(['node', 'db-backup', 'backup', '--type', 'full']);
+    } catch (e) {
+      if (!e.message.startsWith('process.exit')) throw e;
+    }
+
+    try {
+      await program.parseAsync(['node', 'db-backup', 'list']);
+    } catch (e) {
+      if (!e.message.startsWith('process.exit')) throw e;
+    }
+  } finally {
+    exit.restore();
+  }
 
   assert.equal(state.database.database, 'appdb');
   assert.equal(state.backups.length, 1);

@@ -3,6 +3,8 @@ import chalk from 'chalk';
 import { prisma } from "../lib/prisma";
 import httpClient from '../utils/http-client';
 import { createModuleLogger } from '../logger';
+import { ListBackupsUseCase } from '../application/use-cases/list-backups.use-case';
+import { PrismaBackupRepository } from '../infrastructure/repositories/prisma-backup.repository';
 
 const log = createModuleLogger('list-command');
 
@@ -17,24 +19,14 @@ export function registerListCommand(program: Command): void {
     .option('--full-id', 'Show full backup IDs (default: true)', true)
     .action(async (options) => {
       try {
-        const where: any = {
+        const repo = new PrismaBackupRepository(prisma as any);
+        const listUseCase = new ListBackupsUseCase(repo);
+
+        const backups = await listUseCase.execute({
+          database: options.database,
+          type: options.type,
+          limit: parseInt(options.limit, 10),
           status: options.status,
-        };
-        
-        if (options.database) {
-          where.dbName = options.database;
-        }
-        
-        if (options.type) {
-          where.backupType = options.type;
-        }
-        
-        const backups = await prisma.backupJob.findMany({
-          where,
-          orderBy: {
-            startedAt: 'desc',
-          },
-          take: parseInt(options.limit),
         });
         
         if (backups.length === 0) {
@@ -80,7 +72,10 @@ export function registerListCommand(program: Command): void {
         
         log.info('Listed backups', { count: backups.length, filters: options });
         process.exit(0);
-      } catch (error) {
+      } catch (error: any) {
+        if (error?.message?.startsWith('process.exit')) {
+          throw error;
+        }
         console.error(chalk.red('\n✗ Failed to list backups:'), error);
         log.error('Failed to list backups', { error });
         process.exit(1);

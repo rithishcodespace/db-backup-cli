@@ -25,13 +25,23 @@ async function runTest() {
     }
     fs.mkdirSync(backupDir, { recursive: true });
 
-    const rootConn = await mysql.createConnection({
-        host: dbConfig.host,
-        port: dbConfig.port,
-        user: dbConfig.username,
-        password: dbConfig.password,
-        multipleStatements: true
-    });
+    let rootConn;
+    try {
+        rootConn = await mysql.createConnection({
+            host: dbConfig.host,
+            port: dbConfig.port,
+            user: dbConfig.username,
+            password: dbConfig.password,
+            multipleStatements: true,
+            connectTimeout: 2000,
+        });
+    } catch (err) {
+        if (err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT') {
+            console.log(`⚠️  Skipping MySQL incremental test: MySQL daemon not reachable on ${dbConfig.host}:${dbConfig.port}`);
+            return;
+        }
+        throw err;
+    }
 
     await rootConn.query(`DROP DATABASE IF EXISTS ${dbConfig.database}`);
     await rootConn.query(`CREATE DATABASE ${dbConfig.database}`);
