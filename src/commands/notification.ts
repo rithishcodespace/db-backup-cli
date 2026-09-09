@@ -43,7 +43,7 @@ async function getEmailConfig(): Promise<EmailConfig | null> {
   if (!to) {
     console.warn(chalk.yellow('\n⚠️  Email configuration is missing a recipient email.'));
     console.warn(chalk.dim('   Please reconfigure email with --to option:'));
-    console.warn(chalk.dim('   db-backup notification email configure --smtp-host ... --to recipient@example.com'));
+    console.warn(chalk.dim('   dbvault notification email configure --smtp-host ... --to recipient@example.com'));
   }
   
   return {
@@ -194,7 +194,7 @@ export function registerNotificationCommand(program: Command): void {
         if (!config) {
           spinner.fail('Email configuration not found');
           console.error(chalk.yellow('\n💡 Configure email first:'));
-          console.error(chalk.dim('  db-backup notification email configure --smtp-host ... --to recipient@example.com'));
+          console.error(chalk.dim('  dbvault notification email configure --smtp-host ... --to recipient@example.com'));
           process.exit(1);
         }
 
@@ -205,9 +205,9 @@ export function registerNotificationCommand(program: Command): void {
           spinner.fail('No recipient specified');
           console.error(chalk.yellow('\n💡 No recipient configured. Either:'));
           console.error(chalk.dim('  • Configure a default recipient with:'));
-          console.error(chalk.dim('    db-backup notification email configure --smtp-host ... --to recipient@example.com'));
+          console.error(chalk.dim('    dbvault notification email configure --smtp-host ... --to recipient@example.com'));
           console.error(chalk.dim('  • Or provide a recipient with:'));
-          console.error(chalk.dim('    db-backup notification email test --to recipient@example.com'));
+          console.error(chalk.dim('    dbvault notification email test --to recipient@example.com'));
           process.exit(1);
         }
 
@@ -276,7 +276,7 @@ Sent at: ${new Date().toISOString()}
         if (!config) {
           console.log(chalk.yellow('\n📭 No email configuration found'));
           console.log(chalk.dim('\nConfigure email with:'));
-          console.log(chalk.dim('  db-backup notification email configure --smtp-host ... --to recipient@example.com'));
+          console.log(chalk.dim('  dbvault notification email configure --smtp-host ... --to recipient@example.com'));
           return;
         }
 
@@ -295,7 +295,7 @@ Sent at: ${new Date().toISOString()}
         if (!config.to) {
           console.log(chalk.yellow('\n⚠️  No default recipient configured.'));
           console.log(chalk.dim('   Update with:'));
-          console.log(chalk.dim('   db-backup notification email configure --smtp-host ... --to recipient@example.com'));
+          console.log(chalk.dim('   dbvault notification email configure --smtp-host ... --to recipient@example.com'));
         }
 
       } catch (error: any) {
@@ -418,7 +418,7 @@ Sent at: ${new Date().toISOString()}
         if (!config) {
           spinner.fail('Slack configuration not found');
           console.error(chalk.yellow('\n💡 Configure Slack first:'));
-          console.error(chalk.dim('  db-backup notification slack configure --webhook ...'));
+          console.error(chalk.dim('  dbvault notification slack configure --webhook ...'));
           process.exit(1);
         }
 
@@ -480,7 +480,7 @@ Sent at: ${new Date().toISOString()}
         if (!config) {
           console.log(chalk.yellow('\n📭 No Slack configuration found'));
           console.log(chalk.dim('\nConfigure Slack with:'));
-          console.log(chalk.dim('  db-backup notification slack configure --webhook ...'));
+          console.log(chalk.dim('  dbvault notification slack configure --webhook ...'));
           return;
         }
 

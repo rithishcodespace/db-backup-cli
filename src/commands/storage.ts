@@ -81,7 +81,7 @@ export function registerStorageCommand(program: Command): void {
           }
         }
         console.log(chalk.dim(`  Default: No`));
-        console.log(chalk.dim(`\n💡 To set as default: db-backup storage set-default ${storage.name}`));
+        console.log(chalk.dim(`\n💡 To set as default: dbvault storage set-default ${storage.name}`));
         
         log.info('Storage location added', { name: options.name, type: options.type });
         process.exit(0);
@@ -104,7 +104,7 @@ export function registerStorageCommand(program: Command): void {
         
         if (storages.length === 0) {
           console.log(chalk.yellow('\n📭 No storage locations configured'));
-          console.log(chalk.dim('\nAdd one with: db-backup storage add --type local --name my-storage'));
+          console.log(chalk.dim('\nAdd one with: dbvault storage add --type local --name my-storage'));
           return;
         }
         
@@ -134,8 +134,8 @@ export function registerStorageCommand(program: Command): void {
         });
         
         console.log(chalk.dim('─'.repeat(80)));
-        console.log(chalk.dim(`\n💡 Use: db-backup storage show <name> for details`));
-        console.log(chalk.dim(`   db-backup storage set-default <name> to set as default`));
+        console.log(chalk.dim(`\n💡 Use: dbvault storage show <name> for details`));
+        console.log(chalk.dim(`   dbvault storage set-default <name> to set as default`));
         process.exit(0);
         
       } catch (error: any) {
@@ -270,7 +270,7 @@ export function registerStorageCommand(program: Command): void {
           console.log(chalk.dim(`  Region: ${storage.region}`));
         }
         console.log(chalk.dim(`\n💡 Now you can backup without specifying storage:`));
-        console.log(chalk.dim(`  db-backup backup --type full`));
+        console.log(chalk.dim(`  dbvault backup --type full`));
         process.exit(0);
         
       } catch (error: any) {

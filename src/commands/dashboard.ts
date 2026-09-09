@@ -16,7 +16,7 @@ export function registerDashboardCommand(program: Command) {
       const devUrl = `http://localhost:${options.port || '5173'}`;
       const gatewayUrl = 'http://localhost:3000/dashboard';
 
-      console.log(chalk.bold.blue('\n◆ db-backup Web Dashboard Launcher\n'));
+      console.log(chalk.bold.blue('\n◆ dbvault Web Dashboard Launcher\n'));
       const spinner = ora('Checking dashboard availability...').start();
 
       let targetUrl = '';

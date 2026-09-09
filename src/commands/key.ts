@@ -24,7 +24,7 @@ export function registerKeyCommand(program: Command): void {
                 if (keys.length === 0) {
                     console.log(chalk.yellow('\n📭 No encryption keys found locally'));
                     console.log(chalk.dim('\nCreate encrypted backups with:'));
-                    console.log(chalk.dim('  db-backup backup --encrypt'));
+                    console.log(chalk.dim('  dbvault backup --encrypt'));
                     return;
                 }
                 

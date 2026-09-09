@@ -22,13 +22,13 @@ interface CheckResult {
 }
 
 export function registerConfigCheckCommand(program: Command): void {
-  const configCmd = program.command('config').description('Manage and check db-backup CLI configuration');
+  const configCmd = program.command('config').description('Manage and check dbvault CLI configuration');
 
   configCmd
     .command('check')
-    .description('Validate db-backup configuration, databases, storage, and service reachability')
+    .description('Validate dbvault configuration, databases, storage, and service reachability')
     .action(async () => {
-      console.log(chalk.bold.cyan('\n◆ db-backup configuration check\n'));
+      console.log(chalk.bold.cyan('\n◆ dbvault configuration check\n'));
       console.log(chalk.dim('─'.repeat(60)));
 
       const results: CheckResult[] = [];
@@ -48,7 +48,7 @@ export function registerConfigCheckCommand(program: Command): void {
           category: 'Client Identity',
           name: 'Device Identity',
           success: false,
-          message: 'Client ID missing. Run "db-backup init"',
+          message: 'Client ID missing. Run "dbvault init"',
           required: true,
         });
       }
@@ -140,7 +140,7 @@ export function registerConfigCheckCommand(program: Command): void {
           category: 'Databases',
           name: 'Database Configuration',
           success: false,
-          message: 'No database configured. Run "db-backup init"',
+          message: 'No database configured. Run "dbvault init"',
           required: true,
         });
       }
@@ -236,7 +236,7 @@ export function registerConfigCheckCommand(program: Command): void {
 
       if (hasRequiredFailure) {
         console.log(chalk.bold.red('\n✗ Configuration check failed. Some required items need attention.'));
-        console.log(chalk.yellow('💡 Run "db-backup init" to reconfigure.\n'));
+        console.log(chalk.yellow('💡 Run "dbvault init" to reconfigure.\n'));
         process.exit(1);
       } else {
         console.log(chalk.bold.green('\n◆ Configuration is valid.\n'));

@@ -1,5 +1,7 @@
 import dotenv from 'dotenv';
 import fs from 'fs';
+import path from 'path';
+import os from 'os';
 
 // Load environment variables
 dotenv.config();
@@ -51,7 +53,19 @@ class ConfigManager {
   private configPath: string;
 
   constructor() {
-    this.configPath = process.env.CONFIG_PATH || './config.json';
+    const localConfig = './config.json';
+    const globalConfig = path.join(os.homedir(), '.db-backup', 'config.json');
+
+    if (process.env.CONFIG_PATH) {
+      this.configPath = process.env.CONFIG_PATH;
+    } else if (fs.existsSync(localConfig)) {
+      this.configPath = localConfig;
+    } else if (fs.existsSync(globalConfig)) {
+      this.configPath = globalConfig;
+    } else {
+      this.configPath = localConfig;
+    }
+
     this.config = this.loadConfig();
     this.ensureDirectories();
   }
@@ -71,11 +85,23 @@ class ConfigManager {
 
     // Get package version
     let version = '1.0.0';
-    try {
-      const packageJson = require('../../package.json');
-      version = packageJson.version;
-    } catch (error) {
-      // Ignore error
+    const candidatePaths = [
+      path.resolve(__dirname, '../../package.json'),
+      path.resolve(__dirname, '../../../package.json'),
+      path.resolve(process.cwd(), 'package.json'),
+    ];
+    for (const p of candidatePaths) {
+      if (fs.existsSync(p)) {
+        try {
+          const pkg = JSON.parse(fs.readFileSync(p, 'utf-8'));
+          if ((pkg.name === 'dbvault' || pkg.name === 'db-backup-cli') && pkg.version) {
+            version = pkg.version;
+            break;
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      }
     }
 
     const defaultConfig: AppConfig = {
@@ -140,8 +166,13 @@ class ConfigManager {
     try {
       // Remove version from saved config (it comes from package.json)
       const configToSave = { ...this.config };
-      delete configToSave.version;
-      
+      delete (configToSave as any).version;
+
+      const configDir = path.dirname(this.configPath);
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+      }
+
       fs.writeFileSync(this.configPath, JSON.stringify(configToSave, null, 2), { mode: 0o600 });
       this.ensureDirectories();
     } catch (error) {

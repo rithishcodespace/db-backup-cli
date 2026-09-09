@@ -31,7 +31,7 @@ export function registerBackupCommand(program: Command): void {
     .option('--exclude-tables <tables>', 'Comma-separated list of tables to exclude')
     .option('--async', 'Run backup asynchronously (return immediately)', false)
     .option('--no-compress', 'Disable compression')
-    .option('--storage <name>', 'Storage name (from db-backup storage list)')
+    .option('--storage <name>', 'Storage name (from dbvault storage list)')
     .option('--encrypt', 'Enable AES-256-GCM encryption for the backup', false)
     .option('--key <key>', '32-byte AES-256 encryption key (64 hex characters)')
     .option('--no-store-key', 'Do not store the encryption key in local keystore', false)
@@ -43,7 +43,7 @@ export function registerBackupCommand(program: Command): void {
         const dbConfig = config.get('database');
         if (!dbConfig) {
           spinner.fail('No database configuration found');
-          console.error(chalk.red('\n✗ Please run "db-backup connect" first'));
+          console.error(chalk.red('\n✗ Please run "dbvault connect" first'));
           process.exit(1);
         }
 
@@ -87,7 +87,7 @@ export function registerBackupCommand(program: Command): void {
           console.log(chalk.cyan('\n📋 Backup Job Details:'));
           console.log(chalk.dim(`  Backup ID: ${result.backupId}`));
           console.log(chalk.dim(`  Status: queued`));
-          console.log(chalk.dim(`\n💡 Track progress with: db-backup dashboard or check logs`));
+          console.log(chalk.dim(`\n💡 Track progress with: dbvault dashboard or check logs`));
           process.exit(0);
         }
 
@@ -113,7 +113,7 @@ export function registerBackupCommand(program: Command): void {
           const storages = await backupRepo.listStorages(true);
           if (storages.length === 0) {
             console.error(chalk.dim('  No storage locations configured.'));
-            console.error(chalk.dim('  Run: db-backup storage add --type local --name my-storage'));
+            console.error(chalk.dim('  Run: dbvault storage add --type local --name my-storage'));
           } else {
             storages.forEach((s: any) => console.log(chalk.dim(`  • ${s.name} (${s.type})`)));
           }

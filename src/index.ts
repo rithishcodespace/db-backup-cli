@@ -51,8 +51,8 @@ if (process.argv.includes('--worker')) {
   // CLI MODE: Only runs when NOT in worker mode  
   // Configure CLI
   program
-    .name('db-backup')
-    .description('Database Backup CLI Utility - Backup and restore databases with ease')
+    .name('dbvault')
+    .description('dbvault - Database Backup and Recovery CLI Utility')
     .version(config.get('version'), '-v, --version', 'Display current version')
     .option('-c, --config <path>', 'Path to configuration file')
     .option('--verbose', 'Enable verbose logging')

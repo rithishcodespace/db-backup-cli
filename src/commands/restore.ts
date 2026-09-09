@@ -46,14 +46,14 @@ export function registerRestoreCommand(program: Command): void {
         dbConfig = config.get('database');
         if (!dbConfig) {
           spinner.fail('No database configuration found');
-          console.error(chalk.red('\n✗ Please run "db-backup connect" first'));
+          console.error(chalk.red('\n✗ Please run "dbvault connect" first'));
           process.exit(1);
         }
 
         if (!options.id && !options.file) {
           spinner.fail('Please specify a backup ID or file path');
           console.error(chalk.dim('\n  Use --id <backup-id> or --file <path>'));
-          console.error(chalk.dim('\n  List available backups: db-backup list'));
+          console.error(chalk.dim('\n  List available backups: dbvault list'));
           process.exit(1);
         }
 

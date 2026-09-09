@@ -74,7 +74,7 @@ async function validateAndGetNotificationConfigs(
         if (!config || !config.enabled) {
           console.error(chalk.red(`\n❌ Email notification is not configured.\n`));
           console.error(chalk.yellow('Configure it with:'));
-          console.error(chalk.dim('  db-backup notification email configure \\'));
+          console.error(chalk.dim('  dbvault notification email configure \\'));
           console.error(chalk.dim('    --smtp-host smtp.gmail.com \\'));
           console.error(chalk.dim('    --smtp-port 587 \\'));
           console.error(chalk.dim('    --smtp-user your-email@gmail.com \\'));
@@ -102,7 +102,7 @@ async function validateAndGetNotificationConfigs(
         if (!config || !config.enabled) {
           console.error(chalk.red(`\n❌ Slack notification is not configured.\n`));
           console.error(chalk.yellow('Configure it with:'));
-          console.error(chalk.dim('  db-backup notification slack configure \\'));
+          console.error(chalk.dim('  dbvault notification slack configure \\'));
           console.error(chalk.dim('    --webhook https://hooks.slack.com/services/...'));
           process.exit(1);
         }
@@ -157,7 +157,7 @@ export function registerScheduleCommand(program: Command): void {
         const dbConfig = config.get('database');
         if (!dbConfig) {
           spinner.fail('No database configuration found');
-          console.error(chalk.red('\n✗ Please run "db-backup connect" first'));
+          console.error(chalk.red('\n✗ Please run "dbvault connect" first'));
           process.exit(1);
         }
         
@@ -276,7 +276,7 @@ export function registerScheduleListCommand(program: Command): void {
         
         if (!response.data.success || response.data.schedules.length === 0) {
           console.log(chalk.yellow('\n📭 No schedules found'));
-          console.log(chalk.dim('\nCreate a schedule with: db-backup schedule --cron "0 2 * * *"'));
+          console.log(chalk.dim('\nCreate a schedule with: dbvault schedule --cron "0 2 * * *"'));
           return;
         }
         

@@ -1,22 +1,24 @@
 {
-  "name": "db-backup-cli",
+  "name": "dbvault",
   "version": "1.0.0",
   "license": "MIT",
-  "description": "A utility to backup databases",
+  "description": "A production-grade CLI utility to backup and restore databases with Docker runtime",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "bin": {
-    "db-backup": "bin/db_backup.js"
+    "dbvault": "bin/dbvault.js",
+    "db-backup": "bin/dbvault.js"
   },
   "files": [
-    "dist",
     "bin",
-    "prisma",
-    "dashboard/dist",
-    "scripts",
+    "dist",
     "docker-compose.yml",
-    "docker"
+    "dashboard/dist",
+    "generated"
   ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "directories": {
     "test": "tests"
   },
@@ -79,14 +81,14 @@
   "scripts": {
     "test": "npm run test:all",
     "build": "tsc",
-    "build:all": "tsc && cd dashboard && npm run build",
+    "build:all": "prisma generate && tsc && cd dashboard && npm run build",
+    "prepack": "prisma generate && tsc && cd dashboard && npm run build",
     "prepublishOnly": "npm run build:all",
     "dev": "nodemon --exec ts-node src/index.ts",
     "start": "node dist/src/server.js",
     "clean": "rm -rf dist",
     "lint": "eslint src/**/*.ts",
     "format": "prettier --write \"src/**/*.ts\"",
-    "postinstall": "prisma generate",
     "services:build": "tsc",
     "services:start": "chmod +x scripts/start-services.sh && ./scripts/start-services.sh",
     "services:stop": "chmod +x scripts/stop-services.sh && ./scripts/stop-services.sh",
@@ -109,7 +111,6 @@
     "url": "git+https://github.com/rithishcodespace/db-backup-cli.git"
   },
   "author": "Rithish",
-  "license": "ISC",
   "bugs": {
     "url": "https://github.com/rithishcodespace/db-backup-cli/issues"
   },

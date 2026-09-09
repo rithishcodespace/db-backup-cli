@@ -1,12 +1,9 @@
 services:
   db-backup:
-    image: ${IMAGE_PREFIX:-rithish2006/}db-backup:${VERSION:-latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${IMAGE_PREFIX:-rithish2006/}db-backup:${VERSION:-1.0.0}
     container_name: db-backup
     ports:
-      - "3000:3000"
+      - "${PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000

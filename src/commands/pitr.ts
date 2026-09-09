@@ -23,7 +23,7 @@ export function registerPitrCommand(program: Command): void {
       const dbConfig = config.get('database');
       if (!dbConfig || dbConfig.type !== 'postgresql') {
         console.error(chalk.red('\n✗ Active database must be PostgreSQL for PITR commands.'));
-        console.error(chalk.dim('  Run: db-backup connect --type postgresql ...'));
+        console.error(chalk.dim('  Run: dbvault connect --type postgresql ...'));
         process.exit(1);
       }
 
@@ -56,7 +56,7 @@ export function registerPitrCommand(program: Command): void {
 
         if (res.restartRequired) {
           console.log(chalk.yellow('\n⚠️  A PostgreSQL server restart is REQUIRED for changes to take effect.'));
-          console.log(chalk.dim('   Restart your PostgreSQL server and re-run: db-backup pitr setup'));
+          console.log(chalk.dim('   Restart your PostgreSQL server and re-run: dbvault pitr setup'));
         } else if (!res.activelyWorking) {
           console.log(chalk.yellow('\n💡 Expected postgresql.conf settings:'));
           console.log(chalk.dim(`   wal_level = replica`));
@@ -169,7 +169,7 @@ export function registerPitrCommand(program: Command): void {
         const list = await pitrService.listRecoveryPoints();
         console.log(chalk.cyan(`\n📦 Available Base Backups for ${dbConfig.database}:`));
         if (list.length === 0) {
-          console.log(chalk.dim('  No physical base backups found. Run: db-backup pitr backup'));
+          console.log(chalk.dim('  No physical base backups found. Run: dbvault pitr backup'));
           return;
         }
 

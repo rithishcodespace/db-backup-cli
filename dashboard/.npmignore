@@ -1,0 +1,10 @@
+node_modules/
+src/
+*.local
+.vscode/
+.idea/
+*.log
+
+# Explicitly keep built production assets
+!dist
+!dist/**

@@ -3,10 +3,10 @@ import * as packageJson from '../../package.json';
 
 export function showHelp(): void {
   console.log(`
-    ${chalk.bold.cyan('Database Backup CLI Utility')} v${packageJson.version}
+    ${chalk.bold.cyan('dbvault CLI Utility')} v${packageJson.version}
 
     ${chalk.bold('Usage:')}
-    db-backup <command> [options]
+    dbvault <command> [options]
 
     ${chalk.bold('Commands:')}
     ${chalk.green('init')}          Initialize project setup and onboarding wizard
@@ -35,16 +35,16 @@ export function showHelp(): void {
 
     ${chalk.bold('Examples:')}
     ${chalk.dim('# Connect to a PostgreSQL database')}
-    db-backup connect --type postgresql --host localhost --user admin --db mydb
+    dbvault connect --type postgresql --host localhost --user admin --db mydb
 
     ${chalk.dim('# Connect to MySQL')}
-    db-backup connect --type mysql --host localhost --port 3306 --user root --db test
+    dbvault connect --type mysql --host localhost --port 3306 --user root --db test
 
     ${chalk.dim('# Perform a full backup')}
-    db-backup backup --type full --compress
+    dbvault backup --type full --compress
 
     ${chalk.dim('# Perform backup with custom name')}
-    db-backup backup --name "myapp_backup_$(date +%Y%m%d)"
+    dbvault backup --name "myapp_backup_$(date +%Y%m%d)"
 
     ${chalk.bold('Documentation:')}
     For more information, visit: ${chalk.underline('https://github.com/your-repo/db-backup-cli')}

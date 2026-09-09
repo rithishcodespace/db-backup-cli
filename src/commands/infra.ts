@@ -11,7 +11,7 @@ const log = createModuleLogger('infra-command');
 export function registerInfraCommand(program: Command): void {
   const infraCmd = program
     .command('infra')
-    .description('Inspect and manage db-backup runtime infrastructure');
+    .description('Inspect and manage dbvault runtime infrastructure');
 
   // ==================== STATUS ====================
   infraCmd

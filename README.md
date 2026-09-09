@@ -22,7 +22,7 @@ Featuring Point-In-Time Recovery (PITR), BullMQ asynchronous worker queues, mult
 
 ## 📸 Visual Showcase
 
-### 1. Proactive Health Diagnostics (`db-backup doctor`)
+### 1. Proactive Health Diagnostics (`dbvault doctor`)
 The built-in diagnostic engine validates Node.js versions, configuration health, Docker daemon states, Redis connectivity, database access, keystores, and microservice HTTP endpoints before executing critical jobs.
 
 <div align="center">
@@ -66,7 +66,7 @@ Real-time log streaming directly from worker execution containers, featuring sev
 flowchart TD
     %% Presentation Layer
     subgraph Presentation [" 🖥️ User & Presentation Layer "]
-        CLI["💻 db-backup CLI (Node.js/Commander)"]
+        CLI["💻 dbvault CLI (Node.js/Commander)"]
         UI["🌐 Companion Web Dashboard (React/Vite :3000/dashboard)"]
         SWAG["📑 Swagger UI & OpenAPI 3.0 (:3000/api-docs)"]
     end
@@ -168,12 +168,12 @@ flowchart TD
 * **PostgreSQL Point-In-Time Recovery (PITR)**: Continuous Write-Ahead Log (WAL) archiving via PostgreSQL's `archive_command`, timeline inspection, and timestamp recovery (`recovery_target_time`).
 * **MySQL Binary Log Incremental Chains**: Automated incremental backups tracking `mysqlbinlog` position intervals relative to full base level-0 dumps.
 * **Asynchronous Distributed Queues**: Powered by **BullMQ** and **Redis** for concurrency management, automatic backoff retries, and job state isolation.
-* **Bank-Grade AES-256-GCM Encryption**: Payloads encrypted before storage with unique IVs, auth tags, and an isolated local keystore (`db-backup key`).
+* **Bank-Grade AES-256-GCM Encryption**: Payloads encrypted before storage with unique IVs, auth tags, and an isolated local keystore (`dbvault key`).
 * **Multi-Cloud Storage Targets**: Seamless destination abstraction supporting local disks and AWS S3 buckets (with presigned URLs and streaming uploads).
-* **Automated Cron Scheduling**: Persistent cron schedules (`db-backup schedule`) managed through an autonomous background scheduler daemon.
-* **Proactive Diagnostics (`db-backup doctor`)**: Real-time evaluation of daemon health, host directories, port collisions, keystores, and container health.
-* **On-Demand Infrastructure Lifecycle Manager (`db-backup infra`)**: Autonomous Docker Compose adapter to start, stop, restart, and inspect service health on demand.
-* **Interactive Onboarding (`db-backup init`)**: Beautiful step-by-step terminal wizard powered by `@clack/prompts`.
+* **Automated Cron Scheduling**: Persistent cron schedules (`dbvault schedule`) managed through an autonomous background scheduler daemon.
+* **Proactive Diagnostics (`dbvault doctor`)**: Real-time evaluation of daemon health, host directories, port collisions, keystores, and container health.
+* **On-Demand Infrastructure Lifecycle Manager (`dbvault infra`)**: Autonomous Docker Compose adapter to start, stop, restart, and inspect service health on demand.
+* **Interactive Onboarding (`dbvault init`)**: Beautiful step-by-step terminal wizard powered by `@clack/prompts`.
 * **Complete OpenAPI 3.0 & Swagger UI**: Interactive API documentation hosted at `http://localhost:3000/api-docs`.
 * **Zero Credential Leaks**: Custom Winston logging pipeline automatically scrubs passwords, API keys, S3 secrets, and connection URIs from stdout and log files.
 
@@ -182,17 +182,18 @@ flowchart TD
 ## 🚀 Quick Start
 
 ### Prerequisites
-- **Node.js** `>= 20.0.0`
-- **Docker** & **Docker Compose** (for microservice orchestration)
-- **Redis** running on port `6379` (or launched via `db-backup infra start`)
+- **Node.js** `>= 18.0.0`
+- **Docker** & **Docker Compose** (for the all-in-one production runtime)
 
 ### 1. Installation
 
 #### Global Install (via npm)
 ```bash
-npm install -g db-backup-cli
-db-backup --help
+npm install -g dbvault
+dbvault --help
 ```
+
+> **Note**: The npm package is published as **`dbvault`**, and the executable CLI command registered globally is **`dbvault`** (with `db-backup` supported as an alias).
 
 #### From Source
 ```bash
@@ -203,31 +204,44 @@ npm run build:all
 npm link
 ```
 
-### 2. Interactive Setup Wizard
+### 2. First-Time Setup Wizard
 Run the onboarding wizard to configure database credentials, default storage, and encryption keys:
 ```bash
-db-backup init
+dbvault init
 ```
 
-### 3. Start Infrastructure & Run Diagnostics
+### 3. Start the Production Runtime & Verify
+Start the all-in-one container and verify environment health:
 ```bash
-# Start background microservice mesh via Docker
-db-backup infra start
+# Start the production container and await microservice readiness
+dbvault start
 
-# Verify all services and database connectivity
-db-backup doctor
+# Inspect running container and supervised microservices
+dbvault status
+
+# Run proactive health diagnostics
+dbvault doctor
 ```
 
-### 4. Execute a Backup
+### 4. Execute Backups & Manage Lifecycle
 ```bash
 # Perform a full backup with compression
-db-backup backup --type full --compress
+dbvault backup --type full --compress
 
 # Perform an AES-256 encrypted backup to AWS S3
-db-backup backup --storage s3 --encrypt
+dbvault backup --storage s3 --encrypt
 
-# Perform a MySQL or PostgreSQL incremental backup
-db-backup backup --incremental
+# Stream or tail worker execution logs
+dbvault logs --tail 25
+
+# Gracefully stop the runtime (all backup files & volumes safely preserved)
+dbvault stop
+```
+
+### 5. Uninstallation
+To completely remove the global CLI:
+```bash
+npm uninstall -g dbvault
 ```
 
 ---
@@ -238,129 +252,129 @@ The following flowchart illustrates the typical operational lifecycle of a produ
 
 ```mermaid
 flowchart TD
-    A["1. Setup & Diagnostics<br/><code>db-backup init</code> / <code>doctor</code>"] --> B["2. Start Infrastructure<br/><code>db-backup infra start</code>"]
-    B --> C["3. Connect Database<br/><code>db-backup connect</code>"]
-    C --> D["4. Configure Storage & Encryption<br/><code>db-backup storage add</code> / <code>key generate</code>"]
-    D --> E["5. Execute Backup<br/><code>db-backup backup --compress --encrypt</code>"]
-    E --> F["6. Automate Schedules & Alerts<br/><code>db-backup schedule</code> / <code>notification</code>"]
-    F --> G["7. Monitor & Audit<br/><code>db-backup list</code> / <code>dashboard</code>"]
-    G --> H["8. Disaster Recovery<br/><code>db-backup restore --id &lt;ID&gt;</code>"]
-    C -.-> I["Optional: PostgreSQL PITR<br/><code>db-backup pitr setup / restore</code>"]
+    A["1. Setup & Diagnostics<br/><code>dbvault init</code> / <code>doctor</code>"] --> B["2. Start Infrastructure<br/><code>dbvault infra start</code>"]
+    B --> C["3. Connect Database<br/><code>dbvault connect</code>"]
+    C --> D["4. Configure Storage & Encryption<br/><code>dbvault storage add</code> / <code>key generate</code>"]
+    D --> E["5. Execute Backup<br/><code>dbvault backup --compress --encrypt</code>"]
+    E --> F["6. Automate Schedules & Alerts<br/><code>dbvault schedule</code> / <code>notification</code>"]
+    F --> G["7. Monitor & Audit<br/><code>dbvault list</code> / <code>dashboard</code>"]
+    G --> H["8. Disaster Recovery<br/><code>dbvault restore --id &lt;ID&gt;</code>"]
+    C -.-> I["Optional: PostgreSQL PITR<br/><code>dbvault pitr setup / restore</code>"]
 ```
 
 ### Stage 1: Initial Setup & Environment Verification
 1. Run the interactive onboarding wizard to configure database credentials, default storage target, and initial encryption keys:
    ```bash
-   db-backup init
+   dbvault init
    ```
 2. Inspect environment health, required ports, Redis, Docker, and file permissions:
    ```bash
-   db-backup doctor
+   dbvault doctor
    ```
-3. Start the background microservice mesh (if running via Docker):
+3. Start the production runtime container:
    ```bash
-   db-backup infra start
-   db-backup infra status
+   dbvault start
+   dbvault status
    ```
 
 ### Stage 2: Database Connection & Verification
 Connect your active database and test connectivity across any supported engine (PostgreSQL, MySQL, MongoDB, SQLite):
 ```bash
 # PostgreSQL
-db-backup connect --type postgresql --host localhost --port 5432 --user postgres --password secret --database my_production_db
+dbvault connect --type postgresql --host localhost --port 5432 --user postgres --password secret --database my_production_db
 
 # MySQL / MariaDB
-db-backup connect --type mysql --host localhost --port 3306 --user root --password secret --database app_db
+dbvault connect --type mysql --host localhost --port 3306 --user root --password secret --database app_db
 
 # MongoDB
-db-backup connect --type mongodb --host localhost --port 27017 --database store_db
+dbvault connect --type mongodb --host localhost --port 27017 --database store_db
 
 # SQLite
-db-backup connect --type sqlite --database ./data/app.db
+dbvault connect --type sqlite --database ./data/app.db
 ```
 Verify the active configuration and service connectivity at any time:
 ```bash
-db-backup config check
+dbvault config check
 ```
 
 ### Stage 3: Storage Destinations & Security Keystores
 Set up local directory vaults or AWS S3 cloud buckets:
 ```bash
 # Add a local off-site directory
-db-backup storage add --type local --name local-vault --path /mnt/secure_backups
+dbvault storage add --type local --name local-vault --path /mnt/secure_backups
 
 # Add an AWS S3 bucket destination
-db-backup storage add --type s3 --name aws-vault --bucket my-company-backups --region us-east-1 --access-key AKIA... --secret-key wJalr...
+dbvault storage add --type s3 --name aws-vault --bucket my-company-backups --region us-east-1 --access-key AKIA... --secret-key wJalr...
 
 # Set default storage destination
-db-backup storage set-default aws-vault
+dbvault storage set-default aws-vault
 
 # Test connectivity to a storage destination
-db-backup storage test aws-vault
+dbvault storage test aws-vault
 
 # Generate a 256-bit AES cryptographic key
-db-backup key generate
-db-backup key list
+dbvault key generate
+dbvault key list
 ```
 
 ### Stage 4: Executing Database Backups
 Trigger backups with streaming compression, AES-256-GCM encryption, and custom tables:
 ```bash
 # Fast compressed full backup
-db-backup backup --type full --compress
+dbvault backup --type full --compress
 
 # Bank-grade encrypted backup uploaded to AWS S3
-db-backup backup --storage aws-vault --compress --encrypt
+dbvault backup --storage aws-vault --compress --encrypt
 
 # Backup specific tables only
-db-backup backup --tables users,orders,transactions
+dbvault backup --tables users,orders,transactions
 
 # Non-blocking asynchronous backup queued via BullMQ
-db-backup backup --async
+dbvault backup --async
 ```
 
 ### Stage 5: Scheduling & Multi-Channel Alerts
 Automate recurring backup policies with cron expressions and connect alert integrations:
 ```bash
 # Configure Slack notifications
-db-backup notification slack configure --webhook https://hooks.slack.com/services/T00/B00/X00
-db-backup notification slack test
+dbvault notification slack configure --webhook https://hooks.slack.com/services/T00/B00/X00
+dbvault notification slack test
 
 # Configure SMTP Email notifications
-db-backup notification email configure --smtp-host smtp.gmail.com --smtp-port 587 --smtp-user alerts@myorg.com --smtp-password "app-pwd" --from alerts@myorg.com --to devops@myorg.com
-db-backup notification email test
+dbvault notification email configure --smtp-host smtp.gmail.com --smtp-port 587 --smtp-user alerts@myorg.com --smtp-password "app-pwd" --from alerts@myorg.com --to devops@myorg.com
+dbvault notification email test
 
 # Schedule a daily backup at 2:00 AM with Slack + Email alerts
-db-backup schedule --cron "0 2 * * *" --name "daily-production-backup" --storage s3 --retention 30 --notify slack,email
+dbvault schedule --cron "0 2 * * *" --name "daily-production-backup" --storage s3 --retention 30 --notify slack,email
 
 # Inspect all active automated backup schedules
-db-backup schedule:list
+dbvault schedule:list
 ```
 
 ### Stage 6: Telemetry, Logs & Monitoring
 Inspect historical backups and launch the companion web dashboard:
 ```bash
 # List all successful historical backups with full restore IDs
-db-backup list --status success --limit 20
+dbvault list --status success --limit 20
 
 # Launch the companion React + Vite telemetry web dashboard
-db-backup dashboard
+dbvault dashboard
 ```
 
 ### Stage 7: Disaster Recovery & Atomic Restoration
 Restore database from disaster with full validation, dry runs, and safety prompts:
 ```bash
 # 1. Perform a non-destructive dry-run first
-db-backup restore --id <BACKUP_ID> --dry-run
+dbvault restore --id <BACKUP_ID> --dry-run
 
 # 2. Execute full restore (automatically retrieves encryption keys and validates SHA-256 checksums)
-db-backup restore --id <BACKUP_ID>
+dbvault restore --id <BACKUP_ID>
 
 # 3. Restore with table overwrite (drops existing tables before restoring data)
-db-backup restore --id <BACKUP_ID> --drop-existing
+dbvault restore --id <BACKUP_ID> --drop-existing
 
 # 4. Restore directly from a raw or encrypted local file
-db-backup restore --file ./backups/production_dump.sql.gz.enc --key <64-HEX-KEY>
+dbvault restore --file ./backups/production_dump.sql.gz.enc --key <64-HEX-KEY>
 ```
 
 ---
@@ -369,19 +383,19 @@ db-backup restore --file ./backups/production_dump.sql.gz.enc --key <64-HEX-KEY>
 
 Below is the exhaustive reference for all 15 commands and their options in `db-backup-cli`.
 
-### 1. `db-backup init`
+### 1. `dbvault init`
 Interactive step-by-step terminal wizard powered by `@clack/prompts` to onboard a new environment, configure database credentials, default storage, and encryption keys.
 ```bash
-db-backup init
+dbvault init
 ```
 
-### 2. `db-backup doctor`
+### 2. `dbvault doctor`
 Audits environment dependencies (Node.js, Docker, Compose), port health, Redis broker, background microservices, metadata SQLite database, and keystore state.
 ```bash
-db-backup doctor
+dbvault doctor
 ```
 
-### 3. `db-backup infra`
+### 3. `dbvault infra`
 Lifecycle management for the background microservices mesh.
 - **Subcommands**:
   - `status` — Display status of Docker engine, containers, and ports.
@@ -390,12 +404,12 @@ Lifecycle management for the background microservices mesh.
   - `restart` — Restart all microservice containers.
   - `logs` — Stream real-time container logs.
 ```bash
-db-backup infra status
-db-backup infra start
-db-backup infra logs
+dbvault infra status
+dbvault infra start
+dbvault infra logs
 ```
 
-### 4. `db-backup connect`
+### 4. `dbvault connect`
 Test connection to target database and save active configuration to `config.json`.
 - **Options**:
   - `-t, --type <type>` *(required)*: `postgresql`, `mysql`, `mongodb`, or `sqlite`
@@ -406,10 +420,10 @@ Test connection to target database and save active configuration to `config.json
   - `-d, --database <name>`: Target database name *(required for non-SQLite)*
   - `--ssl`: Enable SSL encryption for connection
 ```bash
-db-backup connect --type postgresql --host 127.0.0.1 --port 5432 --user postgres --password secret --database appdb --ssl
+dbvault connect --type postgresql --host 127.0.0.1 --port 5432 --user postgres --password secret --database appdb --ssl
 ```
 
-### 5. `db-backup backup`
+### 5. `dbvault backup`
 Trigger a database backup via the decoupled application use case and worker mesh.
 - **Options**:
   - `-t, --type <type>`: Backup type: `full` or `incremental` *(default: full)*
@@ -426,13 +440,13 @@ Trigger a database backup via the decoupled application use case and worker mesh
   - `--async`: Submit job to BullMQ queue and return immediately
 ```bash
 # Full backup with compression and AES-256-GCM encryption
-db-backup backup --compress --encrypt
+dbvault backup --compress --encrypt
 
 # Backup specific tables to S3 asynchronously
-db-backup backup --tables users,orders --storage s3 --async
+dbvault backup --tables users,orders --storage s3 --async
 ```
 
-### 6. `db-backup list`
+### 6. `dbvault list`
 List historical backups recorded in database metadata with full untruncated IDs.
 - **Options**:
   - `-d, --database <name>`: Filter by database name
@@ -441,13 +455,13 @@ List historical backups recorded in database metadata with full untruncated IDs.
   - `--status <status>`: Filter by status (`success`, `failed`, `running`) *(default: success)*
   - `--full-id`: Show untruncated backup UUIDs *(default: true)*
 ```bash
-db-backup list --status success --limit 10
+dbvault list --status success --limit 10
 ```
 
-### 7. `db-backup restore`
+### 7. `dbvault restore`
 Restore a database from a backup record or local file using the resilient `RestoreUseCase` pipeline.
 - **Options**:
-  - `-i, --id <id>`: Full backup ID (UUID from `db-backup list`)
+  - `-i, --id <id>`: Full backup ID (UUID from `dbvault list`)
   - `-f, --file <path>`: Local backup file path to restore from
   - `-t, --tables <tables>`: Comma-separated tables to restore
   - `--drop-existing`: Clean target database tables before restoring
@@ -457,13 +471,13 @@ Restore a database from a backup record or local file using the resilient `Resto
   - `--key <key>`: 64-hexadecimal character AES decryption key (if not in keystore)
 ```bash
 # Dry run verification
-db-backup restore --id b8a7d123-4567-89ab-cdef-0123456789ab --dry-run
+dbvault restore --id b8a7d123-4567-89ab-cdef-0123456789ab --dry-run
 
 # Full restore with drop-existing
-db-backup restore --id b8a7d123-4567-89ab-cdef-0123456789ab --drop-existing
+dbvault restore --id b8a7d123-4567-89ab-cdef-0123456789ab --drop-existing
 ```
 
-### 8. `db-backup pitr`
+### 8. `dbvault pitr`
 PostgreSQL Continuous Archiving and Point-In-Time Recovery.
 - **Subcommands**:
   - `setup [--auto-configure] [--storage <name>]` — Inspect or auto-configure `wal_level` and `archive_command`.
@@ -472,13 +486,13 @@ PostgreSQL Continuous Archiving and Point-In-Time Recovery.
   - `restore --time <ISO-timestamp> [--target <dir>]` — Restore cluster to an exact past second.
   - `list` — List all physical base backups and archived WAL segments.
 ```bash
-db-backup pitr setup --auto-configure
-db-backup pitr status
-db-backup pitr backup
-db-backup pitr restore --time "2026-09-09T09:30:00Z"
+dbvault pitr setup --auto-configure
+dbvault pitr status
+dbvault pitr backup
+dbvault pitr restore --time "2026-09-09T09:30:00Z"
 ```
 
-### 9. `db-backup storage`
+### 9. `dbvault storage`
 Manage local and cloud storage repositories.
 - **Subcommands**:
   - `add` — Add storage location.
@@ -494,24 +508,24 @@ Manage local and cloud storage repositories.
   - `remove <name>` — Remove a storage location.
   - `test <name>` — Test read/write connectivity to storage location.
 ```bash
-db-backup storage add --type s3 --name cloud-s3 --bucket corp-backups --region us-east-1 --access-key AKIA... --secret-key ...
-db-backup storage test cloud-s3
-db-backup storage set-default cloud-s3
+dbvault storage add --type s3 --name cloud-s3 --bucket corp-backups --region us-east-1 --access-key AKIA... --secret-key ...
+dbvault storage test cloud-s3
+dbvault storage set-default cloud-s3
 ```
 
-### 10. `db-backup key`
+### 10. `dbvault key`
 Manage local AES-256 encryption keys in the secure local keystore.
 - **Subcommands**:
   - `generate` — Generate a new cryptographically secure 256-bit (64 hex characters) key.
   - `list` — View all local encryption keys (masked for safety).
   - `export [--output <file>]` — Export keystore to a secure JSON file for disaster recovery.
 ```bash
-db-backup key generate
-db-backup key list
-db-backup key export --output ~/backup-keys-export.json
+dbvault key generate
+dbvault key list
+dbvault key export --output ~/backup-keys-export.json
 ```
 
-### 11. `db-backup schedule`
+### 11. `dbvault schedule`
 Create recurring backup cron schedules managed by the background scheduler daemon.
 - **Options**:
   - `-c, --cron <expression>` *(required)*: 5-segment cron string (e.g. `"0 2 * * *"`)
@@ -521,16 +535,16 @@ Create recurring backup cron schedules managed by the background scheduler daemo
   - `--retention <days>`: Retention period in days *(default: 30)*
   - `--notify <providers>`: Comma-separated alert channels (`email`, `slack`)
 ```bash
-db-backup schedule --cron "0 2 * * *" --name "nightly-backup" --storage s3 --notify slack,email
+dbvault schedule --cron "0 2 * * *" --name "nightly-backup" --storage s3 --notify slack,email
 ```
 
 ### 12. `db-backup schedule:list`
 List all active automated backup cron schedules, including next run projections and notification statuses.
 ```bash
-db-backup schedule:list
+dbvault schedule:list
 ```
 
-### 13. `db-backup notification`
+### 13. `dbvault notification`
 Configure and test alert dispatchers for backup completions and failures.
 - **Subcommands**:
   - `email configure` — Setup SMTP transport (`--smtp-host`, `--smtp-port`, `--smtp-user`, `--smtp-password`, `--from`, `--to`).
@@ -539,26 +553,26 @@ Configure and test alert dispatchers for backup completions and failures.
   - `slack test` — Send a test message to the configured Slack channel.
   - `status` — View current status of notification channels.
 ```bash
-db-backup notification slack configure --webhook https://hooks.slack.com/services/...
-db-backup notification slack test
-db-backup notification status
+dbvault notification slack configure --webhook https://hooks.slack.com/services/...
+dbvault notification slack test
+dbvault notification status
 ```
 
-### 14. `db-backup dashboard`
+### 14. `dbvault dashboard`
 Launch the companion React + Vite real-time monitoring dashboard in your browser.
 - **Options**:
   - `-p, --port <port>`: Port to open dashboard on *(default: 5173 or 3000)*
   - `--url <url>`: Connect to remote dashboard gateway URL
 ```bash
-db-backup dashboard
+dbvault dashboard
 ```
 
-### 15. `db-backup config`
+### 15. `dbvault config`
 Inspect and validate CLI runtime configuration.
 - **Subcommands**:
   - `check` — Validate `./config.json`, client identity, and service health against runtime schemas.
 ```bash
-db-backup config check
+dbvault config check
 ```
 
 ---
@@ -569,16 +583,16 @@ db-backup config check
 
 ```bash
 # 1. Verify and auto-configure PostgreSQL WAL archiving
-db-backup pitr setup --auto-configure
+dbvault pitr setup --auto-configure
 
 # 2. Inspect WAL archiving status and recovery boundaries
-db-backup pitr status
+dbvault pitr status
 
 # 3. Create a physical base backup via pg_basebackup
-db-backup pitr backup
+dbvault pitr backup
 
 # 4. Restore the cluster to an exact target second before an incident
-db-backup pitr restore --time "2026-09-09T09:30:00Z" --target "/var/lib/postgresql/restored"
+dbvault pitr restore --time "2026-09-09T09:30:00Z" --target "/var/lib/postgresql/restored"
 ```
 
 ---

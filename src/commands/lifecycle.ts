@@ -38,13 +38,13 @@ export function registerLifecycleCommands(program: Command): void {
         console.log(`  ${chalk.bold('Web Dashboard:')}  ${chalk.white('http://localhost:3000/dashboard')}`);
         console.log(`  ${chalk.bold('Swagger Docs:')}   ${chalk.white('http://localhost:3000/api-docs')}`);
         console.log(chalk.dim('─'.repeat(58)));
-        console.log(`\nNext step: Run ${chalk.cyan('db-backup backup')} to perform a backup or ${chalk.cyan('db-backup status')} to inspect health.\n`);
+        console.log(`\nNext step: Run ${chalk.cyan('dbvault backup')} to perform a backup or ${chalk.cyan('dbvault status')} to inspect health.\n`);
       } catch (err: any) {
         spinner.fail(chalk.red('Failed to start DB Backup runtime'));
         console.error(chalk.red(`\n✗ Error: ${err.message}\n`));
         console.log(chalk.yellow('Troubleshooting suggestions:'));
-        console.log(chalk.dim('  • Run "db-backup doctor" to inspect prerequisites & ports'));
-        console.log(chalk.dim('  • Run "db-backup logs" to inspect container startup logs\n'));
+        console.log(chalk.dim('  • Run "dbvault doctor" to inspect prerequisites & ports'));
+        console.log(chalk.dim('  • Run "dbvault logs" to inspect container startup logs\n'));
         log.error('Start command failed', { error: err.message });
         process.exit(1);
       }
@@ -98,13 +98,13 @@ export function registerLifecycleCommands(program: Command): void {
         console.log(`  ${chalk.bold('Gateway:')}        ${chalk.white('http://localhost:3000')}`);
         console.log(`  ${chalk.bold('Dashboard:')}      ${chalk.white('http://localhost:3000/dashboard')}`);
         console.log(chalk.dim('─'.repeat(58)));
-        console.log(`\nNext step: Run ${chalk.cyan('db-backup status')} to inspect runtime health.\n`);
+        console.log(`\nNext step: Run ${chalk.cyan('dbvault status')} to inspect runtime health.\n`);
       } catch (err: any) {
         spinner.fail(chalk.red('Failed to restart DB Backup runtime'));
         console.error(chalk.red(`\n✗ Error: ${err.message}\n`));
         console.log(chalk.yellow('Troubleshooting suggestions:'));
-        console.log(chalk.dim('  • Run "db-backup logs" to inspect container shutdown/boot logs'));
-        console.log(chalk.dim('  • Run "db-backup doctor" to diagnose environment issues\n'));
+        console.log(chalk.dim('  • Run "dbvault logs" to inspect container shutdown/boot logs'));
+        console.log(chalk.dim('  • Run "dbvault doctor" to diagnose environment issues\n'));
         log.error('Restart command failed', { error: err.message });
         process.exit(1);
       }
@@ -156,7 +156,7 @@ export function registerLifecycleCommands(program: Command): void {
         } else if (status.container.running) {
           console.log(chalk.yellow('\nStatus: Container is running but services are initializing or degraded.\n'));
         } else {
-          console.log(chalk.dim('\nStatus: DB Backup is stopped. Run "db-backup start" to begin.\n'));
+          console.log(chalk.dim('\nStatus: DB Backup is stopped. Run "dbvault start" to begin.\n'));
         }
       } catch (err: any) {
         console.error(chalk.red('\n✗ Failed to retrieve status:'), err.message);

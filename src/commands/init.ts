@@ -26,10 +26,10 @@ function handleCancel(value: any) {
 export function registerInitCommand(program: Command): void {
   program
     .command('init')
-    .description('Initialize and configure db-backup environment step-by-step')
+    .description('Initialize and configure dbvault environment step-by-step')
     .action(async () => {
       console.log('');
-      clack.intro(chalk.bold.cyan('◆ Welcome to db-backup-cli!'));
+      clack.intro(chalk.bold.cyan('◆ Welcome to dbvault!'));
       clack.note('Let\'s configure your backup environment.', 'Initialization');
 
       // ==================== 1. IDEMPOTENCY CHECK ====================
@@ -51,7 +51,7 @@ export function registerInitCommand(program: Command): void {
         handleCancel(action);
 
         if (action === 'keep') {
-          clack.outro(chalk.green('Existing configuration retained. Run "db-backup config check" to verify.'));
+          clack.outro(chalk.green('Existing configuration retained. Run "dbvault config check" to verify.'));
           process.exit(0);
         }
       }
@@ -65,11 +65,11 @@ export function registerInitCommand(program: Command): void {
       identitySpinner.succeed(chalk.green(`Client identity configured (Client: ${maskedClientId})`));
       summaryDetails['Client Identity'] = `✓ Configured (${maskedClientId})`;
 
-      const apiSpinner = ora('Checking db-backup API connection...').start();
+      const apiSpinner = ora('Checking dbvault API connection...').start();
       try {
         const gatewayUrl = process.env.GATEWAY_URL || 'http://localhost:3000';
         await httpClient.get(`${gatewayUrl}/health`, { timeout: 3000 });
-        apiSpinner.succeed(chalk.green('Connected to db-backup API Gateway'));
+        apiSpinner.succeed(chalk.green('Connected to dbvault API Gateway'));
         summaryDetails['API Gateway'] = '✓ Connected';
       } catch (err) {
         apiSpinner.info(chalk.yellow('API Gateway currently unreachable (running in local offline mode)'));
@@ -573,8 +573,8 @@ export function registerInitCommand(program: Command): void {
       });
 
       console.log('\n' + chalk.bold.cyan('Next steps:'));
-      console.log(chalk.dim('  Run: ') + chalk.bold('db-backup config check') + chalk.dim('  to verify your configuration health.'));
-      console.log(chalk.dim('  Run: ') + chalk.bold('db-backup backup') + chalk.dim('        to create your first backup.\n'));
+      console.log(chalk.dim('  Run: ') + chalk.bold('dbvault config check') + chalk.dim('  to verify your configuration health.'));
+      console.log(chalk.dim('  Run: ') + chalk.bold('dbvault backup') + chalk.dim('        to create your first backup.\n'));
 
       clack.outro(chalk.bold.green('Initialization finished successfully!'));
     });

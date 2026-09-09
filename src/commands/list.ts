@@ -30,7 +30,7 @@ export function registerListCommand(program: Command): void {
         
         if (backups.length === 0) {
           console.log(chalk.yellow('\n📭 No backups found'));
-          console.log(chalk.dim('\nRun "db-backup backup" to create your first backup'));
+          console.log(chalk.dim('\nRun "dbvault backup" to create your first backup'));
           process.exit(0);
         }
         
@@ -67,7 +67,7 @@ export function registerListCommand(program: Command): void {
         });
         
         console.log(chalk.dim('─'.repeat(80)));
-        console.log(chalk.dim(`\n💡 To restore, use: db-backup restore --id <full-backup-id>`));
+        console.log(chalk.dim(`\n💡 To restore, use: dbvault restore --id <full-backup-id>`));
         
         log.info('Listed backups', { count: backups.length, filters: options });
         process.exit(0);

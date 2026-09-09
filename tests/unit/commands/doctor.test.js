@@ -140,7 +140,7 @@ test('1. Healthy environment exits with code 0', async () => {
     );
 
     assert.equal(exit.calls.at(-1), 0);
-    assert.ok(logs.some((l) => l.includes('db-backup environment is healthy')));
+    assert.ok(logs.some((l) => l.includes('environment is healthy')));
   } finally {
     console.log = origLog;
     exit.restore();
@@ -213,7 +213,7 @@ test('3. Docker daemon stopped causes diagnostic failure with exit code 1 and ac
 
     assert.equal(exit.calls.at(-1), 1);
     assert.ok(logs.some((l) => l.includes('Docker daemon') && l.includes('Not running')));
-    assert.ok(logs.some((l) => l.includes('Start the Docker daemon and run `db-backup doctor` again.')));
+    assert.ok(logs.some((l) => l.includes('Start the Docker daemon') && l.includes('doctor` again.')));
   } finally {
     console.log = origLog;
     exit.restore();
@@ -287,7 +287,7 @@ test('5. Services unhealthy reports failing services and exits with code 1', asy
 
     assert.equal(exit.calls.at(-1), 1);
     assert.ok(logs.some((l) => l.includes('API Gateway') && l.includes('Unhealthy')));
-    assert.ok(logs.some((l) => l.includes('db-backup infra start')));
+    assert.ok(logs.some((l) => l.includes('infra start')));
   } finally {
     console.log = origLog;
     exit.restore();

@@ -47,3 +47,7 @@ flow.txt
 config.json
 !config.example.json
 ecosystem.config.js
+
+# Dashboard build assets
+!dashboard/dist
+!dashboard/dist/**

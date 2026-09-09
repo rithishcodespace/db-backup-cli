@@ -26,7 +26,7 @@ export function registerDoctorCommand(program: Command): void {
     .command('doctor')
     .description('Diagnose environment, configuration, and runtime infrastructure health')
     .action(async () => {
-      console.log(chalk.bold.cyan('\n◆ db-backup doctor\n'));
+      console.log(chalk.bold.cyan('\n◆ dbvault doctor\n'));
 
       let hasProblems = false;
       const suggestions: string[] = [];
@@ -58,7 +58,9 @@ export function registerDoctorCommand(program: Command): void {
       }
 
       // Configuration
-      const configPath = process.env.CONFIG_PATH || './config.json';
+      const localConfig = './config.json';
+      const globalConfig = path.join(os.homedir(), '.db-backup', 'config.json');
+      const configPath = process.env.CONFIG_PATH || (fs.existsSync(localConfig) ? localConfig : (fs.existsSync(globalConfig) ? globalConfig : localConfig));
       let configValid = true;
       let configMessage = 'Valid';
       if (fs.existsSync(configPath)) {
@@ -85,7 +87,7 @@ export function registerDoctorCommand(program: Command): void {
           name: 'Configuration',
           status: configMessage,
           success: false,
-          hint: `Fix syntax errors in ${configPath} or re-run "db-backup init".`,
+          hint: `Fix syntax errors in ${configPath} or re-run "dbvault init".`,
         });
         hasProblems = true;
         suggestions.push(`Fix or recreate configuration file at ${configPath}.`);
@@ -165,10 +167,10 @@ export function registerDoctorCommand(program: Command): void {
           name: 'Metadata database',
           status: dbStatus,
           success: false,
-          hint: 'Ensure container is running ("db-backup start") or run "db-backup init".',
+          hint: 'Ensure container is running ("dbvault start") or run "dbvault init".',
         });
         hasProblems = true;
-        suggestions.push('Ensure container is running ("db-backup start") or run "db-backup init".');
+        suggestions.push('Ensure container is running ("dbvault start") or run "dbvault init".');
       }
 
       // Print Environment Items
@@ -234,10 +236,10 @@ export function registerDoctorCommand(program: Command): void {
               name: 'Docker daemon',
               status: 'Not running',
               success: false,
-              hint: 'Start Docker and run `db-backup doctor` again.',
+              hint: 'Start Docker and run `dbvault doctor` again.',
             });
             hasProblems = true;
-            suggestions.push('Start the Docker daemon and run `db-backup doctor` again.');
+            suggestions.push('Start the Docker daemon and run `dbvault doctor` again.');
           }
         }
 
@@ -288,7 +290,7 @@ export function registerDoctorCommand(program: Command): void {
                 name: 'Container state',
                 status: `${rtStatus.config.containerName} (${rtStatus.container.running ? 'Running' : 'Stopped'})`,
                 success: rtStatus.container.running,
-                hint: rtStatus.container.running ? undefined : 'Run "db-backup start" to start container.',
+                hint: rtStatus.container.running ? undefined : 'Run "dbvault start" to start container.',
               });
             }
 
@@ -300,7 +302,7 @@ export function registerDoctorCommand(program: Command): void {
                   ? 'Initializing'
                   : 'Available',
               success: rtStatus.gatewayHealthy || !rtStatus.container.running,
-              hint: rtStatus.gatewayHealthy ? undefined : 'Run "db-backup start" to start Gateway on port 3000.',
+              hint: rtStatus.gatewayHealthy ? undefined : 'Run "dbvault start" to start Gateway on port 3000.',
             });
           } catch {
             // Ignore in diagnostic reporting
@@ -348,7 +350,7 @@ export function registerDoctorCommand(program: Command): void {
           name: svc.name,
           status: `${statusStr}${portStr}`,
           success: isHealthy,
-          hint: isHealthy ? undefined : `Run "db-backup start" (or "db-backup infra start") to start ${svc.name}.`,
+          hint: isHealthy ? undefined : `Run "dbvault start" (or "dbvault infra start") to start ${svc.name}.`,
         });
       });
 
@@ -359,7 +361,7 @@ export function registerDoctorCommand(program: Command): void {
       });
 
       if (anyServiceOffline) {
-        suggestions.push('Start required services with `db-backup start` (or `db-backup infra start`).');
+        suggestions.push('Start required services with `dbvault start` (or `dbvault infra start`).');
       }
 
       // ==================== 4. CONFIGURATION & STORAGE ====================
@@ -382,7 +384,7 @@ export function registerDoctorCommand(program: Command): void {
             console.log(
               `  ${chalk.red('✗')} ${'Database'.padEnd(22)} ${chalk.red(`${dbConfig.type?.toUpperCase()} - Connection failed (${sanitizedErr})`)}`
             );
-            suggestions.push(`Verify ${dbConfig.type} connectivity using "db-backup connect".`);
+            suggestions.push(`Verify ${dbConfig.type} connectivity using "dbvault connect".`);
           }
         } catch (err: any) {
           hasProblems = true;
@@ -392,7 +394,7 @@ export function registerDoctorCommand(program: Command): void {
         }
       } else {
         console.log(
-          `  ${chalk.dim('ℹ')} ${'Database'.padEnd(22)} ${chalk.dim('Not configured (Run "db-backup connect" to set up)')}`
+          `  ${chalk.dim('ℹ')} ${'Database'.padEnd(22)} ${chalk.dim('Not configured (Run "dbvault connect" to set up)')}`
         );
       }
 
@@ -459,7 +461,7 @@ function finishReport(hasProblems: boolean, suggestions: string[]): void {
   console.log(chalk.dim('─'.repeat(45)));
 
   if (!hasProblems) {
-    console.log(`  ${chalk.bold.green('✓ db-backup environment is healthy')}\n`);
+    console.log(`  ${chalk.bold.green('✓ dbvault environment is healthy')}\n`);
     log.info('Doctor diagnosis: healthy');
     process.exit(0);
   } else {
