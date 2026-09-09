@@ -160,7 +160,7 @@ export class PostgresIncrementalService {
     });
 
     if (!physicalParent) {
-      throw new Error(`No previous physical base backup (with backup_manifest) found for database '${this.dbConfig.database}'. Please create a physical base backup first with: db-backup backup --type full --physical`);
+      throw new Error(`No previous physical base backup (with backup_manifest) found for database '${this.dbConfig.database}'. Please create a physical base backup first with: dbvault backup --type full --physical`);
     }
 
     return physicalParent;

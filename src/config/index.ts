@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { APP_VERSION } from '../version';
 
 // Load environment variables quietly
 dotenv.config({ quiet: true });
@@ -80,26 +81,8 @@ class ConfigManager {
       }
     }
 
-    // Get package version
-    let version = '1.0.0';
-    const candidatePaths = [
-      path.resolve(__dirname, '../../package.json'),
-      path.resolve(__dirname, '../../../package.json'),
-      path.resolve(__dirname, '../../../../package.json'),
-    ];
-    for (const p of candidatePaths) {
-      if (fs.existsSync(p)) {
-        try {
-          const pkg = JSON.parse(fs.readFileSync(p, 'utf-8'));
-          if ((pkg.name === 'dbvault' || pkg.name === 'db-backup-cli') && pkg.version) {
-            version = pkg.version;
-            break;
-          }
-        } catch {
-          // Ignore parse errors
-        }
-      }
-    }
+    // Application version resolved globally from package.json
+    const version = APP_VERSION;
 
     const defaultConfig: AppConfig = {
       env: process.env.NODE_ENV || 'development',

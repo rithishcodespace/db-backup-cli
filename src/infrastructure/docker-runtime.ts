@@ -15,6 +15,7 @@ import {
   InfrastructureTimeoutError,
 } from './types';
 import { defaultProcessRunner } from './process-runner';
+import { APP_VERSION } from '../version';
 import { dockerComposeAdapter, DockerComposeAdapter } from './docker-compose.adapter';
 import { createModuleLogger } from '../logger';
 import { config } from '../config';
@@ -55,7 +56,7 @@ export class DockerRuntime {
    */
   resolveConfig(): DockerRuntimeConfig {
     const rawImage = process.env.DB_BACKUP_IMAGE || config.get('docker.image') || 'rithish2006/db-backup';
-    const rawVersion = process.env.DB_BACKUP_VERSION || config.get('docker.version') || config.get('version') || '1.0.0';
+    const rawVersion = process.env.DB_BACKUP_VERSION || config.get('docker.version') || config.get('version') || APP_VERSION;
     const containerName = process.env.DB_BACKUP_CONTAINER || config.get('docker.containerName') || 'db-backup';
     const hostPort = parseInt(process.env.DB_BACKUP_PORT || process.env.PORT || '3000', 10);
     const composeFile = this.composeAdapter.resolveComposeFilePath();
@@ -473,7 +474,7 @@ export class DockerRuntime {
     const state = await this.getContainerState(cfg.containerName);
 
     if (!state.exists) {
-      throw new Error(`Container "${cfg.containerName}" does not exist. Run "db-backup start" first.`);
+      throw new Error(`Container "${cfg.containerName}" does not exist. Run "dbvault start" first.`);
     }
 
     const args = ['logs'];

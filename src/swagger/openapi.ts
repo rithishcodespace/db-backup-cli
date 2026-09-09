@@ -2,11 +2,13 @@
 // swagger-jsdocs will be used, when i written the data about the api as comments above each API
 
 
+import { APP_VERSION } from '../version';
+
 export const swaggerSpec = {
   openapi: '3.0.0',
   info: {
     title: 'DB Backup CLI & API Gateway API',
-    version: '1.0.0',
+    version: APP_VERSION,
     description:
       'Comprehensive OpenAPI 3.0 documentation for the DB Backup CLI microservices architecture. Provides endpoints for triggering, monitoring, and managing database backups (PostgreSQL, MySQL, MongoDB, SQLite), schedules, storage locations, notifications, and telemetry dashboard.',
     contact: {

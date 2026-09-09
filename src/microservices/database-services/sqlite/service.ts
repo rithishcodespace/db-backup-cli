@@ -15,6 +15,7 @@ import { config as appConfig } from '../../../config';
 import { S3StorageProvider } from '../../storage-service/providers/s3';
 import { LocalStorageProvider } from '../../storage-service/providers/local';
 import { validateBody, BackupRequestSchema } from '../../shared/validators';
+import { APP_VERSION } from '../../../version';
 
 const log = createModuleLogger('sqlite-backup-service');
 
@@ -108,7 +109,7 @@ app.get('/health', (req, res) => {
     res.json({
         service: SERVICE_NAME,
         status: 'healthy',
-        version: '1.0.0',
+        version: APP_VERSION,
         uptime: (Date.now() - startTime) / 1000,
         timestamp: new Date()
     });

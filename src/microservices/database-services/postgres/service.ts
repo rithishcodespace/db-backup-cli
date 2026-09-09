@@ -16,6 +16,7 @@ import fs from 'fs';
 import { PostgresIncrementalService } from '../../../services/postgres-incremental.service';
 import { validateBody, BackupRequestSchema } from '../../shared/validators';
 import { resolveDatabaseHost, resolveContainerStoragePath } from '../../shared/utils/service-utils';
+import { APP_VERSION } from '../../../version';
 
 const log = createModuleLogger('postgres-backup-service');
 
@@ -109,7 +110,7 @@ app.get('/health', (req, res) => {
     res.json({
         service: SERVICE_NAME,
         status: 'healthy',
-        version: '1.0.0',
+        version: APP_VERSION,
         uptime: (Date.now() - startTime) / 1000,
         timestamp: new Date()
     });

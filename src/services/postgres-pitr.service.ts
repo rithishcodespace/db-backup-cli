@@ -719,8 +719,8 @@ export class PostgresPitrService {
     }
 
     const fetchWalCmd = storageName
-      ? `db-backup pitr fetch-wal --database ${dbName} --storage ${storageName} --file %f --path %p`
-      : `db-backup pitr fetch-wal --database ${dbName} --file %f --path %p`;
+      ? `dbvault pitr fetch-wal --database ${dbName} --storage ${storageName} --file %f --path %p`
+      : `dbvault pitr fetch-wal --database ${dbName} --file %f --path %p`;
 
     const pgTargetTime = time.replace('T', ' ').replace('Z', '+00');
     const confLines = [

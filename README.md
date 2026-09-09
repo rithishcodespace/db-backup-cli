@@ -538,7 +538,7 @@ Create recurring backup cron schedules managed by the background scheduler daemo
 dbvault schedule --cron "0 2 * * *" --name "nightly-backup" --storage s3 --notify slack,email
 ```
 
-### 12. `db-backup schedule:list`
+### 12. `dbvault schedule:list`
 List all active automated backup cron schedules, including next run projections and notification statuses.
 ```bash
 dbvault schedule:list

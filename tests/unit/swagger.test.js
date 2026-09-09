@@ -4,11 +4,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { swaggerSpec } = require('../../src/swagger/openapi');
+const { APP_VERSION } = require('../../src/version');
 
 test('swaggerSpec exports valid OpenAPI 3.0 specification metadata', () => {
   assert.equal(swaggerSpec.openapi, '3.0.0');
   assert.equal(swaggerSpec.info.title, 'DB Backup CLI & API Gateway API');
-  assert.equal(swaggerSpec.info.version, '1.0.0');
+  assert.equal(swaggerSpec.info.version, APP_VERSION);
   assert.ok(swaggerSpec.info.description.includes('OpenAPI 3.0'));
 });
 

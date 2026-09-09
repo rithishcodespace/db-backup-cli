@@ -127,10 +127,10 @@
     - NPM package with documentation.
     - End-to-end tests.
 
-# IAM CREDNETIALS
+# IAM CREDENTIALS
 
-    - access_key=AKIAZEVCNI7RJNT7JB5Y
-    - secret_access_key=4cBeetNCJbgh0PJhB8UVBD6TV3zJCIwurr6W4fTY
+    - access_key=AKIA_PLACEHOLDER_REDACTED
+    - secret_access_key=PLACEHOLDER_REDACTED
 
 # project phases
 

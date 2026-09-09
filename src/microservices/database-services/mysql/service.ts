@@ -2,6 +2,7 @@ import express from 'express';
 import { createModuleLogger } from '../../../logger';
 import { MySQLIncrementalBackupManager } from './manager';
 import routes from './routes';
+import { APP_VERSION } from '../../../version';
 
 const log = createModuleLogger('mysql-backup-service');
 
@@ -16,7 +17,7 @@ app.get('/health', (req, res) => {
     res.json({
         service: SERVICE_NAME,
         status: 'healthy',
-        version: '1.0.0',
+        version: APP_VERSION,
         uptime: (Date.now() - startTime) / 1000,
         timestamp: new Date()
     });

@@ -92,12 +92,12 @@ async function testPhase4() {
   console.log(chalk.yellow('\n4. Testing CLI Commands...'));
   try {
     // Test schedule command
-    console.log(chalk.dim('  Testing: db-backup schedule --help'));
+    console.log(chalk.dim('  Testing: dbvault schedule --help'));
     const helpOutput = execSync('node dist/src/index.js schedule --help', { encoding: 'utf-8' });
     console.log(chalk.green('✓ Schedule command registered'));
     
     // Test schedule:list
-    console.log(chalk.dim('  Testing: db-backup schedule:list'));
+    console.log(chalk.dim('  Testing: dbvault schedule:list'));
     try {
       const listOutput = execSync('node dist/src/index.js schedule:list', { encoding: 'utf-8' });
       console.log(chalk.green('✓ Schedule list command working'));
