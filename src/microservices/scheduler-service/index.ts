@@ -4,7 +4,7 @@ import { metadataClient } from '../../lib/metadata-client';
 import cron from 'node-cron';
 import axios from 'axios';
 import { createModuleLogger } from '../../logger';
-import { connection } from '../../lib/queue-manager';
+import { connection, createNotificationQueue } from '../../lib/queue-manager';
 import { DistributedLock } from '../../lib/distributed-lock';
 import { validateBody, validateParams, ScheduleRequestSchema, IdParamSchema } from '../shared/validators';
 
@@ -485,26 +485,31 @@ ${errorMessage ? `Error: ${errorMessage}` : ''}`,
         };
       }
       
-      // Call notification service
-      const response = await axios.post(`${NOTIFICATION_URL}/api/notify`, {
-        type: provider.type,
-        backupId: backupId || scheduleId,
-        config: notifyConfig,
-        message
-      });
-      
-      if (response.data.success) {
-        log.info('Notification sent successfully', { 
+      // Enqueue to notification queue (BullMQ) with HTTP fallback
+      try {
+        const notificationQueue = createNotificationQueue();
+        await notificationQueue.add('notify', {
+          type: provider.type,
+          backupId: backupId || scheduleId,
+          config: notifyConfig,
+          message
+        });
+
+        log.info('Notification enqueued successfully', { 
           scheduleId, 
           backupId, 
           type: provider.type,
           success 
         });
-      } else {
-        log.warn('Notification service returned error', { 
-          scheduleId, 
+      } catch (queueError: any) {
+        log.warn('Failed to enqueue notification to BullMQ, falling back to HTTP', {
+          error: queueError?.message
+        });
+        await axios.post(`${NOTIFICATION_URL}/api/notify`, {
           type: provider.type,
-          response: response.data 
+          backupId: backupId || scheduleId,
+          config: notifyConfig,
+          message
         });
       }
     } catch (error) {

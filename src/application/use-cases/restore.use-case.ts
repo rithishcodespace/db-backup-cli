@@ -28,7 +28,9 @@ export class RestoreUseCase {
     private readonly cryptoService: ICryptoService,
     private readonly compressionService: ICompressionService,
     private readonly adapterFactory: DatabaseAdapterFactory,
-    private readonly keyManager: IKeyManagerReadonly
+    private readonly keyManager: IKeyManagerReadonly,
+    private readonly httpClient?: any,
+    private readonly gatewayUrl?: string
   ) {}
 
   async execute(input: RestoreRequestInputDTO): Promise<RestoreExecutionResultDTO> {
@@ -166,6 +168,64 @@ export class RestoreUseCase {
       };
 
       const dbType = backupRecord?.dbType || targetDbConfig.type;
+
+      // When running via Gateway (CLI mode), delegate execution to asynchronous queue worker
+      if (this.httpClient && this.gatewayUrl) {
+        log.info('Dispatching restore request to API gateway', {
+          gatewayUrl: this.gatewayUrl,
+          backupId: input.backupId,
+          filePath: workingFilePath,
+          dbType,
+        });
+
+        const restoreResponse = await this.httpClient.post(`${this.gatewayUrl}/api/restore`, {
+          dbConfig: targetDbConfig,
+          backupId: input.backupId,
+          filePath: workingFilePath,
+          options: {
+            clean: input.clean !== false,
+            ifExists: input.ifExists !== false,
+            dryRun: false,
+            key: input.key,
+            skipChecksum: input.skipChecksum,
+            tables: input.tables,
+          },
+        });
+
+        if (!restoreResponse.data || !restoreResponse.data.success) {
+          throw new RestoreExecutionError(restoreResponse.data?.error || 'Restore request rejected by gateway');
+        }
+
+        const restoreId = restoreResponse.data.restoreId;
+        let jobData = restoreResponse.data;
+
+        // Poll restore status until finished
+        const maxAttempts = 120;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          try {
+            const statusRes = await this.httpClient.get(`${this.gatewayUrl}/api/restore/${encodeURIComponent(restoreId)}/status`);
+            if (statusRes.data && statusRes.data.status && !['waiting', 'active', 'delayed', 'queued'].includes(statusRes.data.status)) {
+              jobData = statusRes.data;
+              break;
+            }
+          } catch {
+            // Ignore transient status polling errors
+          }
+        }
+
+        if (jobData.status === 'failed' || jobData.error) {
+          throw new RestoreExecutionError(jobData.error || 'Restore job failed during queue execution');
+        }
+
+        return {
+          success: true,
+          backupId: input.backupId,
+          message: 'Database restore completed successfully via queue worker.',
+          duration: (Date.now() - startTime) / 1000,
+        };
+      }
+
       const adapter = this.adapterFactory.getAdapter(dbType);
 
       log.info('Executing database restore via adapter', {

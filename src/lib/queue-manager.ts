@@ -27,6 +27,7 @@ connection.on('error', (err) => {
 
 export const QUEUES = {
     BACKUP: process.env.BACKUP_QUEUE_NAME || 'backup-queue',
+    RESTORE: process.env.RESTORE_QUEUE_NAME || 'restore-queue',
     STORAGE: process.env.STORAGE_QUEUE_NAME || 'storage-queue',
     NOTIFICATION: process.env.NOTIFICATION_QUEUE_NAME || 'notification-queue',
 };
@@ -45,6 +46,26 @@ export function createBackupQueue() {
             removeOnComplete: {
                 age: 3600, // 1 hour
                 count: 100,
+            },
+            removeOnFail: {
+                age: 86400, // 24 hours
+            }
+        },
+    });
+}
+
+export function createRestoreQueue() {
+    return new Queue(QUEUES.RESTORE, {
+        connection: connection as any,
+        defaultJobOptions: {
+            attempts: parseInt(process.env.RESTORE_RETRY_ATTEMPTS || '2'),
+            backoff: {
+                type: 'exponential',
+                delay: parseInt(process.env.RESTORE_RETRY_DELAY || '5000'),
+            },
+            removeOnComplete: {
+                age: 3600, // 1 hour
+                count: 50,
             },
             removeOnFail: {
                 age: 86400, // 24 hours
@@ -146,6 +167,33 @@ export function registerBackupWorker(processor: (job: Job) => Promise<any>) {
     return worker;
 }
 
+export function registerRestoreWorker(processor: (job: Job) => Promise<any>) {
+    const worker = new Worker(QUEUES.RESTORE, processor, {
+        connection: connection as any,
+        concurrency: parseInt(process.env.MAX_CONCURRENT_RESTORES || '1'),
+        lockDuration: 300000, // 5 minutes lock
+        stalledInterval: 60000,
+    });
+
+    worker.on('completed', (job) => {
+        log.info(`Restore job completed`, { jobId: job.id });
+    });
+
+    worker.on('failed', (job, err) => {
+        log.error(`Restore job failed`, { jobId: job?.id, error: err.message });
+    });
+
+    worker.on('progress', (job, progress) => {
+        log.debug(`Restore job progress`, { jobId: job.id, progress });
+    });
+
+    worker.on('stalled', (jobId) => {
+        log.warn(`Restore job stalled`, { jobId });
+    });
+
+    return worker;
+}
+
 export function registerStorageWorker(processor: (job: Job) => Promise<any>) {
     const worker = new Worker(QUEUES.STORAGE, processor, {
         connection: connection as any,
@@ -190,6 +238,7 @@ export async function closeAllQueues() {
     
     const queues = [
         QUEUES.BACKUP,
+        QUEUES.RESTORE,
         QUEUES.STORAGE,
         QUEUES.NOTIFICATION,
     ];

@@ -2,7 +2,7 @@
 
 import express from 'express';
 import helmet from 'helmet';
-import { createReadStream, createWriteStream, existsSync, mkdirSync, statSync } from 'fs';
+import { createReadStream, createWriteStream, existsSync, mkdirSync, statSync, copyFileSync, unlinkSync } from 'fs';
 import { createGzip } from 'zlib';
 import { createHash, createCipheriv, randomBytes } from 'crypto';
 import { Readable, Transform } from 'stream';
@@ -133,6 +133,50 @@ app.post('/backup', validateBody(BackupRequestSchema), async (req, res) => {
         });
     }
 });
+
+app.post('/restore', async (req, res) => {
+    const { dbConfig, backupFilePath, options } = req.body;
+    log.info('Received SQLite restore request', { database: dbConfig?.database, backupFilePath });
+    
+    try {
+        const result = await performRestore(dbConfig, backupFilePath, options);
+        res.json(result);
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log.error('SQLite restore failed', { error: errorMessage });
+        res.status(500).json({
+            success: false,
+            error: errorMessage
+        });
+    }
+});
+
+async function performRestore(
+    dbConfig: DatabaseConfig,
+    backupFilePath: string,
+    options: any = {}
+): Promise<{ success: boolean; duration: number; message: string }> {
+    const startTime = Date.now();
+    const targetPath = path.resolve(dbConfig.database);
+    const targetDir = path.dirname(targetPath);
+    if (!existsSync(targetDir)) {
+        mkdirSync(targetDir, { recursive: true });
+    }
+
+    const tempRestore = `${targetPath}.restoring`;
+    copyFileSync(backupFilePath, tempRestore);
+    if (existsSync(targetPath)) {
+        unlinkSync(targetPath);
+    }
+    copyFileSync(tempRestore, targetPath);
+    unlinkSync(tempRestore);
+
+    return {
+        success: true,
+        duration: (Date.now() - startTime) / 1000,
+        message: `SQLite database restored successfully to ${targetPath}`
+    };
+}
 
 async function performBackup(
     backupId: string,

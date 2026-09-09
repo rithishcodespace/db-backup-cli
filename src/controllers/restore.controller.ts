@@ -14,6 +14,17 @@ export class RestoreController {
       next(error);
     }
   }
+
+  async getRestoreStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const id = req.params.id as string;
+      const result = await restoreService.getRestoreStatus(id);
+      res.json(result);
+    } catch (error: any) {
+      log.error('Get restore status failed', { error: error?.message });
+      next(error);
+    }
+  }
 }
 
 export const restoreController = new RestoreController();

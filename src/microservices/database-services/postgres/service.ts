@@ -134,6 +134,92 @@ app.post('/backup', validateBody(BackupRequestSchema), async (req, res) => {
     }
 });
 
+app.post('/restore', async (req, res) => {
+    const { dbConfig, backupFilePath, options } = req.body;
+    log.info('Received PostgreSQL restore request', { database: dbConfig?.database, backupFilePath });
+    
+    try {
+        const result = await performRestore(dbConfig, backupFilePath, options);
+        res.json(result);
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log.error('PostgreSQL restore failed', { error: errorMessage });
+        res.status(500).json({
+            success: false,
+            error: errorMessage
+        });
+    }
+});
+
+async function performRestore(
+    dbConfig: DatabaseConfig,
+    backupFilePath: string,
+    options: any = {}
+): Promise<{ success: boolean; duration: number; message: string }> {
+    const startTime = Date.now();
+    const host = resolveDatabaseHost(dbConfig.host || process.env.POSTGRES_HOST);
+    const port = dbConfig.port || process.env.POSTGRES_PORT || 5432;
+    const username = dbConfig.username || process.env.POSTGRES_USER || 'postgres';
+    const password = dbConfig.password || process.env.POSTGRES_PASSWORD || '';
+    const database = dbConfig.database;
+
+    const isCustomDump = backupFilePath.endsWith('.dump') || backupFilePath.endsWith('.custom');
+    const env = { ...process.env, PGPASSWORD: String(password) };
+
+    if (isCustomDump) {
+        const args: string[] = [
+            '-h', String(host),
+            '-p', String(port),
+            '-U', String(username),
+            '-d', String(database),
+            '--clean',
+            '--if-exists',
+            '--no-owner',
+            '--no-privileges',
+        ];
+
+        if (options.tables && Array.isArray(options.tables) && options.tables.length > 0) {
+            options.tables.forEach((t: string) => args.push('-t', t));
+        }
+
+        args.push(backupFilePath);
+        await new Promise<void>((resolve, reject) => {
+            const proc = spawn('pg_restore', args, { env });
+            let stderr = '';
+            proc.stderr.on('data', (d) => { stderr += d.toString(); });
+            proc.on('close', (code) => {
+                if (code === 0 || code === 1) resolve();
+                else reject(new Error(`pg_restore failed with code ${code}: ${stderr}`));
+            });
+            proc.on('error', reject);
+        });
+    } else {
+        const args: string[] = [
+            '-h', String(host),
+            '-p', String(port),
+            '-U', String(username),
+            '-d', String(database),
+            '-f', backupFilePath,
+        ];
+        await new Promise<void>((resolve, reject) => {
+            const proc = spawn('psql', args, { env });
+            let stderr = '';
+            proc.stderr.on('data', (d) => { stderr += d.toString(); });
+            proc.on('close', (code) => {
+                if (code === 0) resolve();
+                else reject(new Error(`psql restore failed with code ${code}: ${stderr}`));
+            });
+            proc.on('error', reject);
+        });
+    }
+
+    return {
+        success: true,
+        duration: (Date.now() - startTime) / 1000,
+        message: 'PostgreSQL restore completed successfully'
+    };
+}
+
 async function performBackup(
     backupId: string,
     dbConfig: DatabaseConfig,

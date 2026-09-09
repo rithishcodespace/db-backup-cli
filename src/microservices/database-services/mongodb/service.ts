@@ -136,6 +136,63 @@ app.post('/backup', validateBody(BackupRequestSchema), async (req, res) => {
     }
 });
 
+app.post('/restore', async (req, res) => {
+    const { dbConfig, backupFilePath, options } = req.body;
+    log.info('Received MongoDB restore request', { database: dbConfig?.database, backupFilePath });
+    
+    try {
+        const result = await performRestore(dbConfig, backupFilePath, options);
+        res.json(result);
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log.error('MongoDB restore failed', { error: errorMessage });
+        res.status(500).json({
+            success: false,
+            error: errorMessage
+        });
+    }
+});
+
+async function performRestore(
+    dbConfig: DatabaseConfig,
+    backupFilePath: string,
+    options: any = {}
+): Promise<{ success: boolean; duration: number; message: string }> {
+    const startTime = Date.now();
+    const host = resolveDatabaseHost(dbConfig.host || process.env.MONGODB_HOST || 'localhost');
+    const port = dbConfig.port || process.env.MONGODB_PORT || 27017;
+    const database = dbConfig.database;
+
+    const args: string[] = [
+        '--host', String(host),
+        '--port', String(port),
+        '--db', String(database),
+        `--archive=${backupFilePath}`,
+        '--drop',
+    ];
+
+    if (dbConfig.username) args.push('--username', String(dbConfig.username));
+    if (dbConfig.password) args.push('--password', String(dbConfig.password));
+    if ((dbConfig as any).authSource) args.push('--authenticationDatabase', String((dbConfig as any).authSource));
+
+    await new Promise<void>((resolve, reject) => {
+        const proc = spawn('mongorestore', args);
+        let stderr = '';
+        proc.stderr.on('data', (d) => { stderr += d.toString(); });
+        proc.on('close', (code) => {
+            if (code === 0) resolve();
+            else reject(new Error(`mongorestore failed with code ${code}: ${stderr}`));
+        });
+        proc.on('error', reject);
+    });
+
+    return {
+        success: true,
+        duration: (Date.now() - startTime) / 1000,
+        message: 'MongoDB restore completed successfully'
+    };
+}
+
 async function performBackup(
     backupId: string,
     dbConfig: DatabaseConfig,

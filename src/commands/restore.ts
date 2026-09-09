@@ -12,8 +12,10 @@ import { AES256CryptoService } from '../infrastructure/crypto/aes256-crypto.serv
 import { GzipCompressionService } from '../infrastructure/compression/gzip-compression.service';
 import { DatabaseAdapterFactory } from '../infrastructure/database/database-adapter.factory';
 import { RestoreUseCase } from '../application/use-cases/restore.use-case';
+import httpClient from '../utils/http-client';
 
 const log = createModuleLogger('restore-command');
+const GATEWAY_URL = process.env.GATEWAY_URL || 'http://localhost:3000';
 
 // Lock TTL - configurable via environment variable only (default: 1 hour)
 const LOCK_TTL = parseInt(process.env.RESTORE_LOCK_TTL || '3600', 10);
@@ -112,7 +114,9 @@ export function registerRestoreCommand(program: Command): void {
           cryptoService,
           compressionService,
           adapterFactory,
-          keyManager
+          keyManager,
+          httpClient,
+          GATEWAY_URL
         );
 
         spinner.text = 'Performing restore...';

@@ -4,5 +4,6 @@ import { restoreController } from '../controllers/restore.controller';
 const router = Router();
 
 router.post('/', (req, res, next) => restoreController.restoreBackup(req, res, next));
+router.get('/:id/status', (req, res, next) => restoreController.getRestoreStatus(req, res, next));
 
 export default router;

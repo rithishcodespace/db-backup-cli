@@ -1,27 +1,35 @@
 // src/microservices/backup-worker/index.ts
 
-import { registerBackupWorker, registerStorageWorker, registerNotificationWorker } from '../../lib/queue-manager';
+import {
+    registerBackupWorker,
+    registerStorageWorker,
+    registerNotificationWorker,
+    registerRestoreWorker,
+    createStorageQueue,
+    createNotificationQueue
+} from '../../lib/queue-manager';
 import { Job } from 'bullmq';
 import axios from 'axios';
+import { IncomingWebhook } from '@slack/webhook';
+import nodemailer from 'nodemailer';
 import { metadataClient } from '../../lib/metadata-client';
 import { BackupStatus } from '../shared/types';
 import { createModuleLogger } from '../../logger';
+import { S3StorageProvider } from '../storage-service/providers/s3';
+import { LocalStorageProvider } from '../storage-service/providers/local';
+import { handleRestoreJob } from './restore.worker';
 
 const log = createModuleLogger('backup-worker');
 
-const serviceRegistry = {
+const serviceRegistry: Record<string, string> = {
     postgresql: process.env.POSTGRES_SERVICE_URL || 'http://localhost:3010',
     mysql: process.env.MYSQL_SERVICE_URL || 'http://localhost:3011',
     mongodb: process.env.MONGODB_SERVICE_URL || 'http://localhost:3012',
     sqlite: process.env.SQLITE_SERVICE_URL || 'http://localhost:3013'
 };
 
-const STORAGE_SERVICE_URL = process.env.STORAGE_SERVICE_URL || 'http://localhost:3030';
-const NOTIFICATION_SERVICE_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://localhost:3040';
-
 function getServiceUrl(dbType: string): string {
-    const registry = serviceRegistry as Record<string, string>;
-    const url = registry[dbType];
+    const url = serviceRegistry[dbType];
     if (!url) {
         throw new Error(`Unsupported database type: ${dbType}`);
     }
@@ -40,10 +48,12 @@ async function createLog(backupJobId: string, level: string, message: string, de
     }
 }
 
+// ==========================================
 // BACKUP WORKER PROCESSOR
+// ==========================================
 
-async function handleBackupJob(job: Job) {
-    const { backupId, dbConfig, backupType, options } = job.data;
+export async function handleBackupJob(job: Job) {
+    const { backupId, dbConfig, backupType, options = {} } = job.data;
     
     log.info('Processing backup job', { backupId, dbType: dbConfig.type });
     await createLog(backupId, 'INFO', `Backup execution started for ${dbConfig.type}/${dbConfig.database}`, `Backup Mode: ${backupType}`);
@@ -62,7 +72,7 @@ async function handleBackupJob(job: Job) {
         await createLog(backupId, 'INFO', `Connecting to ${dbConfig.type} backup microservice at ${serviceUrl}/backup`);
         
         // Small delay to allow dashboard active queue polling to catch streaming state
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        await new Promise((resolve) => setTimeout(resolve, 500));
 
         const response = await axios.post(`${serviceUrl}/backup`, {
             dbConfig,
@@ -76,7 +86,6 @@ async function handleBackupJob(job: Job) {
         });
         
         await job.updateProgress(80);
-        await new Promise((resolve) => setTimeout(resolve, 1500));
         
         const result = response.data;
         
@@ -106,35 +115,37 @@ async function handleBackupJob(job: Job) {
             
             await job.updateProgress(90);
             
-            // Queue storage job if S3
+            // Queue downstream storage job if configured (e.g. S3)
             if (options.storage && options.storage.type === 's3') {
-                const { createStorageQueue } = require('../../lib/queue-manager');
                 const storageQueue = createStorageQueue();
                 await storageQueue.add('upload', {
                     backupId,
                     filePath: result.filePath,
                     storageConfig: options.storage,
                     fileName: result.fileName,
+                    dbConfig,
+                    backupType,
+                    duration: result.duration,
+                    fileSize: result.fileSize,
                 }, {
                     jobId: `storage_${backupId}`
                 });
                 await createLog(backupId, 'INFO', `Queued cloud storage upload to bucket: ${options.storage.bucket}`);
+            } else {
+                // If no remote storage needed, queue notification directly
+                const notificationQueue = createNotificationQueue();
+                await notificationQueue.add('notify', {
+                    backupId,
+                    success: true,
+                    dbConfig,
+                    backupType,
+                    duration: result.duration,
+                    fileSize: result.fileSize,
+                }, {
+                    jobId: `notify_${backupId}`
+                });
+                await createLog(backupId, 'INFO', `Triggered completion notification alert`);
             }
-            
-            // Queue notification job
-            const { createNotificationQueue } = require('../../lib/queue-manager');
-            const notificationQueue = createNotificationQueue();
-            await notificationQueue.add('notify', {
-                backupId,
-                success: true,
-                dbConfig,
-                backupType,
-                duration: result.duration,
-                fileSize: result.fileSize,
-            }, {
-                jobId: `notify_${backupId}`
-            });
-            await createLog(backupId, 'INFO', `Triggered completion notification alert`);
             
             await job.updateProgress(100);
             
@@ -167,132 +178,276 @@ async function handleBackupJob(job: Job) {
             completedAt: new Date()
         });
         
-        // Queue failure notification
-        const { createNotificationQueue } = require('../../lib/queue-manager');
-        const notificationQueue = createNotificationQueue();
-        await notificationQueue.add('notify', {
-            backupId,
-            success: false,
-            dbConfig,
-            backupType,
-            error: errorMessage,
-        }, {
-            jobId: `notify_${backupId}`
-        });
+        // Queue failure notification downstream
+        try {
+            const notificationQueue = createNotificationQueue();
+            await notificationQueue.add('notify', {
+                backupId,
+                success: false,
+                dbConfig,
+                backupType,
+                error: errorMessage,
+            }, {
+                jobId: `notify_${backupId}`
+            });
+        } catch (queueErr) {
+            log.warn('Failed to enqueue failure notification', { backupId, error: (queueErr as any).message });
+        }
         
         throw new Error(errorMessage);
     }
 }
 
-// STORAGE WORKER PROCESSOR
+// ==========================================
+// STORAGE WORKER PROCESSOR (DIRECT EXECUTION)
+// ==========================================
 
-async function handleStorageJob(job: Job) {
-    const { backupId, filePath, storageConfig, fileName } = job.data;
+export async function handleStorageJob(job: Job) {
+    const { backupId, filePath, storageConfig, fileName, dbConfig, backupType, duration, fileSize } = job.data;
     
-    log.info('Processing storage upload', { backupId, storageType: storageConfig.type });
+    log.info('Processing storage upload via queue worker', { backupId, storageType: storageConfig?.type });
+    await createLog(backupId, 'INFO', `Storage worker processing upload for ${fileName || backupId}`);
     
     try {
-        const payload = {
-            storageType: storageConfig.type,
-            config: {
-                bucket: storageConfig.bucket,
-                region: storageConfig.region || 'us-east-1',
-                accessKey: storageConfig.accessKey,
-                secretKey: storageConfig.secretKey,
-                prefix: storageConfig.prefix || ''
-            },
-            localPath: filePath,
-            remotePath: fileName,
-            backupId: backupId
-        };
+        await job.updateProgress(10);
         
-        const response = await axios.post(`${STORAGE_SERVICE_URL}/api/storage/upload`, payload, {
-            timeout: 1800000
-        });
-        
-        if (!response.data.success) {
-            throw new Error(response.data.error || 'Storage upload failed');
+        // Idempotency check: check if already uploaded in metadata service
+        const existingJob = await metadataClient.getJob(backupId);
+        let uploadResult = existingJob?.metadata?.uploadResult;
+
+        if (!existingJob?.storagePath || existingJob.storagePath !== fileName) {
+            const storageType = storageConfig?.type || 's3';
+            let provider: any;
+            
+            if (storageType === 's3') {
+                provider = new S3StorageProvider({
+                    type: 's3',
+                    bucket: storageConfig.bucket,
+                    region: storageConfig.region || 'us-east-1',
+                    accessKey: storageConfig.accessKey,
+                    secretKey: storageConfig.secretKey,
+                    prefix: storageConfig.prefix || '',
+                });
+            } else {
+                provider = new LocalStorageProvider({
+                    type: 'local',
+                    bucket: 'local',
+                    basePath: storageConfig?.basePath || './backups',
+                });
+            }
+
+            await provider.initialize();
+            await job.updateProgress(30);
+
+            uploadResult = await provider.upload(filePath, fileName);
+            await job.updateProgress(80);
+
+            // Update metadata record
+            await metadataClient.updateJob(backupId, {
+                storageType: storageType,
+                storagePath: fileName,
+                metadata: {
+                    ...(existingJob?.metadata || {}),
+                    uploadResult,
+                }
+            });
+            await createLog(backupId, 'INFO', `Storage upload completed: ${fileName}`);
+        } else {
+            await createLog(backupId, 'INFO', `Storage upload previously completed for ${fileName}, skipping duplicate upload`);
         }
         
+        await job.updateProgress(90);
+
+        // Downstream: Enqueue completion notification
+        const notificationQueue = createNotificationQueue();
+        await notificationQueue.add('notify', {
+            backupId,
+            success: true,
+            dbConfig: dbConfig || (existingJob ? { type: existingJob.dbType, database: existingJob.dbName } : {}),
+            backupType: backupType || existingJob?.backupType || 'full',
+            duration: duration || existingJob?.duration,
+            fileSize: fileSize || existingJob?.fileSize,
+        }, {
+            jobId: `notify_${backupId}`,
+        });
+        await createLog(backupId, 'INFO', `Triggered completion notification alert from storage worker`);
+
+        await job.updateProgress(100);
         log.info('Storage upload completed', { backupId });
-        return { success: true, backupId };
+        return { success: true, backupId, uploadResult };
         
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         log.error('Storage upload failed', { backupId, error: errorMessage });
+        await createLog(backupId, 'ERROR', `Storage upload failed: ${errorMessage}`);
         throw error;
     }
 }
 
-// NOTIFICATION WORKER PROCESSOR
+// ==========================================
+// NOTIFICATION WORKER PROCESSOR (DIRECT EXECUTION)
+// ==========================================
 
-async function handleNotificationJob(job: Job) {
-    const { backupId, success, dbConfig, backupType, duration, fileSize, error } = job.data;
+export async function handleNotificationJob(job: Job) {
+    const {
+        backupId,
+        success,
+        dbConfig = {},
+        backupType = 'full',
+        duration,
+        fileSize,
+        error,
+        message: customMessage,
+        config: customConfig,
+        type: customType
+    } = job.data;
     
-    log.info('Processing notification', { backupId, success });
+    log.info('Processing notification via queue worker', { backupId, success });
     
     try {
-        const message = {
-            subject: success 
-                ? `Backup Completed - ${dbConfig.database}` 
-                : `Backup Failed - ${dbConfig.database}`,
-            text: `Backup ${success ? 'Completed Successfully' : 'Failed'}\n\nDatabase: ${dbConfig.type}/${dbConfig.database}\nType: ${backupType}\nTime: ${new Date().toISOString()}\n${duration ? `Duration: ${duration.toFixed(2)} seconds\n` : ''}${fileSize ? `Size: ${(fileSize / 1024 / 1024).toFixed(2)} MB\n` : ''}${error ? `Error: ${error}\n` : ''}`,
+        const type = customType || (process.env.SLACK_WEBHOOK_URL ? 'slack' : 'email');
+        const isSuccess = success !== false;
+
+        const message = customMessage || {
+            subject: isSuccess 
+                ? `Backup Completed - ${dbConfig.database || 'Database'}` 
+                : `Backup Failed - ${dbConfig.database || 'Database'}`,
+            text: `Backup ${isSuccess ? 'Completed Successfully' : 'Failed'}\n\nDatabase: ${dbConfig.type || 'N/A'}/${dbConfig.database || 'N/A'}\nType: ${backupType}\nTime: ${new Date().toISOString()}\n${duration ? `Duration: ${Number(duration).toFixed(2)} seconds\n` : ''}${fileSize ? `Size: ${(Number(fileSize) / 1024 / 1024).toFixed(2)} MB\n` : ''}${error ? `Error: ${error}\n` : ''}`,
             attachments: [
                 {
-                    color: success ? '#36a64f' : '#ff0000',
-                    title: success ? 'Backup Successful' : 'Backup Failed',
+                    color: isSuccess ? '#36a64f' : '#ff0000',
+                    title: isSuccess ? 'Backup Successful' : 'Backup Failed',
                     fields: [
-                        { title: 'Database', value: `${dbConfig.type}/${dbConfig.database}`, short: true },
+                        { title: 'Database', value: `${dbConfig.type || 'N/A'}/${dbConfig.database || 'N/A'}`, short: true },
                         { title: 'Type', value: backupType, short: true },
-                        { title: 'Duration', value: duration ? `${duration.toFixed(2)}s` : 'N/A', short: true },
-                        { title: 'Backup ID', value: backupId, short: true },
-                        { title: 'Size', value: fileSize ? `${(fileSize / 1024 / 1024).toFixed(2)} MB` : 'N/A', short: true }
+                        { title: 'Duration', value: duration ? `${Number(duration).toFixed(2)}s` : 'N/A', short: true },
+                        { title: 'Backup ID', value: backupId || 'N/A', short: true },
+                        { title: 'Size', value: fileSize ? `${(Number(fileSize) / 1024 / 1024).toFixed(2)} MB` : 'N/A', short: true }
                     ],
                     footer: 'DB Backup CLI',
                     ts: Math.floor(Date.now() / 1000)
                 }
             ]
         };
-        
-        const config = {
-            smtpHost: process.env.SMTP_HOST || 'smtp.gmail.com',
-            smtpPort: parseInt(process.env.SMTP_PORT || '587'),
-            username: process.env.SMTP_USER,
-            password: process.env.SMTP_PASS,
-            from: process.env.SMTP_FROM || 'backup@system.local',
-            to: process.env.SMTP_TO
-        };
-        
-        const payload = {
-            type: 'email',
-            backupId: backupId,
-            config: config,
-            message: message
-        };
-        
-        await axios.post(`${NOTIFICATION_SERVICE_URL}/api/notify`, payload, {
-            timeout: 30000
-        });
-        
-        log.info('Notification sent', { backupId, success });
-        return { success: true, backupId };
-        
+
+        let result: any = null;
+
+        if (type === 'slack') {
+            const webhookUrl = customConfig?.webhookUrl || customConfig?.webhook || process.env.SLACK_WEBHOOK_URL;
+            if (webhookUrl) {
+                const webhook = new IncomingWebhook(webhookUrl);
+                await webhook.send({
+                    text: message.text,
+                    attachments: message.attachments || [],
+                    ...(message.blocks && { blocks: message.blocks }),
+                });
+                result = { success: true, platform: 'slack' };
+                log.info('Slack notification sent', { backupId });
+            } else {
+                log.warn('Slack notification skipped: No webhook URL configured', { backupId });
+            }
+        } else if (type === 'email') {
+            const smtpHost = customConfig?.smtpHost || process.env.SMTP_HOST;
+            const smtpUser = customConfig?.username || customConfig?.smtpUser || process.env.SMTP_USER;
+            const smtpPass = customConfig?.password || customConfig?.smtpPassword || process.env.SMTP_PASS;
+
+            if (smtpHost && smtpUser && smtpPass) {
+                const transporter = nodemailer.createTransport({
+                    host: smtpHost,
+                    port: parseInt(customConfig?.smtpPort || process.env.SMTP_PORT || '587', 10),
+                    secure: customConfig?.smtpSecure || process.env.SMTP_SECURE === 'true' || false,
+                    auth: {
+                        user: smtpUser,
+                        pass: smtpPass,
+                    },
+                });
+
+                const mailOptions = {
+                    from: customConfig?.from || process.env.SMTP_FROM || smtpUser,
+                    to: customConfig?.to || process.env.SMTP_TO,
+                    subject: message.subject,
+                    text: message.text,
+                    html: message.html || message.text?.replace(/\n/g, '<br>'),
+                };
+
+                if (mailOptions.to) {
+                    const info = await transporter.sendMail(mailOptions);
+                    result = { success: true, platform: 'email', messageId: info.messageId };
+                    log.info('Email notification sent', { backupId, to: mailOptions.to });
+                } else {
+                    log.warn('Email notification skipped: No recipient configured', { backupId });
+                }
+            } else {
+                log.info('Email notification skipped: SMTP not configured', { backupId });
+            }
+        }
+
+        // Record audit in metadata service
+        try {
+            await metadataClient.recordNotification({
+                backupJobId: backupId || null,
+                type: type,
+                status: result ? 'sent' : 'skipped',
+                recipient: customConfig?.recipient || customConfig?.to || customConfig?.webhookUrl || process.env.SMTP_TO || process.env.SLACK_WEBHOOK_URL || 'unconfigured',
+                subject: message.subject,
+                message: message.text,
+                sentAt: new Date(),
+            });
+        } catch (auditErr: any) {
+            log.warn('Failed to record notification audit in metadata service', { error: auditErr?.message });
+        }
+
+        return { success: true, backupId, result };
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         log.error('Notification failed', { backupId, error: errorMessage });
+        try {
+            await metadataClient.recordNotification({
+                backupJobId: backupId || null,
+                type: 'error',
+                status: 'failed',
+                subject: 'Notification Failure',
+                message: errorMessage,
+                sentAt: new Date(),
+            });
+        } catch {}
         return { success: false, backupId, error: errorMessage };
     }
 }
 
-// create the worker + pass processor to workers
+// ==========================================
+// REGISTER QUEUE WORKERS
+// ==========================================
 
-const backupWorker = registerBackupWorker(handleBackupJob);
-const storageWorker = registerStorageWorker(handleStorageJob);
-const notificationWorker = registerNotificationWorker(handleNotificationJob);
+let backupWorker: any;
+let restoreWorker: any;
+let storageWorker: any;
+let notificationWorker: any;
 
-log.info('All workers started');
-log.info(`  Backup Worker: ${process.env.MAX_CONCURRENT_BACKUPS || 3} concurrent`);
-log.info(`  Storage Worker: ${process.env.MAX_CONCURRENT_STORAGE || 5} concurrent`);
-log.info('  Notification Worker: 10 concurrent');
+export function startWorkers() {
+    backupWorker = registerBackupWorker(handleBackupJob);
+    restoreWorker = registerRestoreWorker(handleRestoreJob);
+    storageWorker = registerStorageWorker(handleStorageJob);
+    notificationWorker = registerNotificationWorker(handleNotificationJob);
 
-export { backupWorker, storageWorker, notificationWorker };
+    log.info('All workers started');
+    log.info(`  Backup Worker: ${process.env.MAX_CONCURRENT_BACKUPS || 3} concurrent`);
+    log.info(`  Restore Worker: 1 concurrent`);
+    log.info(`  Storage Worker: ${process.env.MAX_CONCURRENT_STORAGE || 5} concurrent`);
+    log.info('  Notification Worker: 10 concurrent');
+
+    return { backupWorker, restoreWorker, storageWorker, notificationWorker };
+}
+
+const isTestEnv = process.env.NODE_ENV === 'test' || Boolean(process.env.NODE_TEST_CONTEXT) || process.argv.some(arg => arg.includes('test'));
+if (!isTestEnv) {
+    startWorkers();
+}
+
+export {
+    backupWorker,
+    restoreWorker,
+    storageWorker,
+    notificationWorker,
+    handleRestoreJob
+};

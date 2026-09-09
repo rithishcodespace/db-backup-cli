@@ -5,8 +5,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { metadataClient } from "../../lib/metadata-client";
 import { createModuleLogger } from '../../logger';
 import { BackupRequest, BackupResponse, BackupStatus } from '../shared/types';
-import { createBackupQueue, createStorageQueue, createNotificationQueue } from '../../lib/queue-manager';
+import { createBackupQueue, createRestoreQueue, createStorageQueue, createNotificationQueue } from '../../lib/queue-manager';
 import { validateBody, validateParams, BackupRequestSchema, IdParamSchema } from '../shared/validators';
+import { RestoreRequestSchema } from '../../schemas/restore.schema';
 import { sanitizeErrorMessage } from '../../utils/credential-scrubber';
 
 const app = express();
@@ -29,16 +30,18 @@ const serviceRegistry = {
 
 // Queue instances (lazy loaded)
 let backupQueue: any = null;
+let restoreQueue: any = null;
 let storageQueue: any = null;
 let notificationQueue: any = null;
 
 async function getQueues() {
   if (!backupQueue) {
     backupQueue = createBackupQueue();
+    restoreQueue = createRestoreQueue();
     storageQueue = createStorageQueue();
     notificationQueue = createNotificationQueue();
   }
-  return { backupQueue, storageQueue, notificationQueue };
+  return { backupQueue, restoreQueue, storageQueue, notificationQueue };
 }
 
 app.get('/health', (req, res) => {
@@ -341,6 +344,114 @@ app.get('/queue/stats', async (req, res) => {
     const errorMessage = error instanceof Error ? error.message : String(error);
     res.status(500).json({
       error: 'Failed to get queue stats',
+      message: errorMessage
+    });
+  }
+});
+
+app.post('/restore', validateBody(RestoreRequestSchema), async (req, res) => {
+  const { dbConfig, backupId, filePath, options = {} } = req.body;
+  const restoreId = uuidv4();
+
+  log.info('Received restore orchestration request', { restoreId, backupId, filePath, dbType: dbConfig.type });
+
+  try {
+    type DBType = keyof typeof serviceRegistry;
+    const dbType = dbConfig.type as DBType;
+
+    if (!serviceRegistry[dbType]) {
+      return res.status(400).json({
+        success: false,
+        error: `Unsupported database type: ${dbConfig.type}`
+      });
+    }
+
+    if (backupId) {
+      const backupJob = await metadataClient.getJob(backupId);
+      if (!backupJob) {
+        return res.status(404).json({
+          success: false,
+          error: `Backup job ${backupId} not found`
+        });
+      }
+    }
+
+    const { restoreQueue: queue } = await getQueues();
+
+    await queue.add('restore', {
+      restoreId,
+      backupId,
+      filePath,
+      dbConfig,
+      options
+    }, {
+      jobId: restoreId
+    });
+
+    log.info('Restore job queued', { restoreId });
+
+    return res.json({
+      success: true,
+      restoreId,
+      queued: true,
+      status: 'queued',
+      message: 'Restore has been queued and will be processed shortly',
+      statusUrl: `/restore/${restoreId}/status`
+    });
+  } catch (error) {
+    const rawError = error instanceof Error ? error.message : String(error);
+    const errorMessage = sanitizeErrorMessage(rawError);
+    log.error('Restore orchestration failed', { restoreId, error: errorMessage });
+    return res.status(500).json({
+      success: false,
+      restoreId,
+      error: errorMessage
+    });
+  }
+});
+
+app.get('/restore/:id/status', validateParams(IdParamSchema), async (req, res) => {
+  const id = req.params.id as string;
+
+  try {
+    const { restoreQueue: queue } = await getQueues();
+    const queueJob = await queue.getJob(id);
+
+    if (!queueJob) {
+      const logs = await metadataClient.getLogs({ backupJobId: id }).catch(() => []);
+      if (logs && logs.length > 0) {
+        const lastLog = logs[logs.length - 1];
+        const isError = lastLog.level === 'ERROR';
+        return res.json({
+          id,
+          status: isError ? 'failed' : 'completed',
+          progress: isError ? 0 : 100,
+          error: isError ? lastLog.message : null,
+          logs
+        });
+      }
+
+      return res.status(404).json({ error: 'Restore job not found in queue' });
+    }
+
+    const state = await queueJob.getState();
+    const result = queueJob.returnvalue;
+    const failedReason = queueJob.failedReason;
+
+    return res.json({
+      id: queueJob.id,
+      status: state,
+      progress: queueJob.progress,
+      attempts: queueJob.attemptsMade,
+      maxAttempts: queueJob.opts.attempts,
+      result: result || null,
+      error: failedReason || null
+    });
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log.error('Failed to get restore status', { restoreId: id, error: errorMessage });
+    return res.status(500).json({
+      error: 'Failed to get restore status',
       message: errorMessage
     });
   }
