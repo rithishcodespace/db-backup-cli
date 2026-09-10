@@ -4,7 +4,6 @@
 import { Client as PGClient } from 'pg';
 import mysql from 'mysql2/promise';
 import { MongoClient } from 'mongodb';
-import Database from 'better-sqlite3';
 import { DatabaseConfig } from '../types';
 import { createModuleLogger } from '../../../logger';
 
@@ -58,6 +57,7 @@ export class DatabaseClientManager {
           break;
 
         case 'sqlite':
+          const Database = require('better-sqlite3');
           client = new Database(config.database);
           break;
 

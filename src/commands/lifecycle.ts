@@ -27,18 +27,15 @@ export function registerLifecycleCommands(program: Command): void {
         });
 
         if (result.alreadyRunning) {
-          spinner.succeed(chalk.green('dbvault is already running and fully healthy!'));
+          spinner.succeed(chalk.green('dbvault is already running and ready!'));
         } else {
           spinner.succeed(chalk.green('dbvault started successfully and is ready!'));
         }
 
-        console.log('\n' + chalk.dim('─'.repeat(58)));
-        console.log(`  ${chalk.bold('Container:')}      ${chalk.cyan(result.state.containerId || 'dbvault')} (${chalk.green(result.state.status)})`);
+        console.log(`\n  ${chalk.bold('Web Dashboard:')}  ${chalk.cyan('http://localhost:3000/dashboard')}`);
         console.log(`  ${chalk.bold('API Gateway:')}    ${chalk.white('http://localhost:3000')}`);
-        console.log(`  ${chalk.bold('Web Dashboard:')}  ${chalk.white('http://localhost:3000/dashboard')}`);
-        console.log(`  ${chalk.bold('Swagger Docs:')}   ${chalk.white('http://localhost:3000/api-docs')}`);
-        console.log(chalk.dim('─'.repeat(58)));
-        console.log(`\nNext step: Run ${chalk.cyan('dbvault backup')} to perform a backup or ${chalk.cyan('dbvault status')} to inspect health.\n`);
+        console.log(`\nNext step: Run ${chalk.cyan('dbvault connect')} to connect a database, or ${chalk.cyan('dbvault backup')} to create a backup.`);
+        console.log(chalk.dim('Tip: Run "dbvault infra status" to view detailed background infrastructure.\n'));
       } catch (err: any) {
         spinner.fail(chalk.red('Failed to start dbvault runtime'));
         console.error(chalk.red(`\n✗ Error: ${err.message}\n`));
@@ -91,13 +88,10 @@ export function registerLifecycleCommands(program: Command): void {
           },
         });
 
-        spinner.succeed(chalk.green('dbvault restarted successfully and is healthy!'));
+        spinner.succeed(chalk.green('dbvault restarted successfully and is ready!'));
 
-        console.log('\n' + chalk.dim('─'.repeat(58)));
-        console.log(`  ${chalk.bold('Container:')}      ${chalk.cyan(result.state.containerId || 'dbvault')} (${chalk.green(result.state.status)})`);
-        console.log(`  ${chalk.bold('Gateway:')}        ${chalk.white('http://localhost:3000')}`);
-        console.log(`  ${chalk.bold('Dashboard:')}      ${chalk.white('http://localhost:3000/dashboard')}`);
-        console.log(chalk.dim('─'.repeat(58)));
+        console.log(`\n  ${chalk.bold('Web Dashboard:')}  ${chalk.cyan('http://localhost:3000/dashboard')}`);
+        console.log(`  ${chalk.bold('API Gateway:')}    ${chalk.white('http://localhost:3000')}\n`);
         console.log(`\nNext step: Run ${chalk.cyan('dbvault status')} to inspect runtime health.\n`);
       } catch (err: any) {
         spinner.fail(chalk.red('Failed to restart dbvault runtime'));

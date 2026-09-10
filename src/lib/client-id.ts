@@ -63,10 +63,6 @@ export class ClientIdManager {
         };
         
         this.saveConfig();
-        
-        // Only log on first creation (not on every load)
-        console.log(`\n🔑 Client ID generated: ${clientId}`);
-        console.log(`   Stored in: ${CONFIG_FILE}\n`);
     }
 
     private saveConfig(): void {

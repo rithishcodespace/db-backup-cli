@@ -170,7 +170,6 @@ async function testMongoDBConnection(config: ConnectionConfig): Promise<Connecti
 
 async function testSQLiteConnection(config: ConnectionConfig): Promise<ConnectionResult> {
   const fs = require('fs');
-  const Database = require('better-sqlite3');
   try {
     log.debug('Connecting to SQLite...');
     const dbPath = config.database;
@@ -181,16 +180,47 @@ async function testSQLiteConnection(config: ConnectionConfig): Promise<Connectio
       };
     }
 
-    const db = new Database(dbPath, { readonly: true });
-    const row = db.prepare('SELECT sqlite_version() as version').get();
-    db.close();
+    // Try using better-sqlite3 if available on the current platform
+    let Database: any = null;
+    try {
+      Database = require('better-sqlite3');
+    } catch {
+      // better-sqlite3 not available or native binary skipped
+    }
 
-    const version = row ? (row as any).version : '3';
-    log.debug('SQLite connection successful', { path: dbPath, version });
+    if (Database) {
+      const db = new Database(dbPath, { readonly: true });
+      const row = db.prepare('SELECT sqlite_version() as version').get();
+      db.close();
+
+      const version = row ? (row as any).version : '3';
+      log.debug('SQLite connection successful (via native engine)', { path: dbPath, version });
+      return {
+        success: true,
+        version: `SQLite ${version}`,
+        details: { path: dbPath }
+      };
+    }
+
+    // Pure JavaScript fallback: verify SQLite file magic header (first 16 bytes: "SQLite format 3\0")
+    const fd = fs.openSync(dbPath, 'r');
+    const headerBuffer = Buffer.alloc(16);
+    fs.readSync(fd, headerBuffer, 0, 16, 0);
+    fs.closeSync(fd);
+
+    const header = headerBuffer.toString('utf-8');
+    if (header.startsWith('SQLite format 3')) {
+      log.debug('SQLite database verified via header signature', { path: dbPath });
+      return {
+        success: true,
+        version: 'SQLite 3 (Verified Header)',
+        details: { path: dbPath }
+      };
+    }
+
     return {
-      success: true,
-      version: `SQLite ${version}`,
-      details: { path: dbPath }
+      success: false,
+      error: `File at ${dbPath} is not a valid SQLite database (missing SQLite header signature)`
     };
   } catch (error: any) {
     log.error('SQLite connection failed', { error });
