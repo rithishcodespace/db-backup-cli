@@ -8,6 +8,7 @@ import systemRoutes from './system.routes';
 import backupRoutes from './backup.routes';
 import dashboardRoutes from './dashboard.routes';
 import restoreRoutes from './restore.routes';
+import metadataRoutes from './metadata.routes';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { backupRateLimiter, apiRateLimiter } from '../middleware/rate-limit.middleware';
 
@@ -45,6 +46,7 @@ router.use('/api/dashboard', dashboardRoutes);
 // Protected and rate-limited API routes
 router.use('/api/backup', authMiddleware, backupRateLimiter, backupRoutes);
 router.use('/api/restore', authMiddleware, apiRateLimiter, restoreRoutes);
+router.use('/api', metadataRoutes);
 router.use('/api', systemRoutes);
 
 export default router;

@@ -18,7 +18,7 @@ fi
 # 2. Prepare metadata storage (SQLite) with production migrations
 DATABASE_FILE="/app/data/backup-meta.db"
 echo "[entrypoint] Applying production metadata migrations at ${DATABASE_FILE}..."
-DATABASE_URL="file:${DATABASE_FILE}" npx prisma migrate deploy
+DATABASE_URL="file:${DATABASE_FILE}" npx prisma migrate deploy || (echo "[entrypoint] Migration deploy encountered issue, syncing schema directly..." && DATABASE_URL="file:${DATABASE_FILE}" npx prisma db push --skip-generate)
 
 # 3. Verify and set default runtime environment variables
 export NODE_ENV="${NODE_ENV:-production}"

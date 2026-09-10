@@ -272,6 +272,7 @@ export class DockerRuntime {
   async start(options: {
     timeoutMs?: number;
     onProgress?: (msg: string) => void;
+    upgrade?: boolean;
   } = {}): Promise<{
     state: ContainerState;
     alreadyRunning: boolean;
@@ -281,6 +282,26 @@ export class DockerRuntime {
     const cfg = this.resolveConfig();
 
     const state = await this.getContainerState(cfg.containerName);
+
+    // Case 0: Upgrade container if explicitly requested
+    const currentImage = state.image || '';
+    const isImageOutdated =
+      Boolean(options.upgrade) &&
+      state.exists &&
+      currentImage &&
+      !currentImage.endsWith(`:${cfg.imageVersion}`) &&
+      !currentImage.endsWith(':latest');
+
+    if (isImageOutdated) {
+      if (options.onProgress) {
+        options.onProgress(`Upgrading background container from ${currentImage} to ${cfg.imageTag}...`);
+      }
+      log.info('Upgrading outdated container', { currentImage, targetImage: cfg.imageTag });
+      await this.stop();
+      await this.runner.exec('docker', ['rm', '-f', cfg.containerName]);
+      state.exists = false;
+      state.running = false;
+    }
 
     // Case 1: Container already running
     if (state.running) {

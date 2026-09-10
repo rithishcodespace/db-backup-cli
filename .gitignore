@@ -21,6 +21,7 @@ backups/
 *.backup
 *.dump
 *.sql
+!prisma/migrations/**/*.sql
 *.gz
 *.zip
 

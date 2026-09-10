@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { dockerRuntime } from '../infrastructure/docker-runtime';
+import { APP_VERSION } from '../version';
 import { createModuleLogger } from '../logger';
 
 const log = createModuleLogger('lifecycle-commands');
@@ -14,6 +15,7 @@ export function registerLifecycleCommands(program: Command): void {
     .command('start')
     .description('Start the dbvault all-in-one production container and wait for readiness')
     .option('-t, --timeout <seconds>', 'Readiness timeout in seconds', '45')
+    .option('-u, --upgrade', 'Recreate container with the latest Docker image if outdated', false)
     .action(async (options) => {
       const timeoutMs = parseInt(options.timeout, 10) * 1000;
       const spinner = ora('Checking and starting dbvault production runtime...').start();
@@ -21,6 +23,7 @@ export function registerLifecycleCommands(program: Command): void {
       try {
         const result = await dockerRuntime.start({
           timeoutMs,
+          upgrade: Boolean(options.upgrade),
           onProgress: (msg) => {
             spinner.text = msg;
           },
@@ -28,6 +31,11 @@ export function registerLifecycleCommands(program: Command): void {
 
         if (result.alreadyRunning) {
           spinner.succeed(chalk.green('dbvault is already running and ready!'));
+          const img = result.state.image || '';
+          if (img && !img.endsWith(':latest') && !img.endsWith(`:${APP_VERSION}`)) {
+            console.log(chalk.yellow(`\n  ℹ Notice: Background container is running ${img}.`));
+            console.log(chalk.yellow(`    Run "dbvault start --upgrade" or "dbvault restart" to update it to v${APP_VERSION}.\n`));
+          }
         } else {
           spinner.succeed(chalk.green('dbvault started successfully and is ready!'));
         }

@@ -113,12 +113,16 @@ export interface CreateStorageInput {
 
 export class MetadataClient {
   private readonly client: AxiosInstance;
-  private readonly baseUrl: string;
+  private baseUrl: string;
+  private readonly gatewayUrl: string;
+  private readonly hasCustomBaseUrl: boolean;
   private readonly maxRetries: number;
   private readonly retryDelayMs: number;
 
   constructor(config: MetadataClientConfig = {}) {
+    this.hasCustomBaseUrl = Boolean(config.baseUrl);
     this.baseUrl = config.baseUrl || process.env.METADATA_SERVICE_URL || 'http://127.0.0.1:3005';
+    this.gatewayUrl = process.env.GATEWAY_URL || 'http://127.0.0.1:3000';
     this.maxRetries = config.maxRetries !== undefined ? config.maxRetries : (process.env.METADATA_SERVICE_URL ? 2 : 0);
     this.retryDelayMs = config.retryDelayMs || 150;
 
@@ -159,6 +163,27 @@ export class MetadataClient {
           (status && status >= 502 && status <= 504)
         );
 
+        // Fallback: If default port 3005 is unreachable on host, transparently route through API Gateway (:3000)
+        if (
+          isAxios &&
+          error.code === 'ECONNREFUSED' &&
+          !this.hasCustomBaseUrl &&
+          this.baseUrl !== this.gatewayUrl &&
+          !process.env.METADATA_SERVICE_URL
+        ) {
+          log.debug(`Metadata Service on ${this.baseUrl} unreachable, routing through API Gateway on ${this.gatewayUrl}`);
+          this.baseUrl = this.gatewayUrl;
+          if (this.client && (this.client as any).defaults) {
+            (this.client as any).defaults.baseURL = this.gatewayUrl;
+          }
+          try {
+            const fallbackResponse = await fn();
+            return fallbackResponse.data;
+          } catch (fallbackError: any) {
+            error = fallbackError;
+          }
+        }
+
         if (isNetworkOrTimeout && attempt <= this.maxRetries) {
           log.warn(`Metadata Service call failed (${operationName}), retrying attempt ${attempt}/${this.maxRetries}...`, {
             error: error.message,
@@ -175,7 +200,15 @@ export class MetadataClient {
             }
             throw new Error(`Metadata service unavailable: ${error.message} (${operationName})`);
           }
-          const serverError = error.response.data?.error || error.response.data?.message;
+          const respData = error.response.data;
+          let serverError: string | undefined;
+          if (respData) {
+            if (respData.message && respData.error && respData.error !== respData.message) {
+              serverError = `${respData.error}: ${respData.message}`;
+            } else {
+              serverError = respData.message || respData.error;
+            }
+          }
           const detailMsg = serverError ? `: ${serverError}` : ` (HTTP ${status})`;
           const customErr: any = new Error(`${operationName} failed${detailMsg}`);
           customErr.status = status;
@@ -191,11 +224,21 @@ export class MetadataClient {
 
   // ==================== Health ====================
 
-  async health(): Promise<{ status: string; database: string; uptime?: number }> {
-    return this.request(
+  async health(): Promise<{ status: string; database: string; uptime?: number; service?: string }> {
+    const res: any = await this.request(
       () => this.client.get('/health'),
       'Metadata service health check'
     );
+    if (res && res.dependencies) {
+      const metaHealthy = res.dependencies.metadataService?.status === 'healthy';
+      return {
+        service: 'metadata-service',
+        status: metaHealthy ? 'healthy' : 'unhealthy',
+        database: metaHealthy ? 'connected' : 'disconnected',
+        uptime: res.uptime,
+      };
+    }
+    return res;
   }
 
   // ==================== Backup Jobs ====================
