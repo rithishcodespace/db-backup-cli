@@ -941,7 +941,11 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 export let server: any = null;
 
 export async function startMetadataService(port = PORT, host = HOST): Promise<any> {
-  await connectDatabase();
+  try {
+    await connectDatabase();
+  } catch (err: any) {
+    log.error('Initial database connection failed, will retry on requests', { error: err?.message || String(err) });
+  }
   return new Promise((resolve) => {
     server = app.listen(port, host, () => {
       log.info(`Metadata Service listening on http://${host}:${port}`);

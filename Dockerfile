@@ -21,12 +21,14 @@ COPY scripts ./scripts/
 
 RUN apk add --no-cache python3 make g++
 RUN npm ci --ignore-scripts
+RUN npm rebuild better-sqlite3
 
 COPY . .
 RUN npx prisma generate
 RUN npm run build
 RUN mkdir -p /app/data-template && DATABASE_URL="file:/app/data-template/backup-meta.db" npx prisma migrate deploy
 RUN npm prune --omit=dev
+RUN npm rebuild better-sqlite3
 
 # ==========================================
 # Stage 3: All-in-One Production Runtime
@@ -49,7 +51,8 @@ RUN apk add --no-cache \
     redis \
     bash \
     ca-certificates \
-    curl
+    curl \
+    libstdc++
 
 # Install PM2 process supervisor globally
 RUN npm install -g pm2
