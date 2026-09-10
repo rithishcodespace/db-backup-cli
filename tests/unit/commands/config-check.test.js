@@ -16,7 +16,7 @@ function loadConfigCheckCommand(overrides = {}) {
     storageLocation: {
       findFirst: async () => ({
         type: 'local',
-        config: { basePath: './backups' },
+        config: { basePath: __dirname },
       }),
     },
     backupSchedule: {
