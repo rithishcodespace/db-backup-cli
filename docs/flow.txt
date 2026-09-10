@@ -59,7 +59,7 @@ Process exits
 
 # backup-restore command flow
   # connect
-  - db-backup connect --type postgresql --host localhost --port 5432 --user postgres --password Rithish@2006 --database testdb (connect)
+  - db-backup connect --type postgresql --host localhost --port 5432 --user postgres --password secret --database testdb (connect)
   # add storage location for backup
   - db-backup storage add --type local --name local-storage --path ./backups/local (add local storage path)
   - db-backup storage add --type s3 --name postgres-s3 --bucket your-bucket-name --region ap-south-1 --access-key YOUR_ACCESS_KEY --secret-key YOUR_SECRET_KEY --prefix postgres/
@@ -81,13 +81,13 @@ Process exits
 
 
 # notification configuration flow
-  # Configure Email
-   - db-backup notification email configure \
+   # Configure Email
+    - db-backup notification email configure \
         --smtp-host smtp.gmail.com \
         --smtp-port 587 \
-        --smtp-user rithishvkv@gmail.com \
-        --smtp-password nqinkrkttpgoequt \
-        --from rithishvkv@gmail.com
+        --smtp-user alerts@yourorg.com \
+        --smtp-password "your-smtp-app-password" \
+        --from alerts@yourorg.com
 
   # Test Email
   - db-backup notification email test --to admin@company.com

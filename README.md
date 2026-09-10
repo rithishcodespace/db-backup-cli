@@ -26,7 +26,7 @@ Featuring Point-In-Time Recovery (PITR), BullMQ asynchronous worker queues, mult
 The built-in diagnostic engine validates Node.js versions, configuration health, Docker daemon states, Redis connectivity, database access, keystores, and microservice HTTP endpoints before executing critical jobs.
 
 <div align="center">
-  <img src="docs/images/cli-doctor.png" alt="DB Backup Doctor Diagnostics" width="780" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);" />
+  <img src="https://raw.githubusercontent.com/rithishcodespace/db-backup-cli/main/docs/images/cli-doctor.png" alt="DB Backup Doctor Diagnostics" width="780" />
 </div>
 
 ---
@@ -35,7 +35,7 @@ The built-in diagnostic engine validates Node.js versions, configuration health,
 A modern React + Vite monitoring dashboard providing 24-hour reliability metrics, queue saturation rates, live active backup tracking, and complete execution histories.
 
 <div align="center">
-  <img src="docs/images/dashboard-overview.png" alt="Companion Dashboard Overview" width="950" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); margin-bottom: 20px;" />
+  <img src="https://raw.githubusercontent.com/rithishcodespace/db-backup-cli/main/docs/images/dashboard-overview.png" alt="Companion Dashboard Overview" width="950" />
 </div>
 
 ---
@@ -44,7 +44,7 @@ A modern React + Vite monitoring dashboard providing 24-hour reliability metrics
 Live ping telemetry monitoring all 9 microservices, database workers, Redis connection state, and BullMQ worker process allocations.
 
 <div align="center">
-  <img src="docs/images/dashboard-health-matrix.png" alt="Microservices Health Matrix" width="950" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.2); margin-bottom: 20px;" />
+  <img src="https://raw.githubusercontent.com/rithishcodespace/db-backup-cli/main/docs/images/dashboard-health-matrix.png" alt="Microservices Health Matrix" width="950" />
 </div>
 
 ---
@@ -53,7 +53,7 @@ Live ping telemetry monitoring all 9 microservices, database workers, Redis conn
 Real-time log streaming directly from worker execution containers, featuring severity filtering (INFO, WARN, ERROR), job ID correlation, and auto-scrolling telemetry.
 
 <div align="center">
-  <img src="docs/images/dashboard-log-stream.png" alt="Real-time Log Inspector" width="950" style="border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.2);" />
+  <img src="https://raw.githubusercontent.com/rithishcodespace/db-backup-cli/main/docs/images/dashboard-log-stream.png" alt="Real-time Log Inspector" width="950" />
 </div>
 
 ---
@@ -62,94 +62,55 @@ Real-time log streaming directly from worker execution containers, featuring sev
 
 **DBVault** employs an all-in-one containerized microservices architecture with an asynchronous, event-driven queue pipeline powered by **BullMQ** and **Redis**. Long-running database dumps never block the CLI or HTTP request threads; instead, backup and restore jobs are dispatched through supervised worker engines with automatic retry policies, credential scrubbing, and atomic storage handoffs.
 
-```mermaid
-flowchart TD
-    %% Presentation & Host Layer
-    subgraph Host [" 🖥️ Host Machine "]
-        CLI["💻 dbvault CLI (Node.js/Commander)"]
-        BROWSER["🌐 Companion Web Dashboard & Swagger UI"]
-        HOST_DIR[("📁 Host Mount: ~/.db-backup<br/>• config.json (POSIX 0600)<br/>• backup-meta.db (SQLite WAL)<br/>• keys/ (Keystores POSIX 0600)<br/>• backups/ (Archive Artifacts)")]
-    end
+<div align="center">
+  <img src="https://raw.githubusercontent.com/rithishcodespace/db-backup-cli/main/docs/images/architecture.png" alt="DBVault System Architecture" width="950" />
+</div>
 
-    %% Container Boundary
-    subgraph Container [" 🐳 Unified Production Container (image: rithish2006/dbvault:1.0.0 / Non-root 'dbvault' UID 10001) "]
-        
-        subgraph GatewaySub [" 🚪 Public Ingress Layer (:3000 - Host Bound) "]
-            GW["API Gateway (Express 5)"]
-            DASH["Static Web Dashboard (React + Vite)"]
-            SWAG["OpenAPI 3.0 & Swagger UI (:3000/api-docs)"]
-            SEC["Valibot Validators • Helmet • Rate Limiter • Credential Scrubber"]
-        end
-
-        subgraph CoreSub [" ⚡ Internal Message Broker & Orchestration (Loopback 127.0.0.1) "]
-            ORCH["Backup Orchestrator (:3001)"]
-            REDIS[("🔴 Internal Redis 7 Broker (:6379)")]
-            SCHED["⏰ Scheduler Service (:3020 / node-cron)"]
-            BULL_B["📥 backup-jobs Queue"]
-            BULL_S["📦 storage-jobs Queue"]
-            BULL_N["🔔 notification-jobs Queue"]
-        end
-
-        subgraph WorkerSub [" 🛠️ BullMQ Worker Controller & Database Engines "]
-            WORKER["BullMQ Worker Supervisor"]
-            PG_W["🐘 PostgreSQL Engine<br/>pg_dump • WAL Archiver • PITR • pg_combinebackup"]
-            MY_W["🐬 MySQL Engine<br/>mysqldump • mysqlbinlog Incremental"]
-            MG_W["🍃 MongoDB Engine<br/>mongodump --archive Stream"]
-            SQ_W["🪶 SQLite Engine<br/>WAL Checkpoint • Online Snapshot"]
-        end
-
-        subgraph MetaSub [" 🛡️ Isolated Metadata Service (:3005 Loopback) "]
-            META_SVC["Metadata HTTP API (Sole Prisma Owner)"]
-            PRISMA["Prisma ORM Client"]
-            META_DB[("🗃️ backup-meta.db<br/>WAL Mode • 5000ms Busy Timeout")]
-        end
-
-        subgraph StorageSub [" ☁️ Storage & Alert Dispatchers "]
-            ST_SVC["Storage Engine (Local Vaults & AWS S3)"]
-            NOTIF_SVC["Notification Engine (Slack Webhooks & SMTP Email)"]
-        end
-    end
-
-    %% External Targets
-    subgraph Targets [" 🎯 External Managed Databases & Cloud "]
-        PG_DB[("PostgreSQL")]
-        MY_DB[("MySQL")]
-        MG_DB[("MongoDB")]
-        SQ_DB[("SQLite")]
-        S3_CLOUD["☁️ AWS S3 Bucket"]
-        SLACK_CLOUD["💬 Slack Alerts"]
-        SMTP_SERVER["✉️ SMTP Server"]
-    end
-
-    %% Host to Container Networking
-    CLI -->|HTTP REST :3000| GW
-    CLI -.->|Docker CLI / Lifecycle Controls| Container
-    BROWSER -->|HTTP :3000 /dashboard /api-docs| GW
-    HOST_DIR ===|Persistent Volume Mount| Container
-
-    %% Container Internal Communications
-    GW --> SEC --> ORCH
-    SCHED -->|Trigger Job| ORCH
-    ORCH -->|Enqueue Job| REDIS
-    REDIS --> BULL_B & BULL_S & BULL_N
-    BULL_B --> WORKER
-    WORKER --> PG_W & MY_W & MG_W & SQ_W
-    BULL_S --> ST_SVC
-    BULL_N --> NOTIF_SVC
-
-    %% Metadata Isolation
-    ORCH & WORKER & ST_SVC & NOTIF_SVC & SCHED -->|HTTP :3005 Internal Loopback| META_SVC
-    META_SVC --> PRISMA --> META_DB
-    META_DB -.->|Synchronized to| HOST_DIR
-
-    %% Target Interactions
-    PG_W -->|Dump / PITR| PG_DB
-    MY_W -->|Dump / Binlog| MY_DB
-    MG_W -->|BSON Stream| MG_DB
-    SQ_W -->|Snapshot| SQ_DB
-    ST_SVC --> S3_CLOUD
-    ST_SVC -.->|Write Archive File| HOST_DIR
-    NOTIF_SVC --> SLACK_CLOUD & SMTP_SERVER
+```text
+ ┌─────────────────────────────────────────────────────────────────────────────────────────┐
+ │                                     🖥️ HOST MACHINE                                      │
+ │                                                                                         │
+ │   💻 dbvault CLI                 🌐 Web Dashboard & Swagger UI       📁 ~/.db-backup    │
+ │   (Node.js / Commander)          (http://localhost:3000)              (POSIX 0600)      │
+ └──────────────────┬───────────────────────────────┬───────────────────────┬──────────────┘
+                    │ HTTP REST (:3000)             │ Browser UI            │ Volume Mount
+ ┌──────────────────▼───────────────────────────────▼───────────────────────▼──────────────┐
+ │  🐳 DOCKER PRODUCTION CONTAINER (image: rithish2006/dbvault / Non-root UID 10001)       │
+ │                                                                                         │
+ │  ┌───────────────────────────────────────────────────────────────────────────────────┐  │
+ │  │ 🚪 INGRESS LAYER (:3000 Host Bound)                                               │  │
+ │  │ API Gateway (Express 5) • Static Dashboard (React + Vite) • Swagger UI            │  │
+ │  │ Valibot Validators • Rate Limiting • Helmet • Credential Scrubber                 │  │
+ │  └───────────────────────────────────────┬───────────────────────────────────────────┘  │
+ │                                          │ Loopback (127.0.0.1)                         │
+ │  ┌───────────────────────────────────────▼───────────────────────────────────────────┐  │
+ │  │ ⚡ ORCHESTRATION & MESSAGE BROKER (Internal Loopback)                             │  │
+ │  │ Orchestrator (:3001) ──► Redis 7 Broker (:6379) ◄── Scheduler (:3020)            │  │
+ │  │       │                   │                                                       │  │
+ │  │       │                   ├──► 📥 backup-jobs Queue                               │  │
+ │  │       │                   ├──► 📦 storage-jobs Queue                              │  │
+ │  │       │                   └──► 🔔 notification-jobs Queue                        │  │
+ │  └───────┼───────────────────────────────────────┬───────────────────────────────────┘  │
+ │          │                                       │                                      │
+ │  ┌───────▼─────────────────────────────────┐ ┌───▼─────────────────────────────────┐  │
+ │  │ 🛠️ BULLMQ DATABASE ENGINES              │ │ ☁️ STORAGE & ALERTS                 │  │
+ │  │ • PostgreSQL (pg_dump, WAL PITR)        │ │ • Storage Engine (Local & AWS S3)  │  │
+ │  │ • MySQL (mysqldump, mysqlbinlog)        │ │ • Notification Engine              │  │
+ │  │ • MongoDB (mongodump stream)            │ │   (Slack Webhooks & SMTP Email)    │  │
+ │  │ • SQLite (WAL checkpoint snapshot)      │ └─────────────────────────────────────┘  │
+ │  └───────────────────┬─────────────────────┘                                            │
+ │                      │                                                                  │
+ │  ┌───────────────────▼───────────────────────────────────────────────────────────────┐  │
+ │  │ 🛡️ ISOLATED METADATA SERVICE (:3005 Loopback - Sole SQLite Owner)                │  │
+ │  │ Metadata HTTP API ──► Prisma ORM ──► backup-meta.db (SQLite WAL Mode)            │  │
+ │  └───────────────────────────────────────────────────────────────────────────────────┘  │
+ └──────────────────────────────────────────┬──────────────────────────────────────────────┘
+                                            │ Managed Connections & Dispatches
+ ┌──────────────────────────────────────────▼──────────────────────────────────────────────┐
+ │                        🎯 EXTERNAL TARGETS & CLOUD INTEGRATIONS                         │
+ │                                                                                         │
+ │   🐘 PostgreSQL     🐬 MySQL     🍃 MongoDB     🪶 SQLite     ☁️ S3     💬 Slack    ✉️ SMTP   │
+ └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 > **Security & Concurrency Architecture Highlights**:
@@ -248,16 +209,25 @@ npm uninstall -g dbvault
 
 The following flowchart illustrates the typical operational lifecycle of a production database disaster recovery setup using **DBVault**:
 
-```mermaid
-flowchart TD
-    A["1. Setup & Diagnostics<br/><code>dbvault init</code> / <code>doctor</code>"] --> B["2. Start Runtime<br/><code>dbvault start</code>"]
-    B --> C["3. Connect Database<br/><code>dbvault connect</code>"]
-    C --> D["4. Configure Storage & Encryption<br/><code>dbvault storage add</code> / <code>key generate</code>"]
-    D --> E["5. Execute Backup<br/><code>dbvault backup --compress --encrypt</code>"]
-    E --> F["6. Automate Schedules & Alerts<br/><code>dbvault schedule</code> / <code>notification</code>"]
-    F --> G["7. Monitor & Audit<br/><code>dbvault list</code> / <code>dashboard</code>"]
-    G --> H["8. Disaster Recovery<br/><code>dbvault restore --id &lt;ID&gt;</code>"]
-    C -.-> I["Optional: PostgreSQL PITR<br/><code>dbvault pitr setup / restore</code>"]
+<div align="center">
+  <img src="https://raw.githubusercontent.com/rithishcodespace/db-backup-cli/main/docs/images/cli-flow.png" alt="DBVault CLI Operational Lifecycle" width="480" />
+</div>
+
+```text
+  [ 1. Setup & Diagnostics ]  ──►  [ 2. Start Production Runtime ]  ──►  [ 3. Connect Database ]
+     dbvault init / doctor                dbvault start                    dbvault connect
+                                                                                  │
+  ┌───────────────────────────────────────────────────────────────────────────────┘
+  │
+  ▼
+  [ 4. Configure Storage & Keys ] ──► [ 5. Execute Backup ] ──► [ 6. Automate Schedules & Alerts ]
+     dbvault storage / key               dbvault backup              dbvault schedule / notification
+                                                │
+  ┌─────────────────────────────────────────────┘
+  │
+  ▼
+  [ 7. Monitor & Audit Telemetry ] ──► [ 8. Disaster Recovery & Restore ]
+     dbvault list / dashboard             dbvault restore --id <BACKUP_ID>
 ```
 
 ### Stage 1: Initial Setup & Environment Verification
@@ -620,7 +590,7 @@ GET    /health                     # Gateway health check
 
 ## 🐳 Production Container Runtime
 
-DBVault is packaged as a hardened, all-in-one Alpine container running under the dedicated non-root **`dbvault`** user (`UID:GID 10001:10001`). Orchestrated via [`docker-compose.yml`](docker-compose.yml), it isolates all background workers, database drivers, and the Redis broker behind a single external port.
+DBVault is packaged as a hardened, all-in-one Alpine container running under the dedicated non-root **`dbvault`** user (`UID:GID 10001:10001`). Orchestrated via [`docker-compose.yml`](https://github.com/rithishcodespace/db-backup-cli/blob/main/docker-compose.yml), it isolates all background workers, database drivers, and the Redis broker behind a single external port.
 
 ### Port & Networking Model
 
@@ -659,7 +629,7 @@ docker compose down
 DBVault follows strict release engineering practices with centralized version management, automated package verification, and multi-stage CI/CD pipelines.
 
 ### 1. Single Global Source of Truth for Versioning
-Version state is globally governed by [`package.json`](package.json). All runtime services, CLI entrypoints, Swagger specifications, and Docker adapters dynamically import the active version from [`src/version.ts`](src/version.ts).
+Version state is globally governed by [`package.json`](https://github.com/rithishcodespace/db-backup-cli/blob/main/package.json). All runtime services, CLI entrypoints, Swagger specifications, and Docker adapters dynamically import the active version from [`src/version.ts`](https://github.com/rithishcodespace/db-backup-cli/blob/main/src/version.ts).
 
 To safely inspect or bump the version across all manifests simultaneously:
 ```bash
@@ -687,9 +657,9 @@ npm run scan:secrets
 ```
 
 ### 3. GitHub Actions Pipelines
-* **Continuous Integration ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))**:
+* **Continuous Integration ([`.github/workflows/ci.yml`](https://github.com/rithishcodespace/db-backup-cli/blob/main/.github/workflows/ci.yml))**:
   Executes on pull requests and pushes to `main` across a **Node.js 20 and 22 LTS** test matrix. Enforces strict lockfile installs (`npm ci`), high-severity audits, typechecking, full builds, unit tests, tarball validation, and secret scanning.
-* **Automated Release ([`.github/workflows/release.yaml`](.github/workflows/release.yaml))**:
+* **Automated Release ([`.github/workflows/release.yaml`](https://github.com/rithishcodespace/db-backup-cli/blob/main/.github/workflows/release.yaml))**:
   Triggered on semantic Git tags (`v*.*.*`) or via manual `workflow_dispatch`. Validates release artifacts, builds multi-arch Docker images for Docker Hub (`rithish2006/dbvault`), publishes `dbvault` to the npm registry, and generates GitHub Releases with attached tarballs.
 
 ---
@@ -759,7 +729,7 @@ dbvault/
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please check out [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before submitting pull requests.
+Contributions are welcome! Please check out [CONTRIBUTING.md](https://github.com/rithishcodespace/db-backup-cli/blob/main/CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](https://github.com/rithishcodespace/db-backup-cli/blob/main/CODE_OF_CONDUCT.md) before submitting pull requests.
 
 1. Fork the Project
 2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
@@ -771,5 +741,5 @@ Contributions are welcome! Please check out [CONTRIBUTING.md](CONTRIBUTING.md) a
 
 ## 📄 License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/rithishcodespace/db-backup-cli/blob/main/LICENSE) file for details.
 
