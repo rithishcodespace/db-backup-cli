@@ -9,7 +9,7 @@ import httpClient from '../utils/http-client';
 
 const log = createModuleLogger('schedule-command');
 
-const SCHEDULER_URL = process.env.SCHEDULER_URL || 'http://localhost:3020';
+const SCHEDULER_URL = process.env.SCHEDULER_URL || process.env.GATEWAY_URL || 'http://localhost:3000';
 
 // ==================== Types ====================
 

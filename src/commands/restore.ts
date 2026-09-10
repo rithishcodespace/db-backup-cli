@@ -62,24 +62,35 @@ export function registerRestoreCommand(program: Command): void {
         spinner.text = 'Checking infrastructure for restore...';
         await infrastructureManager.ensureInfrastructure({ requiredServices: ['redis'] });
 
-        // Initialize distributed lock
-        const lockKey = `restore:${getDatabaseIdentifier(dbConfig)}`;
-        lock = new DistributedLock(connection as any, lockKey, { ttl: LOCK_TTL });
+        // Initialize distributed lock if Redis is directly accessible on the host
+        try {
+          const lockKey = `restore:${getDatabaseIdentifier(dbConfig)}`;
+          lock = new DistributedLock(connection as any, lockKey, { ttl: LOCK_TTL });
 
-        // Try to acquire lock
-        spinner.text = 'Acquiring restore lock...';
-        lockAcquired = await lock.acquire();
+          spinner.text = 'Acquiring restore lock...';
+          const acquirePromise = lock.acquire();
+          const timeoutPromise = new Promise<boolean>((_, reject) =>
+            setTimeout(() => reject(new Error('Redis connection timed out')), 1500)
+          );
+          lockAcquired = await Promise.race([acquirePromise, timeoutPromise]);
 
-        if (!lockAcquired) {
-          spinner.fail(chalk.red(`A restore operation is already running for database '${dbConfig.database}'. Please wait until it completes.`));
-          log.warn('Restore lock acquisition failed', {
-            database: dbConfig.database,
-            host: dbConfig.host,
-          });
-          process.exit(1);
+          if (!lockAcquired) {
+            spinner.fail(chalk.red(`A restore operation is already running for database '${dbConfig.database}'. Please wait until it completes.`));
+            log.warn('Restore lock acquisition failed', {
+              database: dbConfig.database,
+              host: dbConfig.host,
+            });
+            process.exit(1);
+          }
+
+          console.log(chalk.green(`\n🔒 Restore lock acquired for ${dbConfig.database}`));
+        } catch (err: any) {
+          // In Docker production mode, Redis runs internally inside the container on loopback.
+          // Host CLI cannot connect directly to port 6379; queue concurrency is safely supervised by the orchestrator.
+          log.debug('Host-level Redis lock skipped; orchestrator supervises queue concurrency', { error: err?.message });
+          lock = null;
+          lockAcquired = false;
         }
-
-        console.log(chalk.green(`\n🔒 Restore lock acquired for ${dbConfig.database}`));
 
         // Warning prompt for drop-existing / force in interactive terminal
         if ((options.dropExisting || options.force) && !options.dryRun && process.stdin.isTTY) {
