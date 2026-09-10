@@ -10,6 +10,7 @@ import { testConnection } from '../utils/db_connection';
 import { sanitizeErrorMessage } from '../utils/credential-scrubber';
 import { infrastructureManager } from '../infrastructure';
 import { dockerRuntime } from '../infrastructure/docker-runtime';
+import { APP_VERSION } from '../version';
 import { createModuleLogger } from '../logger';
 
 const log = createModuleLogger('doctor-command');
@@ -36,6 +37,13 @@ export function registerDoctorCommand(program: Command): void {
       console.log(chalk.dim('─'.repeat(45)));
 
       const envItems: DiagnosticItem[] = [];
+
+      // dbvault version
+      envItems.push({
+        name: 'dbvault CLI',
+        status: `v${APP_VERSION}`,
+        success: true,
+      });
 
       // Node.js version
       const nodeVersion = process.version;
