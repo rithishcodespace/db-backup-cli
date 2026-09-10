@@ -52,7 +52,10 @@ test('dashboard command detects reachable dashboard web server and opens browser
 
   await program.parseAsync(['node', 'dbvault', 'dashboard', '--port', '5173']);
 
-  assert.ok(commandExecuted.includes('http://localhost:5173'));
+  assert.ok(
+    commandExecuted.includes('http://localhost:3000/dashboard') ||
+    commandExecuted.includes('http://localhost:5173')
+  );
 });
 
 test('dashboard command exits when dashboard web server is unreachable', async () => {

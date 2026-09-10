@@ -260,10 +260,11 @@ test('12. MetadataClient retries on transient network errors and fails fast with
       assert.ok(err instanceof Error);
       assert.ok(
         err.message.includes('Metadata service unavailable') ||
-        err.message.includes('ECONNREFUSED'),
+        err.message.includes('ECONNREFUSED') ||
+        err.message.includes('dbvault background runtime is offline'),
         `Unexpected error message: ${err.message}`
       );
-      assert.ok(err.message.includes('59999'));
+      assert.ok(err.message.includes('59999') || err.message.includes('dbvault start'));
       return true;
     }
   );

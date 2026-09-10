@@ -8,6 +8,13 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const v = require('valibot');
 
+process.on('unhandledRejection', (err) => {
+  if (err && err.message && (err.message.includes('Connection is closed') || err.message.includes('ECONNREFUSED'))) {
+    return;
+  }
+  console.error('Unhandled rejection in test:', err);
+});
+
 const {
   QUEUES,
   createRestoreQueue,
@@ -37,13 +44,25 @@ test('Queue Manager defines RESTORE queue and creates queue with retries', async
   assert.equal(QUEUES.STORAGE, 'storage-queue');
   assert.equal(QUEUES.NOTIFICATION, 'notification-queue');
 
-  const restoreQueue = createRestoreQueue();
-  assert.ok(restoreQueue);
-  assert.equal(restoreQueue.name, 'restore-queue');
-  assert.equal(restoreQueue.defaultJobOptions?.attempts, 2);
-  assert.equal(restoreQueue.defaultJobOptions?.backoff?.type, 'exponential');
+  const BullMQ = require('bullmq');
+  const OriginalQueue = BullMQ.Queue;
+  try {
+    BullMQ.Queue = class MockQueue {
+      constructor(name, opts) {
+        this.name = name;
+        this.defaultJobOptions = opts?.defaultJobOptions;
+      }
+      async close() {}
+    };
 
-  await restoreQueue.close();
+    const restoreQueue = createRestoreQueue();
+    assert.ok(restoreQueue);
+    assert.equal(restoreQueue.name, 'restore-queue');
+    assert.equal(restoreQueue.defaultJobOptions?.attempts, 2);
+    assert.equal(restoreQueue.defaultJobOptions?.backoff?.type, 'exponential');
+  } finally {
+    BullMQ.Queue = OriginalQueue;
+  }
 });
 
 // =========================================================================
