@@ -86,7 +86,7 @@
     "typescript": "^6.0.3"
   },
   "scripts": {
-    "postinstall": "node scripts/postinstall.js",
+    "postinstall": "node -e \"try { if (require('fs').existsSync('./scripts/postinstall.js')) require('./scripts/postinstall.js'); } catch {}\"",
     "test": "npm run test:all",
     "build": "tsc",
     "build:all": "prisma generate && tsc && cd dashboard && npm run build",

@@ -156,7 +156,10 @@ jobs:
         if: inputs.dry_run != true && env.NPM_TOKEN != ''
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish dist-package/*.tgz --access public
+        run: |
+          cd dist-package
+          TARBALL=$(ls *.tgz | head -n 1)
+          npm publish "$TARBALL" --access public
 
       - name: Dry-run Package Verification
         if: inputs.dry_run == true || env.NPM_TOKEN == ''

@@ -17,9 +17,10 @@ FROM node:20-alpine AS backend-builder
 WORKDIR /app
 COPY package*.json prisma.config.ts ./
 COPY prisma ./prisma/
+COPY scripts ./scripts/
 
 RUN apk add --no-cache python3 make g++
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 COPY . .
 RUN npx prisma generate
