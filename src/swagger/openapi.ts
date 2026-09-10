@@ -7,12 +7,12 @@ import { APP_VERSION } from '../version';
 export const swaggerSpec = {
   openapi: '3.0.0',
   info: {
-    title: 'DB Backup CLI & API Gateway API',
+    title: 'dbvault API Gateway',
     version: APP_VERSION,
     description:
-      'Comprehensive OpenAPI 3.0 documentation for the DB Backup CLI microservices architecture. Provides endpoints for triggering, monitoring, and managing database backups (PostgreSQL, MySQL, MongoDB, SQLite), schedules, storage locations, notifications, and telemetry dashboard.',
+      'Comprehensive OpenAPI 3.0 documentation for the dbvault microservices architecture. Provides endpoints for triggering, monitoring, and managing database backups (PostgreSQL, MySQL, MongoDB, SQLite), schedules, storage locations, notifications, and telemetry dashboard.',
     contact: {
-      name: 'DB Backup CLI Maintainers',
+      name: 'dbvault Maintainers',
       url: 'https://github.com/rithishcodespace/db-backup-cli',
     },
     license: {

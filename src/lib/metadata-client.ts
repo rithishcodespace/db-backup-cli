@@ -170,7 +170,10 @@ export class MetadataClient {
         // Format explicit descriptive error
         if (isAxios) {
           if (!error.response) {
-            throw new Error(`Metadata service unavailable: ${error.message} (${operationName} -> ${this.baseUrl})`);
+            if (error.code === 'ECONNREFUSED') {
+              throw new Error(`dbvault background runtime is offline. Run "dbvault start" to launch background services.`);
+            }
+            throw new Error(`Metadata service unavailable: ${error.message} (${operationName})`);
           }
           const serverError = error.response.data?.error || error.response.data?.message;
           const detailMsg = serverError ? `: ${serverError}` : ` (HTTP ${status})`;

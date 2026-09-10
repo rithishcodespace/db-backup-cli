@@ -12,11 +12,11 @@ export function registerLifecycleCommands(program: Command): void {
   // ==================== START ====================
   program
     .command('start')
-    .description('Start the DB Backup all-in-one production container and wait for readiness')
+    .description('Start the dbvault all-in-one production container and wait for readiness')
     .option('-t, --timeout <seconds>', 'Readiness timeout in seconds', '45')
     .action(async (options) => {
       const timeoutMs = parseInt(options.timeout, 10) * 1000;
-      const spinner = ora('Checking and starting DB Backup production runtime...').start();
+      const spinner = ora('Checking and starting dbvault production runtime...').start();
 
       try {
         const result = await dockerRuntime.start({
@@ -27,20 +27,20 @@ export function registerLifecycleCommands(program: Command): void {
         });
 
         if (result.alreadyRunning) {
-          spinner.succeed(chalk.green('DB Backup is already running and fully healthy!'));
+          spinner.succeed(chalk.green('dbvault is already running and fully healthy!'));
         } else {
-          spinner.succeed(chalk.green('DB Backup started successfully and is ready!'));
+          spinner.succeed(chalk.green('dbvault started successfully and is ready!'));
         }
 
         console.log('\n' + chalk.dim('─'.repeat(58)));
-        console.log(`  ${chalk.bold('Container:')}      ${chalk.cyan(result.state.containerId || 'db-backup')} (${chalk.green(result.state.status)})`);
+        console.log(`  ${chalk.bold('Container:')}      ${chalk.cyan(result.state.containerId || 'dbvault')} (${chalk.green(result.state.status)})`);
         console.log(`  ${chalk.bold('API Gateway:')}    ${chalk.white('http://localhost:3000')}`);
         console.log(`  ${chalk.bold('Web Dashboard:')}  ${chalk.white('http://localhost:3000/dashboard')}`);
         console.log(`  ${chalk.bold('Swagger Docs:')}   ${chalk.white('http://localhost:3000/api-docs')}`);
         console.log(chalk.dim('─'.repeat(58)));
         console.log(`\nNext step: Run ${chalk.cyan('dbvault backup')} to perform a backup or ${chalk.cyan('dbvault status')} to inspect health.\n`);
       } catch (err: any) {
-        spinner.fail(chalk.red('Failed to start DB Backup runtime'));
+        spinner.fail(chalk.red('Failed to start dbvault runtime'));
         console.error(chalk.red(`\n✗ Error: ${err.message}\n`));
         console.log(chalk.yellow('Troubleshooting suggestions:'));
         console.log(chalk.dim('  • Run "dbvault doctor" to inspect prerequisites & ports'));
@@ -53,9 +53,9 @@ export function registerLifecycleCommands(program: Command): void {
   // ==================== STOP ====================
   program
     .command('stop')
-    .description('Gracefully stop the DB Backup container without deleting backup data')
+    .description('Gracefully stop the dbvault container without deleting backup data')
     .action(async () => {
-      const spinner = ora('Stopping DB Backup production runtime...').start();
+      const spinner = ora('Stopping dbvault production runtime...').start();
 
       try {
         const result = await dockerRuntime.stop();
@@ -67,7 +67,7 @@ export function registerLifecycleCommands(program: Command): void {
         }
         console.log(chalk.dim('  (Metadata, backup files, and volumes were safely preserved)\n'));
       } catch (err: any) {
-        spinner.fail(chalk.red('Failed to stop DB Backup runtime'));
+        spinner.fail(chalk.red('Failed to stop dbvault runtime'));
         console.error(chalk.red(`\n✗ Error: ${err.message}\n`));
         log.error('Stop command failed', { error: err.message });
         process.exit(1);
@@ -77,11 +77,11 @@ export function registerLifecycleCommands(program: Command): void {
   // ==================== RESTART ====================
   program
     .command('restart')
-    .description('Gracefully restart the DB Backup container and wait for readiness')
+    .description('Gracefully restart the dbvault container and wait for readiness')
     .option('-t, --timeout <seconds>', 'Readiness timeout in seconds', '45')
     .action(async (options) => {
       const timeoutMs = parseInt(options.timeout, 10) * 1000;
-      const spinner = ora('Restarting DB Backup production runtime...').start();
+      const spinner = ora('Restarting dbvault production runtime...').start();
 
       try {
         const result = await dockerRuntime.restart({
@@ -91,16 +91,16 @@ export function registerLifecycleCommands(program: Command): void {
           },
         });
 
-        spinner.succeed(chalk.green('DB Backup restarted successfully and is healthy!'));
+        spinner.succeed(chalk.green('dbvault restarted successfully and is healthy!'));
 
         console.log('\n' + chalk.dim('─'.repeat(58)));
-        console.log(`  ${chalk.bold('Container:')}      ${chalk.cyan(result.state.containerId || 'db-backup')} (${chalk.green(result.state.status)})`);
+        console.log(`  ${chalk.bold('Container:')}      ${chalk.cyan(result.state.containerId || 'dbvault')} (${chalk.green(result.state.status)})`);
         console.log(`  ${chalk.bold('Gateway:')}        ${chalk.white('http://localhost:3000')}`);
         console.log(`  ${chalk.bold('Dashboard:')}      ${chalk.white('http://localhost:3000/dashboard')}`);
         console.log(chalk.dim('─'.repeat(58)));
         console.log(`\nNext step: Run ${chalk.cyan('dbvault status')} to inspect runtime health.\n`);
       } catch (err: any) {
-        spinner.fail(chalk.red('Failed to restart DB Backup runtime'));
+        spinner.fail(chalk.red('Failed to restart dbvault runtime'));
         console.error(chalk.red(`\n✗ Error: ${err.message}\n`));
         console.log(chalk.yellow('Troubleshooting suggestions:'));
         console.log(chalk.dim('  • Run "dbvault logs" to inspect container shutdown/boot logs'));
@@ -113,12 +113,12 @@ export function registerLifecycleCommands(program: Command): void {
   // ==================== STATUS ====================
   program
     .command('status')
-    .description('Display detailed status of the DB Backup container and supervised services')
+    .description('Display detailed status of the dbvault container and supervised services')
     .action(async () => {
       try {
         const status = await dockerRuntime.status();
 
-        console.log(chalk.bold.cyan('\n◆ DB Backup Production Runtime Status\n'));
+        console.log(chalk.bold.cyan('\n◆ dbvault Production Runtime Status\n'));
         console.log(chalk.dim('─'.repeat(58)));
 
         console.log(`${chalk.bold('Docker Available:')}   ${status.dockerAvailable ? chalk.green('✓ Yes') : chalk.red('✗ Missing')}`);
@@ -156,7 +156,7 @@ export function registerLifecycleCommands(program: Command): void {
         } else if (status.container.running) {
           console.log(chalk.yellow('\nStatus: Container is running but services are initializing or degraded.\n'));
         } else {
-          console.log(chalk.dim('\nStatus: DB Backup is stopped. Run "dbvault start" to begin.\n'));
+          console.log(chalk.dim('\nStatus: dbvault is stopped. Run "dbvault start" to begin.\n'));
         }
       } catch (err: any) {
         console.error(chalk.red('\n✗ Failed to retrieve status:'), err.message);
@@ -168,7 +168,7 @@ export function registerLifecycleCommands(program: Command): void {
   // ==================== LOGS ====================
   program
     .command('logs')
-    .description('View or follow logs from the DB Backup production container')
+    .description('View or follow logs from the dbvault production container')
     .option('-f, --follow', 'Follow log stream', false)
     .option('-n, --tail <lines>', 'Number of lines to show from the end of the logs', '100')
     .action(async (options) => {

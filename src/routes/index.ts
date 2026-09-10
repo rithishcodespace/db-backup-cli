@@ -30,10 +30,14 @@ const dashboardDistPath = [
   path.resolve(process.cwd(), 'dashboard/dist'),
 ].find((p) => fs.existsSync(p)) || path.resolve(__dirname, '../../dashboard/dist');
 
+router.get('/', (_req, res) => {
+  res.redirect('/dashboard');
+});
 router.use('/dashboard', expressStatic(dashboardDistPath));
 router.get('/dashboard', (_req, res) => {
   res.sendFile(path.join(dashboardDistPath, 'index.html'));
 });
+router.use('/', expressStatic(dashboardDistPath));
 
 // Dashboard API (no client ID required for dashboard telemetry reading)
 router.use('/api/dashboard', dashboardRoutes);

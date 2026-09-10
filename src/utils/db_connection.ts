@@ -74,7 +74,7 @@ async function testPostgresConnection(config: ConnectionConfig): Promise<Connect
     
     await client.end();
     
-    log.info('PostgreSQL connection successful', { 
+    log.debug('PostgreSQL connection successful', { 
       version: version.split(',')[0],
       database: config.database 
     });
@@ -119,7 +119,7 @@ async function testMySQLConnection(config: ConnectionConfig): Promise<Connection
     const version = Array.isArray(rows) && rows[0] ? (rows[0] as any).version : 'MySQL';
     await conn.end();
 
-    log.info('MySQL connection successful', { version, database: config.database });
+    log.debug('MySQL connection successful', { version, database: config.database });
     return {
       success: true,
       version: `MySQL ${version}`,
@@ -153,7 +153,7 @@ async function testMongoDBConnection(config: ConnectionConfig): Promise<Connecti
     await client.db().command({ ping: 1 });
     await client.close();
 
-    log.info('MongoDB connection successful', { database: config.database });
+    log.debug('MongoDB connection successful', { database: config.database });
     return {
       success: true,
       version: 'MongoDB Connected',
@@ -186,7 +186,7 @@ async function testSQLiteConnection(config: ConnectionConfig): Promise<Connectio
     db.close();
 
     const version = row ? (row as any).version : '3';
-    log.info('SQLite connection successful', { path: dbPath, version });
+    log.debug('SQLite connection successful', { path: dbPath, version });
     return {
       success: true,
       version: `SQLite ${version}`,

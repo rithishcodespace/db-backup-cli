@@ -7,7 +7,7 @@ const fs = require("fs");
 // check if build files exist
 const distPath = path.join(__dirname, "../dist/src/index.js");
 if (!fs.existsSync(distPath)) {
-    console.error('ERROR: build not found, please run "npm run build" first.');
+    console.error('ERROR: dbvault binary files not found. Please reinstall via: npm install -g dbvault');
     process.exit(1);
 }
 

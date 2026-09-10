@@ -25,10 +25,10 @@ export function registerDashboardCommand(program: Command) {
         if (await checkDashboardReachable(customUrl)) {
           targetUrl = customUrl;
         }
-      } else if (await checkDashboardReachable(devUrl)) {
-        targetUrl = devUrl;
       } else if (await checkDashboardReachable(gatewayUrl)) {
         targetUrl = gatewayUrl;
+      } else if (await checkDashboardReachable(devUrl)) {
+        targetUrl = devUrl;
       }
 
       if (targetUrl) {
@@ -37,8 +37,8 @@ export function registerDashboardCommand(program: Command) {
         openBrowser(targetUrl);
       } else {
         spinner.fail(chalk.red('Dashboard is not reachable.'));
-        console.log(chalk.yellow('\nEnsure background microservices are running via:'));
-        console.log(chalk.cyan('  npm run services:start\n'));
+        console.log(chalk.yellow('\nEnsure the background container is running via:'));
+        console.log(chalk.cyan('  dbvault start\n'));
         process.exit(1);
       }
     });

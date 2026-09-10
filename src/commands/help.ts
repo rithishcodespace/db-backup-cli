@@ -10,9 +10,9 @@ export function showHelp(): void {
 
     ${chalk.bold('Commands:')}
     ${chalk.green('init')}          Initialize project setup and onboarding wizard
-    ${chalk.green('start')}         Start the all-in-one DB Backup production container
-    ${chalk.green('stop')}          Gracefully stop the DB Backup container
-    ${chalk.green('restart')}       Restart the DB Backup container
+    ${chalk.green('start')}         Start the dbvault background production container
+    ${chalk.green('stop')}          Gracefully stop the dbvault container
+    ${chalk.green('restart')}       Restart the dbvault container
     ${chalk.green('status')}        Display container and supervised services status
     ${chalk.green('logs')}          View or follow logs from the production container
     ${chalk.green('config check')}   Verify configuration health and reachability
@@ -47,6 +47,6 @@ export function showHelp(): void {
     dbvault backup --name "myapp_backup_$(date +%Y%m%d)"
 
     ${chalk.bold('Documentation:')}
-    For more information, visit: ${chalk.underline('https://github.com/your-repo/db-backup-cli')}
+    For more information, visit: ${chalk.underline('https://github.com/rithishcodespace/db-backup-cli')}
 `);
 }

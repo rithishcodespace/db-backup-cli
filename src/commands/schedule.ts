@@ -252,8 +252,8 @@ export function registerScheduleCommand(program: Command): void {
           console.error(chalk.red(`\n✗ ${error.response.data.error}`));
         } else if (error.code === 'ECONNREFUSED') {
           console.error(chalk.red('\n✗ Cannot connect to Scheduler Service.'));
-          console.error(chalk.yellow('\n💡 Make sure microservices are running:'));
-          console.error(chalk.dim('  npm run services:start'));
+          console.error(chalk.yellow('\n💡 Make sure the background container is running:'));
+          console.error(chalk.cyan('  dbvault start'));
         } else {
           console.error(chalk.red(`\n✗ Error: ${error.message}`));
         }

@@ -152,7 +152,10 @@ export function registerDoctorCommand(program: Command): void {
 
         if (!dbAccessible) {
           dbAccessible = false;
-          dbStatus = `Inaccessible (${sanitizeErrorMessage(err.message)})`;
+          const cleanErr = err.message && err.message.includes('ECONNREFUSED')
+            ? 'Service offline'
+            : sanitizeErrorMessage(err.message);
+          dbStatus = `Inaccessible (${cleanErr})`;
         }
       }
 
@@ -213,14 +216,19 @@ export function registerDoctorCommand(program: Command): void {
             success: true,
           });
         } else {
+          const installUrl = process.platform === 'win32'
+            ? 'https://docs.docker.com/desktop/setup/install/windows-install/'
+            : process.platform === 'darwin'
+              ? 'https://docs.docker.com/desktop/setup/install/mac-install/'
+              : 'https://docs.docker.com/get-docker/';
           dockerItems.push({
             name: 'Docker installed',
             status: 'Not found',
             success: false,
-            hint: 'Install Docker from https://docs.docker.com/get-docker/',
+            hint: `Install Docker from ${installUrl}`,
           });
           hasProblems = true;
-          suggestions.push('Install Docker or switch to ENGINE=local.');
+          suggestions.push(`Install Docker from ${installUrl}`);
         }
 
         // Docker daemon
@@ -332,36 +340,44 @@ export function registerDoctorCommand(program: Command): void {
       const serviceItems: DiagnosticItem[] = [];
       let anyServiceOffline = false;
 
-      status.services.forEach((svc) => {
-        const isHealthy = svc.status === 'healthy';
-        if (!isHealthy) {
-          hasProblems = true;
-          anyServiceOffline = true;
-        }
-
-        const portStr = svc.port ? ` (port ${svc.port})` : '';
-        const statusStr = isHealthy
-          ? 'Healthy'
-          : svc.error
-            ? `Unhealthy - ${sanitizeErrorMessage(svc.error)}`
-            : 'Offline';
-
-        serviceItems.push({
-          name: svc.name,
-          status: `${statusStr}${portStr}`,
-          success: isHealthy,
-          hint: isHealthy ? undefined : `Run "dbvault start" (or "dbvault infra start") to start ${svc.name}.`,
-        });
-      });
-
-      serviceItems.forEach((item) => {
-        const icon = item.success ? chalk.green('✓') : chalk.red('✗');
-        const text = item.success ? chalk.green(item.status) : chalk.red(item.status);
-        console.log(`  ${icon} ${item.name.padEnd(22)} ${text}`);
-      });
-
-      if (anyServiceOffline) {
+      if (!status.dockerAvailable || !status.daemonRunning) {
+        console.log(
+          `  ${chalk.dim('ℹ')} ${'Background Services'.padEnd(22)} ${chalk.dim('Offline (Docker container runtime unavailable)')}`
+        );
+        console.log(chalk.dim(`     → Start Docker and run "dbvault start" to launch background services.`));
         suggestions.push('Start required services with `dbvault start` (or `dbvault infra start`).');
+      } else {
+        status.services.forEach((svc) => {
+          const isHealthy = svc.status === 'healthy';
+          if (!isHealthy) {
+            hasProblems = true;
+            anyServiceOffline = true;
+          }
+
+          const portStr = svc.port ? ` (port ${svc.port})` : '';
+          const statusStr = isHealthy
+            ? 'Healthy'
+            : svc.error
+              ? `Unhealthy - ${sanitizeErrorMessage(svc.error)}`
+              : 'Offline';
+
+          serviceItems.push({
+            name: svc.name,
+            status: `${statusStr}${portStr}`,
+            success: isHealthy,
+            hint: isHealthy ? undefined : `Run "dbvault start" (or "dbvault infra start") to start ${svc.name}.`,
+          });
+        });
+
+        serviceItems.forEach((item) => {
+          const icon = item.success ? chalk.green('✓') : chalk.red('✗');
+          const text = item.success ? chalk.green(item.status) : chalk.red(item.status);
+          console.log(`  ${icon} ${item.name.padEnd(22)} ${text}`);
+        });
+
+        if (anyServiceOffline) {
+          suggestions.push('Start required services with `dbvault start` (or `dbvault infra start`).');
+        }
       }
 
       // ==================== 4. CONFIGURATION & STORAGE ====================
@@ -418,7 +434,7 @@ export function registerDoctorCommand(program: Command): void {
             }
           } else {
             console.log(
-              `  ${chalk.green('✓')} ${'Storage location'.padEnd(22)} ${chalk.green(`S3 (${defaultStorage.bucket || 'configured'})`)}`
+              `  ${chalk.green('✓')} ${'Storage location'.padEnd(22)} ${chalk.green(`S3 (${defaultStorage.name} [${defaultStorage.bucket}])`)}`
             );
           }
           storageHandled = true;
@@ -462,7 +478,7 @@ function finishReport(hasProblems: boolean, suggestions: string[]): void {
 
   if (!hasProblems) {
     console.log(`  ${chalk.bold.green('✓ dbvault environment is healthy')}\n`);
-    log.info('Doctor diagnosis: healthy');
+    log.debug('Doctor diagnosis: healthy');
     process.exit(0);
   } else {
     console.log(`  ${chalk.bold.red('✗ Problems detected')}\n`);
@@ -474,7 +490,7 @@ function finishReport(hasProblems: boolean, suggestions: string[]): void {
       console.log('');
     }
 
-    log.warn('Doctor diagnosis: problems detected', { suggestions });
+    log.debug('Doctor diagnosis: problems detected', { suggestions });
     process.exit(1);
   }
 }

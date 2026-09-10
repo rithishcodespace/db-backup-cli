@@ -64,10 +64,15 @@ export class InfrastructureError extends Error {
 
 export class DockerNotInstalledError extends InfrastructureError {
   constructor(message = 'Docker is not installed on this system.') {
+    const installUrl = process.platform === 'win32'
+      ? 'https://docs.docker.com/desktop/setup/install/windows-install/'
+      : process.platform === 'darwin'
+        ? 'https://docs.docker.com/desktop/setup/install/mac-install/'
+        : 'https://docs.docker.com/get-docker/';
     super(
-      `${message}\nPlease install Docker from https://docs.docker.com/get-docker/ or configure ENGINE=local.`,
+      `${message}\nPlease install Docker from ${installUrl}`,
       'DOCKER_NOT_INSTALLED',
-      'Install Docker or set ENGINE=local'
+      'Install Docker'
     );
     this.name = 'DockerNotInstalledError';
   }
@@ -75,8 +80,11 @@ export class DockerNotInstalledError extends InfrastructureError {
 
 export class DockerDaemonNotRunningError extends InfrastructureError {
   constructor(message = 'Docker is installed, but the Docker daemon is not running.') {
+    const startHint = process.platform === 'win32' || process.platform === 'darwin'
+      ? 'Please start Docker Desktop and retry.'
+      : "Please start Docker Desktop or the Docker system service (e.g., 'sudo systemctl start docker') and retry.";
     super(
-      `${message}\nPlease start Docker Desktop or the Docker system service (e.g., 'sudo systemctl start docker') and retry.`,
+      `${message}\n${startHint}`,
       'DOCKER_DAEMON_NOT_RUNNING',
       'Start Docker service'
     );

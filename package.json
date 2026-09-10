@@ -1,6 +1,6 @@
 {
   "name": "dbvault",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "license": "MIT",
   "description": "A production-grade CLI utility to backup and restore databases with Docker runtime",
   "main": "dist/src/index.js",

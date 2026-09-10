@@ -381,7 +381,7 @@ export class DashboardService {
         type: 'warning',
         title: `Service Offline: ${s.name}`,
         message: `Service at ${s.url} did not respond to health check.`,
-        humanizedAction: 'Check system PM2 process logs or run npm run services:restart',
+        humanizedAction: 'Inspect container logs via "dbvault logs" or run "dbvault restart"',
         timestamp: nowStr,
         source: 'System Health Check',
       });
