@@ -200,7 +200,7 @@ export class DockerRuntime {
    */
   async probeGatewayHealth(): Promise<{ healthy: boolean; data?: DeepHealthResponse; error?: string }> {
     try {
-      const res = await axios.get(this.healthUrl, { timeout: 2000 });
+      const res = await axios.get(this.healthUrl, { timeout: 2000, validateStatus: () => true });
       if (res.status === 200 && res.data) {
         const d = res.data as DeepHealthResponse;
         const deps = d.dependencies || {};
@@ -215,7 +215,18 @@ export class DockerRuntime {
           data: d,
         };
       }
-      return { healthy: false, error: `HTTP ${res.status}` };
+      const errDetails = res.data?.dependencies
+        ? Object.entries(res.data.dependencies)
+            .filter(([, val]: any) => val.status !== 'healthy')
+            .map(([key, val]: any) => `${key}: ${val.status}${val.error ? ` (${val.error})` : ''}`)
+            .join(', ')
+        : `HTTP ${res.status}`;
+
+      return {
+        healthy: false,
+        data: res.data as DeepHealthResponse,
+        error: errDetails || `HTTP ${res.status}`,
+      };
     } catch (err: any) {
       return { healthy: false, error: err.message || 'Connection refused' };
     }
@@ -231,6 +242,7 @@ export class DockerRuntime {
   ): Promise<DeepHealthResponse> {
     const startTime = Date.now();
     let attempt = 0;
+    let lastError = 'Readiness check timed out waiting for Gateway & internal microservices';
 
     while (Date.now() - startTime < timeoutMs) {
       attempt++;
@@ -238,6 +250,10 @@ export class DockerRuntime {
 
       if (probe.healthy && probe.data) {
         return probe.data;
+      }
+
+      if (probe.error) {
+        lastError = probe.error;
       }
 
       if (onProgress) {
@@ -255,7 +271,7 @@ export class DockerRuntime {
           serviceKey: 'db-backup',
           port: 3000,
           status: 'unhealthy',
-          error: 'Readiness check timed out waiting for Gateway & internal microservices',
+          error: `Readiness check timed out: ${lastError}`,
         },
       ],
       Math.round(timeoutMs / 1000)
@@ -288,7 +304,7 @@ export class DockerRuntime {
     const isImageOutdated =
       Boolean(options.upgrade) &&
       state.exists &&
-      currentImage &&
+      Boolean(currentImage) &&
       !currentImage.endsWith(`:${cfg.imageVersion}`) &&
       !currentImage.endsWith(':latest');
 

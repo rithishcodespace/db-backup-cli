@@ -1,6 +1,6 @@
 {
   "name": "dbvault",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "license": "MIT",
   "description": "A production-grade CLI utility to backup and restore databases with Docker runtime",
   "main": "dist/src/index.js",
@@ -47,7 +47,8 @@
     "swagger-ui-express": "^5.0.1",
     "uuid": "^14.0.0",
     "valibot": "^1.2.0",
-    "winston": "^3.19.0"
+    "winston": "^3.19.0",
+    "prisma": "^7.8.0"
   },
   "optionalDependencies": {
     "@prisma/adapter-better-sqlite3": "^7.8.0",
@@ -80,7 +81,6 @@
     "nodemon": "^3.1.14",
     "pm2": "^7.0.1",
     "prettier": "^3.8.3",
-    "prisma": "^7.8.0",
     "supertest": "^7.2.2",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3"

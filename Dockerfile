@@ -25,6 +25,7 @@ RUN npm ci --ignore-scripts
 COPY . .
 RUN npx prisma generate
 RUN npm run build
+RUN mkdir -p /app/data-template && DATABASE_URL="file:/app/data-template/backup-meta.db" npx prisma migrate deploy
 RUN npm prune --omit=dev
 
 # ==========================================
@@ -59,6 +60,7 @@ COPY --from=backend-builder /app/node_modules ./node_modules
 COPY --from=backend-builder /app/dist ./dist
 COPY --from=backend-builder /app/generated ./generated
 COPY --from=backend-builder /app/prisma ./prisma
+COPY --from=backend-builder /app/data-template ./data-template
 COPY --from=backend-builder /app/bin ./bin
 COPY --from=backend-builder /app/scripts ./scripts
 COPY --from=dashboard-builder /app/dashboard/dist ./dashboard/dist
