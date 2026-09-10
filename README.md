@@ -3,7 +3,6 @@
 <div align="center">
 
 [![npm version](https://img.shields.io/npm/v/dbvault.svg?style=for-the-badge&logo=npm&logoColor=white)](https://www.npmjs.com/package/dbvault)
-[![npm downloads](https://img.shields.io/npm/dm/dbvault.svg?style=for-the-badge&logo=npm&logoColor=white)](https://www.npmjs.com/package/dbvault)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D%2018.0.0-43853D?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -67,73 +66,9 @@ Real-time log streaming directly from worker execution containers, featuring sev
 
 **DBVault** employs an all-in-one containerized microservices architecture with an asynchronous, event-driven queue pipeline powered by **BullMQ** and **Redis**. Long-running database dumps never block the CLI or HTTP request threads; instead, backup and restore jobs are dispatched through supervised worker engines with automatic retry policies, credential scrubbing, and atomic storage handoffs.
 
-```mermaid
-flowchart TD
-    subgraph Host ["🖥️ HOST MACHINE & CLIENT ENVIRONMENT"]
-        CLI["💻 dbvault CLI (Node.js / Commander)"]
-        DASH["🌐 Companion Web Dashboard & Swagger UI"]
-        VOL[("📁 ~/.db-backup Volume Mount<br/>• config.json (POSIX 0600)<br/>• keys/ (AES-256 Keystore)<br/>• backups/ (Local Vault)")]
-    end
-
-    subgraph Container ["🐳 PRODUCTION RUNTIME CONTAINER (image: rithish2006/dbvault)"]
-        subgraph Ingress ["🚪 Ingress Layer (:3000 Host Bound)"]
-            GW["API Gateway (Express 5) & Swagger UI"]
-            VAL["Valibot Validation • Helmet • Rate Limiter • Scrubber"]
-        end
-
-        subgraph Broker ["⚡ Broker & Orchestrator (Internal Loopback)"]
-            ORCH["Backup Orchestrator (:3001)"]
-            REDIS[("🔴 Redis 7 Message Broker (:6379)")]
-            SCHED["⏰ Scheduler Daemon (:3020)"]
-            Q1["📥 backup-jobs Queue"]
-            Q2["📦 storage-jobs Queue"]
-            Q3["🔔 notification-jobs Queue"]
-        end
-
-        subgraph Workers ["🛠️ BullMQ Database Engines"]
-            PG_ENG["🐘 PostgreSQL Engine (pg_dump, WAL PITR)"]
-            MY_ENG["🐬 MySQL Engine (mysqldump, mysqlbinlog)"]
-            MG_ENG["🍃 MongoDB Engine (mongodump stream)"]
-            SQ_ENG["🪶 SQLite Engine (WAL Checkpoint snapshot)"]
-        end
-
-        subgraph StorageAlerts ["☁️ Storage & Alert Services"]
-            STORE["Storage Engine (Local Vault & AWS S3)"]
-            ALERT["Notification Engine (Slack & SMTP)"]
-        end
-
-        subgraph Metadata ["🛡️ Isolated Metadata Service (:3005)"]
-            META_SVC["Metadata HTTP Service (Prisma Client)"]
-            META_DB[("🗃️ backup-meta.db (SQLite WAL Mode)")]
-        end
-    end
-
-    subgraph External ["🎯 Targets & Cloud Integrations"]
-        EXT_DBS[("PostgreSQL • MySQL • MongoDB • SQLite")]
-        EXT_S3["☁️ AWS S3 Bucket Storage"]
-        EXT_NOTIF["💬 Slack Webhook & ✉️ SMTP Email Server"]
-    end
-
-    CLI -->|HTTP REST :3000| GW
-    DASH -->|Browser UI :3000| GW
-    VOL <-->|Bidirectional Mount| Container
-
-    GW --> VAL --> ORCH
-    SCHED -->|Scheduled Cron Trigger| ORCH
-    ORCH -->|Enqueue Task| REDIS
-
-    REDIS --> Q1 --> Workers
-    REDIS --> Q2 --> STORE
-    REDIS --> Q3 --> ALERT
-
-    Workers -->|Record Backup State| META_SVC
-    STORE -->|Record Storage Artifact| META_SVC
-    META_SVC --> META_DB
-
-    Workers <-->|Zero-Disk Streaming Dump & Restore| EXT_DBS
-    STORE <-->|Archive Streaming Upload & Download| EXT_S3
-    ALERT -->|Dispatch Completion & Failure Alerts| EXT_NOTIF
-```
+<div align="center">
+  <img src="https://raw.githubusercontent.com/rithishcodespace/db-backup-cli/main/docs/images/architecture.png" alt="DBVault System Architecture" width="100%" />
+</div>
 
 > **Security & Concurrency Architecture Highlights**:
 > 1. **Single Public Port Security**: Port **`3000`** is the **only** port exposed to the host machine. All inter-service communications (Redis `:6379`, Orchestrator `:3001`, Workers `:3010-:3013`, Scheduler `:3020`, Storage `:3030`, Notification `:3040`, and Metadata `:3005`) communicate strictly across container-internal loopback (`127.0.0.1`), preventing any external network exposure of internal subsystems.
@@ -255,21 +190,9 @@ npm uninstall -g dbvault
 
 The following flowchart illustrates the typical operational lifecycle of a production database disaster recovery setup using **DBVault**:
 
-```mermaid
-flowchart TD
-    S1["1. Setup & Diagnostics<br/><code>dbvault init</code> / <code>doctor</code>"]
-    S2["2. Start Production Runtime<br/><code>dbvault start</code> / <code>status</code>"]
-    S3["3. Connect Target Database<br/><code>dbvault connect --type &lt;engine&gt;</code>"]
-    S4["4. Configure Storage & Keystore<br/><code>dbvault storage add</code> / <code>key generate</code>"]
-    S5["5. Execute Backup<br/><code>dbvault backup --compress --encrypt</code>"]
-    S6["6. Automate Schedules & Alerts<br/><code>dbvault schedule</code> / <code>notification</code>"]
-    S7["7. Monitor Telemetry & Logs<br/><code>dbvault list</code> / <code>dashboard</code>"]
-    S8["8. Disaster Recovery & Restore<br/><code>dbvault restore --id &lt;ID&gt;</code>"]
-    PITR["Optional: PostgreSQL PITR<br/><code>dbvault pitr setup / restore</code>"]
-
-    S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7 --> S8
-    S3 -.-> PITR
-```
+<div align="center">
+  <img src="https://raw.githubusercontent.com/rithishcodespace/db-backup-cli/main/docs/images/cli-flow.png" alt="DBVault CLI Operational Lifecycle" width="480" />
+</div>
 
 ### Stage 1: Initial Setup & Environment Verification
 1. Run the interactive onboarding wizard to configure database credentials, default storage target, and initial encryption keys:
@@ -388,30 +311,18 @@ dbvault restore --file ./backups/production_dump.sql.gz.enc --key <64-HEX-KEY>
 
 ---
 
-## ⚡ Streaming Backup & Recovery Pipeline
+## ⚡ Zero-Disk Streaming Backup & Recovery Pipeline
 
-DBVault executes backup operations using a Unix-pipe streaming architecture with **zero intermediate disk overhead**. Payloads are compressed with Gzip, encrypted with bank-grade AES-256-GCM, and streamed directly to local storage or AWS S3 buckets. SHA-256 integrity checksums and encryption metadata are committed atomically to SQLite:
+DBVault executes backup operations using a Unix-pipe streaming architecture with **zero intermediate disk overhead**:
 
-```mermaid
-flowchart LR
-    subgraph BackupFlow ["Streaming Backup Pipeline"]
-        direction LR
-        DB[("Source Database")] -->|Native Dump Stream| ENG["Engine Worker"]
-        ENG -->|Direct Pipe| GZIP["Gzip Compression"]
-        GZIP -->|Stream Pipe| ENC["AES-256-GCM Encryption"]
-        ENC -->|Stream Upload| STORAGE[("Storage: Local / AWS S3")]
-        STORAGE -->|Atomic Metadata & SHA-256| META["Metadata Service (Prisma)"]
-        META -->|Dispatch Event| NOTIF["Slack & Email Alerts"]
-    end
-
-    subgraph RestoreFlow ["Disaster Recovery Pipeline"]
-        direction LR
-        R_STORE[("Storage Target")] -->|Verify Checksum| VERIFY["SHA-256 Integrity Verification"]
-        VERIFY -->|Decrypt Stream| DEC["AES-256-GCM Decryption"]
-        DEC -->|Decompress Stream| GUNZIP["Gzip Decompression"]
-        GUNZIP -->|Direct Import| TARGET_DB[("Restored Database")]
-    end
-```
+| Phase | Pipeline Step | Technology / Mechanism | Security & Integrity |
+| :---: | :--- | :--- | :--- |
+| **1** | **Native Dump Stream** | Zero-disk stream (`pg_dump`, `mysqldump`, `mongodump`, SQLite WAL) | Credential-scrubbed parameters |
+| **2** | **In-Flight Compression** | Native Gzip compression stream directly piped in memory | Optimal bandwidth & storage footprint |
+| **3** | **AES-256-GCM Encryption** | Bank-grade authenticated symmetric cipher | Dynamic IV + 128-bit authentication tag |
+| **4** | **Cloud & Local Storage** | Multipart chunked streaming upload to AWS S3 or Local Vault | Zero residual unencrypted temp files |
+| **5** | **Atomic Metadata Store** | Dedicated SQLite WAL metadata service via Prisma (`:3005`) | Bit-for-bit SHA-256 checksum recorded |
+| **6** | **Disaster Recovery** | SHA-256 validation ➔ authenticated decryption ➔ stream apply | Bit-for-bit verified restoration |
 
 ---
 
@@ -620,30 +531,9 @@ dbvault config check
 
 **DBVault** provides native Point-in-Time Recovery for PostgreSQL using continuous Write-Ahead Log (WAL) archiving and physical base snapshots:
 
-```mermaid
-flowchart TD
-    subgraph ArchivingTimeline ["Continuous WAL Archiving Timeline"]
-        BASE["Base Backup (L0 Snapshot)<br/><code>pg_basebackup</code>"]
-        W1["WAL Segment 001"]
-        W2["WAL Segment 002"]
-        W3["WAL Segment 003"]
-        DISASTER{{"💥 Incident / Accidental Table Drop<br/>Target: 2026-09-09 09:30:00 UTC"}}
-        W4["WAL Segment 004 (Corrupted / Dropped State)"]
-
-        BASE --> W1 --> W2 --> W3 --> DISASTER -.-> W4
-    end
-
-    subgraph RestoreProcess ["PITR Recovery Workflow"]
-        R1["1. Extract Base Backup Snapshot to Data Directory"]
-        R2["2. Sequentially Replay Archived WAL Segments (001 ➔ 003)"]
-        R3["3. Stop Exactly at Target Timestamp (Before Incident)"]
-        R4[("4. Cluster Ready & 100% Consistent")]
-
-        R1 --> R2 --> R3 --> R4
-    end
-
-    DISASTER ==>|dbvault pitr restore --time ...| R1
-```
+* **Continuous WAL Archiving**: Every completed 16MB WAL segment is archived offsite in real time via PostgreSQL's `archive_command`.
+* **Physical Base Backups**: Periodic full cluster snapshots captured via `pg_basebackup`.
+* **Precision Recovery Target**: Replays WAL segments up to the exact requested second (`recovery_target_time`), allowing complete restoration to the moment right before an accidental table drop or disaster.
 
 ```bash
 # 1. Verify and auto-configure PostgreSQL WAL archiving
@@ -717,106 +607,12 @@ docker compose down
 
 ---
 
-## ⚙️ CI/CD, Versioning & Release Engineering
+## 🔒 Security & Verification
 
-DBVault follows strict release engineering practices with centralized version management, automated package verification, and multi-stage CI/CD pipelines.
-
-### 1. Single Global Source of Truth for Versioning
-Version state is globally governed by [`package.json`](https://github.com/rithishcodespace/db-backup-cli/blob/main/package.json). All runtime services, CLI entrypoints, Swagger specifications, and Docker adapters dynamically import the active version from [`src/version.ts`](https://github.com/rithishcodespace/db-backup-cli/blob/main/src/version.ts).
-
-To safely inspect or bump the version across all manifests simultaneously:
-```bash
-# Print current global version
-npm run version:get
-
-# Set a new version and automatically synchronize lockfiles, docker-compose, and dashboard
-npm run version:set 1.0.1
-
-# Synchronize all project manifests with package.json
-npm run version:sync
-```
-
-### 2. Local Release Validation Suite
-Before publishing, run the complete deterministic validation suite:
-```bash
-# Run strict security audit, typecheck, build, unit tests, tarball verification & secret scan
-npm run ci
-
-# Inspect npm tarball contents and run an isolated CLI smoke test outside the repo
-npm run verify:package
-
-# Audit git-tracked files for accidental API keys, tokens, or credential leaks
-npm run scan:secrets
-```
-
-### 3. GitHub Actions Pipelines
-* **Continuous Integration ([`.github/workflows/ci.yml`](https://github.com/rithishcodespace/db-backup-cli/blob/main/.github/workflows/ci.yml))**:
-  Executes on pull requests and pushes to `main` across a **Node.js 20 and 22 LTS** test matrix. Enforces strict lockfile installs (`npm ci`), high-severity audits, typechecking, full builds, unit tests, tarball validation, and secret scanning.
-* **Automated Release ([`.github/workflows/release.yaml`](https://github.com/rithishcodespace/db-backup-cli/blob/main/.github/workflows/release.yaml))**:
-  Triggered on semantic Git tags (`v*.*.*`) or via manual `workflow_dispatch`. Validates release artifacts, builds multi-arch Docker images for Docker Hub (`rithish2006/dbvault`), publishes `dbvault` to the npm registry, and generates GitHub Releases with attached tarballs.
-
----
-
-## 🧪 Automated Testing Suite
-
-The repository includes deterministic unit tests, end-to-end API gateway validation, and real data disaster recovery lifecycle tests:
-
-```bash
-# Run unit test suite (120 tests across domain, adapters, and commands)
-npm run test:unit
-
-# Run API Gateway E2E validation tests
-npm run test:e2e
-
-# Run integration tests (real lifecycle, incremental, PITR)
-node --test tests/integration/*.test.js
-
-# Run full CI suite locally
-npm run ci
-```
-
-**Status:** ✅ **120 passing unit tests**, **0 failures**, **0 skipped**.
-- **Real Data Disaster Recovery**: Full relational database backed up with Gzip compression and AES-256-GCM encryption, intentionally corrupted/deleted (`DROP TABLE`), restored through `dbvault restore`, and verified for **100% bit-for-bit data fidelity**.
-- **Security & Integrity Checks**: Validated rejection on altered SHA-256 checksums, tampered payloads, and invalid AES decryption keys.
-
----
-
-## 📁 Repository Layout
-
-```text
-dbvault/
-├── bin/                          # Executable binary entrypoint (bin/dbvault.js)
-├── dashboard/                    # Companion React + Vite Web Monitoring Dashboard
-│   ├── src/                      # UI Components (Health Matrix, Log Inspector, Stats)
-│   └── dist/                     # Compiled production UI bundle
-├── docker/                       # Production container runtime configuration
-│   └── entrypoint.sh             # Multi-service non-root supervisor script
-├── Dockerfile                    # Multi-stage production container image
-├── docs/                         # Architecture assets and documentation
-│   └── images/                   # High-resolution screenshots and visuals
-├── prisma/                       # Prisma ORM schema and SQLite migrations
-├── scripts/                      # Release engineering, verification & versioning tools
-│   ├── scan-secrets.js           # Secret leak scanner for git-tracked files
-│   ├── set-version.js            # Centralized version manager & synchronizer
-│   └── verify-package.js         # Tarball hygiene & isolated CLI smoke tester
-├── src/                          # TypeScript source code (Clean Architecture)
-│   ├── domain/                   # Enterprise Domain Layer (models, errors, interfaces)
-│   ├── application/              # Application Layer (Use Cases: Backup, Restore, Connect, List)
-│   ├── infrastructure/           # Infrastructure Layer (Docker runtime, DB Adapters, Crypto)
-│   ├── commands/                 # Presentation Controllers (CLI command implementations)
-│   ├── config/                   # Centralized configuration loader
-│   ├── microservices/            # Gateway, orchestrator, scheduler, and database workers
-│   ├── services/                 # PITR, incremental, and dashboard services
-│   ├── swagger/                  # OpenAPI 3.0 specification generator
-│   ├── validators/               # Valibot request validation schemas
-│   └── version.ts                # Single global source of truth for application version
-├── tests/                        # Unit, E2E, and integration test suites
-│   ├── unit/                     # Domain, adapter, security, and command unit tests (120 tests)
-│   ├── e2e/                      # API Gateway E2E validation tests
-│   └── integration/              # Real data lifecycle, PostgreSQL PITR, and incremental tests
-├── docker-compose.yml            # Production container Compose orchestration
-└── package.json                  # Dependencies, scripts, and npm metadata
-```
+* **Zero Credential Leaks**: Custom Winston logging pipeline automatically scrubs passwords, API keys, S3 secrets, and connection URIs from stdout and log files.
+* **Deterministic Cryptography**: Unique Initialization Vectors (IVs) and 128-bit authentication tags generated per backup to safeguard against ciphertext tampering.
+* **Bit-for-Bit Validation**: Mandatory SHA-256 integrity verification before any database restore is executed.
+* **Extensive Test Coverage**: 120 deterministic unit tests covering core domain use cases, database adapters, security redaction, and CLI presentation commands.
 
 ---
 
