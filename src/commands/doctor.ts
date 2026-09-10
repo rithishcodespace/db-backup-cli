@@ -137,8 +137,14 @@ export function registerDoctorCommand(program: Command): void {
         dbAccessible = health.status === 'healthy';
         dbStatus = 'Accessible (Metadata Service)';
       } catch (err: any) {
-        // If direct metadata service call failed with ECONNREFUSED on port 3005 (Docker all-in-one container mode where port 3005 is internal), check Gateway health
-        if (err.message && err.message.includes('ECONNREFUSED')) {
+        // If direct metadata service call failed because port 3005 is container-internal (ECONNREFUSED or offline message), check Gateway health on port 3000
+        const isOfflineOrConnRefused = err.message && (
+          err.message.includes('ECONNREFUSED') ||
+          err.message.includes('offline') ||
+          err.message.includes('connect ECONNREFUSED')
+        );
+
+        if (isOfflineOrConnRefused) {
           try {
             const gatewayProbe = await dockerRuntime.probeGatewayHealth();
             if (gatewayProbe.healthy && gatewayProbe.data?.dependencies?.metadataService?.status === 'healthy') {
@@ -152,7 +158,7 @@ export function registerDoctorCommand(program: Command): void {
 
         if (!dbAccessible) {
           dbAccessible = false;
-          const cleanErr = err.message && err.message.includes('ECONNREFUSED')
+          const cleanErr = isOfflineOrConnRefused
             ? 'Service offline'
             : sanitizeErrorMessage(err.message);
           dbStatus = `Inaccessible (${cleanErr})`;
