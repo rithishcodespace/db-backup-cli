@@ -290,6 +290,9 @@ test('handleNotificationJob formats message and records audit in metadata servic
     },
   };
 
+  const originalSlackUrl = process.env.SLACK_WEBHOOK_URL;
+  delete process.env.SLACK_WEBHOOK_URL;
+
   try {
     const result = await handleNotificationJob(job);
     assert.equal(result.success, true);
@@ -302,6 +305,9 @@ test('handleNotificationJob formats message and records audit in metadata servic
     assert.match(recordedNotification.message, /postgresql\/prod_database/);
   } finally {
     metadataClient.recordNotification = originalRecordNotification;
+    if (originalSlackUrl !== undefined) {
+      process.env.SLACK_WEBHOOK_URL = originalSlackUrl;
+    }
   }
 });
 

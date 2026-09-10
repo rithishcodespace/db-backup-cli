@@ -2,19 +2,24 @@
 
 <div align="center">
 
-![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
-![Node.js](https://img.shields.io/badge/Node.js-43853D?style=for-the-badge&logo=node.js&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)
-![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-316192?style=for-the-badge&logo=postgresql&logoColor=white)
-![MySQL](https://img.shields.io/badge/MySQL-005C84?style=for-the-badge&logo=mysql&logoColor=white)
-![MongoDB](https://img.shields.io/badge/MongoDB-4EA94B?style=for-the-badge&logo=mongodb&logoColor=white)
-![SQLite](https://img.shields.io/badge/SQLite-07405E?style=for-the-badge&logo=sqlite&logoColor=white)
+[![npm version](https://img.shields.io/npm/v/dbvault.svg?style=for-the-badge&logo=npm&logoColor=white)](https://www.npmjs.com/package/dbvault)
+[![npm downloads](https://img.shields.io/npm/dm/dbvault.svg?style=for-the-badge&logo=npm&logoColor=white)](https://www.npmjs.com/package/dbvault)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D%2018.0.0-43853D?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/rithish2006/dbvault)
+[![Tests](https://img.shields.io/badge/Tests-120%20Passed-success?style=for-the-badge&logo=checkmarx&logoColor=white)](https://github.com/rithishcodespace/db-backup-cli)
 
 **A production-grade, distributed database disaster recovery and automated backup platform.**  
 Featuring Point-In-Time Recovery (PITR), BullMQ asynchronous worker queues, multi-cloud storage (AWS S3 & Local), AES-256-GCM encryption, OpenAPI 3.0 specifications, and a real-time companion telemetry web dashboard.
 
-[Features](#-key-features) • [Architecture](#-system-architecture) • [Dashboard & CLI Showcase](#-visual-showcase) • [Quick Start](#-quick-start) • [End-to-End User Guide](#-end-to-end-cli-flow-user-guide) • [CLI Command Reference](#-complete-cli-command-reference) • [API & Swagger](#-openapi--swagger-documentation) • [Docker Mesh](#-docker-microservices-mesh)
+```bash
+npm install -g dbvault
+# or execute directly with npx
+npx dbvault --help
+```
+
+[Features](#-key-features) • [System Architecture](#-system-architecture) • [Visual Showcase](#-visual-showcase) • [Quick Start](#-quick-start) • [Workflow Guide](#-end-to-end-cli-flow-user-guide) • [Data Pipeline](#-streaming-backup--recovery-pipeline) • [Command Reference](#-complete-cli-command-reference) • [PITR Engine](#-postgresql-point-in-time-recovery-pitr) • [API & Swagger](#-openapi--swagger-documentation) • [Docker Runtime](#-production-container-runtime)
 
 </div>
 
@@ -62,55 +67,72 @@ Real-time log streaming directly from worker execution containers, featuring sev
 
 **DBVault** employs an all-in-one containerized microservices architecture with an asynchronous, event-driven queue pipeline powered by **BullMQ** and **Redis**. Long-running database dumps never block the CLI or HTTP request threads; instead, backup and restore jobs are dispatched through supervised worker engines with automatic retry policies, credential scrubbing, and atomic storage handoffs.
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/rithishcodespace/db-backup-cli/main/docs/images/architecture.png" alt="DBVault System Architecture" width="950" />
-</div>
+```mermaid
+flowchart TD
+    subgraph Host ["🖥️ HOST MACHINE & CLIENT ENVIRONMENT"]
+        CLI["💻 dbvault CLI (Node.js / Commander)"]
+        DASH["🌐 Companion Web Dashboard & Swagger UI"]
+        VOL[("📁 ~/.db-backup Volume Mount<br/>• config.json (POSIX 0600)<br/>• keys/ (AES-256 Keystore)<br/>• backups/ (Local Vault)")]
+    end
 
-```text
- ┌─────────────────────────────────────────────────────────────────────────────────────────┐
- │                                     🖥️ HOST MACHINE                                      │
- │                                                                                         │
- │   💻 dbvault CLI                 🌐 Web Dashboard & Swagger UI       📁 ~/.db-backup    │
- │   (Node.js / Commander)          (http://localhost:3000)              (POSIX 0600)      │
- └──────────────────┬───────────────────────────────┬───────────────────────┬──────────────┘
-                    │ HTTP REST (:3000)             │ Browser UI            │ Volume Mount
- ┌──────────────────▼───────────────────────────────▼───────────────────────▼──────────────┐
- │  🐳 DOCKER PRODUCTION CONTAINER (image: rithish2006/dbvault / Non-root UID 10001)       │
- │                                                                                         │
- │  ┌───────────────────────────────────────────────────────────────────────────────────┐  │
- │  │ 🚪 INGRESS LAYER (:3000 Host Bound)                                               │  │
- │  │ API Gateway (Express 5) • Static Dashboard (React + Vite) • Swagger UI            │  │
- │  │ Valibot Validators • Rate Limiting • Helmet • Credential Scrubber                 │  │
- │  └───────────────────────────────────────┬───────────────────────────────────────────┘  │
- │                                          │ Loopback (127.0.0.1)                         │
- │  ┌───────────────────────────────────────▼───────────────────────────────────────────┐  │
- │  │ ⚡ ORCHESTRATION & MESSAGE BROKER (Internal Loopback)                             │  │
- │  │ Orchestrator (:3001) ──► Redis 7 Broker (:6379) ◄── Scheduler (:3020)            │  │
- │  │       │                   │                                                       │  │
- │  │       │                   ├──► 📥 backup-jobs Queue                               │  │
- │  │       │                   ├──► 📦 storage-jobs Queue                              │  │
- │  │       │                   └──► 🔔 notification-jobs Queue                        │  │
- │  └───────┼───────────────────────────────────────┬───────────────────────────────────┘  │
- │          │                                       │                                      │
- │  ┌───────▼─────────────────────────────────┐ ┌───▼─────────────────────────────────┐  │
- │  │ 🛠️ BULLMQ DATABASE ENGINES              │ │ ☁️ STORAGE & ALERTS                 │  │
- │  │ • PostgreSQL (pg_dump, WAL PITR)        │ │ • Storage Engine (Local & AWS S3)  │  │
- │  │ • MySQL (mysqldump, mysqlbinlog)        │ │ • Notification Engine              │  │
- │  │ • MongoDB (mongodump stream)            │ │   (Slack Webhooks & SMTP Email)    │  │
- │  │ • SQLite (WAL checkpoint snapshot)      │ └─────────────────────────────────────┘  │
- │  └───────────────────┬─────────────────────┘                                            │
- │                      │                                                                  │
- │  ┌───────────────────▼───────────────────────────────────────────────────────────────┐  │
- │  │ 🛡️ ISOLATED METADATA SERVICE (:3005 Loopback - Sole SQLite Owner)                │  │
- │  │ Metadata HTTP API ──► Prisma ORM ──► backup-meta.db (SQLite WAL Mode)            │  │
- │  └───────────────────────────────────────────────────────────────────────────────────┘  │
- └──────────────────────────────────────────┬──────────────────────────────────────────────┘
-                                            │ Managed Connections & Dispatches
- ┌──────────────────────────────────────────▼──────────────────────────────────────────────┐
- │                        🎯 EXTERNAL TARGETS & CLOUD INTEGRATIONS                         │
- │                                                                                         │
- │   🐘 PostgreSQL     🐬 MySQL     🍃 MongoDB     🪶 SQLite     ☁️ S3     💬 Slack    ✉️ SMTP   │
- └─────────────────────────────────────────────────────────────────────────────────────────┘
+    subgraph Container ["🐳 PRODUCTION RUNTIME CONTAINER (image: rithish2006/dbvault)"]
+        subgraph Ingress ["🚪 Ingress Layer (:3000 Host Bound)"]
+            GW["API Gateway (Express 5) & Swagger UI"]
+            VAL["Valibot Validation • Helmet • Rate Limiter • Scrubber"]
+        end
+
+        subgraph Broker ["⚡ Broker & Orchestrator (Internal Loopback)"]
+            ORCH["Backup Orchestrator (:3001)"]
+            REDIS[("🔴 Redis 7 Message Broker (:6379)")]
+            SCHED["⏰ Scheduler Daemon (:3020)"]
+            Q1["📥 backup-jobs Queue"]
+            Q2["📦 storage-jobs Queue"]
+            Q3["🔔 notification-jobs Queue"]
+        end
+
+        subgraph Workers ["🛠️ BullMQ Database Engines"]
+            PG_ENG["🐘 PostgreSQL Engine (pg_dump, WAL PITR)"]
+            MY_ENG["🐬 MySQL Engine (mysqldump, mysqlbinlog)"]
+            MG_ENG["🍃 MongoDB Engine (mongodump stream)"]
+            SQ_ENG["🪶 SQLite Engine (WAL Checkpoint snapshot)"]
+        end
+
+        subgraph StorageAlerts ["☁️ Storage & Alert Services"]
+            STORE["Storage Engine (Local Vault & AWS S3)"]
+            ALERT["Notification Engine (Slack & SMTP)"]
+        end
+
+        subgraph Metadata ["🛡️ Isolated Metadata Service (:3005)"]
+            META_SVC["Metadata HTTP Service (Prisma Client)"]
+            META_DB[("🗃️ backup-meta.db (SQLite WAL Mode)")]
+        end
+    end
+
+    subgraph External ["🎯 Targets & Cloud Integrations"]
+        EXT_DBS[("PostgreSQL • MySQL • MongoDB • SQLite")]
+        EXT_S3["☁️ AWS S3 Bucket Storage"]
+        EXT_NOTIF["💬 Slack Webhook & ✉️ SMTP Email Server"]
+    end
+
+    CLI -->|HTTP REST :3000| GW
+    DASH -->|Browser UI :3000| GW
+    VOL <-->|Bidirectional Mount| Container
+
+    GW --> VAL --> ORCH
+    SCHED -->|Scheduled Cron Trigger| ORCH
+    ORCH -->|Enqueue Task| REDIS
+
+    REDIS --> Q1 --> Workers
+    REDIS --> Q2 --> STORE
+    REDIS --> Q3 --> ALERT
+
+    Workers -->|Record Backup State| META_SVC
+    STORE -->|Record Storage Artifact| META_SVC
+    META_SVC --> META_DB
+
+    Workers <-->|Zero-Disk Streaming Dump & Restore| EXT_DBS
+    STORE <-->|Archive Streaming Upload & Download| EXT_S3
+    ALERT -->|Dispatch Completion & Failure Alerts| EXT_NOTIF
 ```
 
 > **Security & Concurrency Architecture Highlights**:
@@ -146,15 +168,39 @@ Real-time log streaming directly from worker execution containers, featuring sev
 
 ### 1. Installation
 
-#### Global Install (via npm)
+#### Global Installation (Recommended)
+Install globally to use `dbvault` across any project or terminal session:
 ```bash
 npm install -g dbvault
 dbvault --help
 ```
 
-> **Note**: The npm package is published as **`dbvault`**, and the executable CLI command registered globally is **`dbvault`**.
+You can also run commands on the fly without global installation using `npx`:
+```bash
+npx dbvault doctor
+npx dbvault backup --compress --encrypt
+```
 
-#### From Source
+#### Project Dependency Integration (`package.json`)
+Install `dbvault` as a dev dependency to automate backups within your Node.js application scripts and CI/CD pipelines:
+```bash
+npm install --save-dev dbvault
+```
+
+Add automated disaster recovery scripts directly into your `package.json`:
+```json
+{
+  "scripts": {
+    "db:doctor": "dbvault doctor",
+    "db:backup": "dbvault backup --compress --encrypt",
+    "db:backup:s3": "dbvault backup --storage s3 --compress --encrypt --async",
+    "db:restore": "dbvault restore --id $BACKUP_ID --drop-existing",
+    "db:status": "dbvault status"
+  }
+}
+```
+
+#### Install From Source
 ```bash
 git clone https://github.com/rithishcodespace/db-backup-cli.git
 cd db-backup-cli
@@ -209,25 +255,20 @@ npm uninstall -g dbvault
 
 The following flowchart illustrates the typical operational lifecycle of a production database disaster recovery setup using **DBVault**:
 
-<div align="center">
-  <img src="https://raw.githubusercontent.com/rithishcodespace/db-backup-cli/main/docs/images/cli-flow.png" alt="DBVault CLI Operational Lifecycle" width="480" />
-</div>
+```mermaid
+flowchart TD
+    S1["1. Setup & Diagnostics<br/><code>dbvault init</code> / <code>doctor</code>"]
+    S2["2. Start Production Runtime<br/><code>dbvault start</code> / <code>status</code>"]
+    S3["3. Connect Target Database<br/><code>dbvault connect --type &lt;engine&gt;</code>"]
+    S4["4. Configure Storage & Keystore<br/><code>dbvault storage add</code> / <code>key generate</code>"]
+    S5["5. Execute Backup<br/><code>dbvault backup --compress --encrypt</code>"]
+    S6["6. Automate Schedules & Alerts<br/><code>dbvault schedule</code> / <code>notification</code>"]
+    S7["7. Monitor Telemetry & Logs<br/><code>dbvault list</code> / <code>dashboard</code>"]
+    S8["8. Disaster Recovery & Restore<br/><code>dbvault restore --id &lt;ID&gt;</code>"]
+    PITR["Optional: PostgreSQL PITR<br/><code>dbvault pitr setup / restore</code>"]
 
-```text
-  [ 1. Setup & Diagnostics ]  ──►  [ 2. Start Production Runtime ]  ──►  [ 3. Connect Database ]
-     dbvault init / doctor                dbvault start                    dbvault connect
-                                                                                  │
-  ┌───────────────────────────────────────────────────────────────────────────────┘
-  │
-  ▼
-  [ 4. Configure Storage & Keys ] ──► [ 5. Execute Backup ] ──► [ 6. Automate Schedules & Alerts ]
-     dbvault storage / key               dbvault backup              dbvault schedule / notification
-                                                │
-  ┌─────────────────────────────────────────────┘
-  │
-  ▼
-  [ 7. Monitor & Audit Telemetry ] ──► [ 8. Disaster Recovery & Restore ]
-     dbvault list / dashboard             dbvault restore --id <BACKUP_ID>
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> S7 --> S8
+    S3 -.-> PITR
 ```
 
 ### Stage 1: Initial Setup & Environment Verification
@@ -343,6 +384,33 @@ dbvault restore --id <BACKUP_ID> --drop-existing
 
 # 4. Restore directly from a raw or encrypted local file
 dbvault restore --file ./backups/production_dump.sql.gz.enc --key <64-HEX-KEY>
+```
+
+---
+
+## ⚡ Streaming Backup & Recovery Pipeline
+
+DBVault executes backup operations using a Unix-pipe streaming architecture with **zero intermediate disk overhead**. Payloads are compressed with Gzip, encrypted with bank-grade AES-256-GCM, and streamed directly to local storage or AWS S3 buckets. SHA-256 integrity checksums and encryption metadata are committed atomically to SQLite:
+
+```mermaid
+flowchart LR
+    subgraph BackupFlow ["Streaming Backup Pipeline"]
+        direction LR
+        DB[("Source Database")] -->|Native Dump Stream| ENG["Engine Worker"]
+        ENG -->|Direct Pipe| GZIP["Gzip Compression"]
+        GZIP -->|Stream Pipe| ENC["AES-256-GCM Encryption"]
+        ENC -->|Stream Upload| STORAGE[("Storage: Local / AWS S3")]
+        STORAGE -->|Atomic Metadata & SHA-256| META["Metadata Service (Prisma)"]
+        META -->|Dispatch Event| NOTIF["Slack & Email Alerts"]
+    end
+
+    subgraph RestoreFlow ["Disaster Recovery Pipeline"]
+        direction LR
+        R_STORE[("Storage Target")] -->|Verify Checksum| VERIFY["SHA-256 Integrity Verification"]
+        VERIFY -->|Decrypt Stream| DEC["AES-256-GCM Decryption"]
+        DEC -->|Decompress Stream| GUNZIP["Gzip Decompression"]
+        GUNZIP -->|Direct Import| TARGET_DB[("Restored Database")]
+    end
 ```
 
 ---
@@ -550,7 +618,32 @@ dbvault config check
 
 ## ⏱️ PostgreSQL Point-In-Time Recovery (PITR)
 
-**DBVault** provides native Point-in-Time Recovery for PostgreSQL:
+**DBVault** provides native Point-in-Time Recovery for PostgreSQL using continuous Write-Ahead Log (WAL) archiving and physical base snapshots:
+
+```mermaid
+flowchart TD
+    subgraph ArchivingTimeline ["Continuous WAL Archiving Timeline"]
+        BASE["Base Backup (L0 Snapshot)<br/><code>pg_basebackup</code>"]
+        W1["WAL Segment 001"]
+        W2["WAL Segment 002"]
+        W3["WAL Segment 003"]
+        DISASTER{{"💥 Incident / Accidental Table Drop<br/>Target: 2026-09-09 09:30:00 UTC"}}
+        W4["WAL Segment 004 (Corrupted / Dropped State)"]
+
+        BASE --> W1 --> W2 --> W3 --> DISASTER -.-> W4
+    end
+
+    subgraph RestoreProcess ["PITR Recovery Workflow"]
+        R1["1. Extract Base Backup Snapshot to Data Directory"]
+        R2["2. Sequentially Replay Archived WAL Segments (001 ➔ 003)"]
+        R3["3. Stop Exactly at Target Timestamp (Before Incident)"]
+        R4[("4. Cluster Ready & 100% Consistent")]
+
+        R1 --> R2 --> R3 --> R4
+    end
+
+    DISASTER ==>|dbvault pitr restore --time ...| R1
+```
 
 ```bash
 # 1. Verify and auto-configure PostgreSQL WAL archiving
@@ -575,16 +668,16 @@ The API Gateway hosts interactive **Swagger UI** documentation and raw OpenAPI 3
 * **Interactive Swagger UI**: [http://localhost:3000/api-docs](http://localhost:3000/api-docs)
 * **OpenAPI 3.0 Spec (JSON)**: [http://localhost:3000/api-docs/json](http://localhost:3000/api-docs/json)
 
-```text
-POST   /api/backup                 # Trigger an asynchronous backup job
-GET    /api/backup/:id/status      # Poll real-time job status and progress
-POST   /api/restore                # Trigger a restore workflow
-GET    /api/dashboard/stats        # Get system health, queue load, and success rates
-GET    /api/dashboard/logs         # Stream recent worker logs
-POST   /api/storage/upload         # Upload backup artifact to storage target
-POST   /api/notifications/test     # Send test alert to Slack / Email
-GET    /health                     # Gateway health check
-```
+| Method | HTTP Endpoint | Description |
+| :---: | :--- | :--- |
+| `POST` | `/api/backup` | Trigger an asynchronous database backup job |
+| `GET` | `/api/backup/:id/status` | Poll real-time backup job status, progress, and logs |
+| `POST` | `/api/restore` | Trigger an atomic disaster recovery restoration workflow |
+| `GET` | `/api/dashboard/stats` | Retrieve 24h reliability metrics, queue load, and success rates |
+| `GET` | `/api/dashboard/logs` | Stream worker execution logs with severity filtering |
+| `POST` | `/api/storage/upload` | Upload local backup artifact to configured cloud storage |
+| `POST` | `/api/notifications/test` | Dispatch test alert verification to Slack or SMTP Email |
+| `GET` | `/health` | Ingress gateway and subsystem health probe |
 
 ---
 
