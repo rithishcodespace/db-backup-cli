@@ -108,7 +108,7 @@ test('4. Configuration resolution respects environment overrides and defaults', 
     const runtime = new DockerRuntime(new MockProcessRunner(), new MockComposeAdapter());
     const defaultCfg = runtime.resolveConfig();
 
-    assert.equal(defaultCfg.imageRepository, 'rithish2006/db-backup');
+    assert.equal(defaultCfg.imageRepository, 'rithish2006/dbvault');
     assert.equal(defaultCfg.containerName, 'db-backup');
     assert.equal(defaultCfg.hostPort, 3000);
 
@@ -146,13 +146,13 @@ test('5. Container state detection identifies missing, running, and stopped stat
     },
     'docker inspect --format {{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.Config.Image}}|{{.Id}}|{{.State.StartedAt}} running-box': {
       exitCode: 0,
-      stdout: 'running|healthy|rithish2006/db-backup:1.0.0|abc123def456|2026-09-09T12:00:00Z',
+      stdout: 'running|healthy|rithish2006/dbvault:1.0.0|abc123def456|2026-09-09T12:00:00Z',
       stderr: '',
       durationMs: 1,
     },
     'docker inspect --format {{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}|{{.Config.Image}}|{{.Id}}|{{.State.StartedAt}} stopped-box': {
       exitCode: 0,
-      stdout: 'exited|none|rithish2006/db-backup:1.0.0|abc123def456|2026-09-09T12:00:00Z',
+      stdout: 'exited|none|rithish2006/dbvault:1.0.0|abc123def456|2026-09-09T12:00:00Z',
       stderr: '',
       durationMs: 1,
     },
@@ -202,7 +202,7 @@ test('7. Start command reuses already-running healthy container without running 
     'docker info': { exitCode: 0, stdout: '27.0.0', stderr: '', durationMs: 1 },
     'docker inspect': {
       exitCode: 0,
-      stdout: 'running|healthy|rithish2006/db-backup:1.0.0|abc123def456|2026-09-09T12:00:00Z',
+      stdout: 'running|healthy|rithish2006/dbvault:1.0.0|abc123def456|2026-09-09T12:00:00Z',
       stderr: '',
       durationMs: 1,
     },
@@ -244,8 +244,8 @@ test('8. Start command starts existing stopped container via docker start', asyn
     'docker inspect': () => ({
       exitCode: 0,
       stdout: started
-        ? 'running|healthy|rithish2006/db-backup:1.0.0|abc123def456|2026-09-09T12:00:00Z'
-        : 'exited|none|rithish2006/db-backup:1.0.0|abc123def456|2026-09-09T12:00:00Z',
+        ? 'running|healthy|rithish2006/dbvault:1.0.0|abc123def456|2026-09-09T12:00:00Z'
+        : 'exited|none|rithish2006/dbvault:1.0.0|abc123def456|2026-09-09T12:00:00Z',
       stderr: '',
       durationMs: 1,
     }),
@@ -282,7 +282,7 @@ test('9. Stop command gracefully stops running container without volume deletion
     'docker info': { exitCode: 0, stdout: '27.0.0', stderr: '', durationMs: 1 },
     'docker inspect': {
       exitCode: 0,
-      stdout: 'running|healthy|rithish2006/db-backup:1.0.0|abc123def456|2026-09-09T12:00:00Z',
+      stdout: 'running|healthy|rithish2006/dbvault:1.0.0|abc123def456|2026-09-09T12:00:00Z',
       stderr: '',
       durationMs: 1,
     },
@@ -307,7 +307,7 @@ test('10. Stop command on stopped container reports already stopped', async () =
     'docker info': { exitCode: 0, stdout: '27.0.0', stderr: '', durationMs: 1 },
     'docker inspect': {
       exitCode: 0,
-      stdout: 'exited|none|rithish2006/db-backup:1.0.0|abc123def456|2026-09-09T12:00:00Z',
+      stdout: 'exited|none|rithish2006/dbvault:1.0.0|abc123def456|2026-09-09T12:00:00Z',
       stderr: '',
       durationMs: 1,
     },
@@ -327,7 +327,7 @@ test('11. Restart command invokes docker restart and verifies health', async () 
     'docker info': { exitCode: 0, stdout: '27.0.0', stderr: '', durationMs: 1 },
     'docker inspect': {
       exitCode: 0,
-      stdout: 'running|healthy|rithish2006/db-backup:1.0.0|abc123def456|2026-09-09T12:00:00Z',
+      stdout: 'running|healthy|rithish2006/dbvault:1.0.0|abc123def456|2026-09-09T12:00:00Z',
       stderr: '',
       durationMs: 1,
     },

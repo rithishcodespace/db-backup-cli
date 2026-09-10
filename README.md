@@ -72,7 +72,7 @@ flowchart TD
     end
 
     %% Container Boundary
-    subgraph Container [" 🐳 Unified Production Container (image: rithish2006/db-backup:1.0.0 / Non-root 'dbvault' UID 10001) "]
+    subgraph Container [" 🐳 Unified Production Container (image: rithish2006/dbvault:1.0.0 / Non-root 'dbvault' UID 10001) "]
         
         subgraph GatewaySub [" 🚪 Public Ingress Layer (:3000 - Host Bound) "]
             GW["API Gateway (Express 5)"]
@@ -394,7 +394,7 @@ dbvault doctor
 ```
 
 ### 3. Production Container Lifecycle: `start`, `status`, `stop`, `restart`, `logs`
-Manage the unified production container (`rithish2006/db-backup:1.0.0`) directly from the host CLI:
+Manage the unified production container (`rithish2006/dbvault:1.0.0`) directly from the host CLI:
 - **`dbvault start`** — Launches the background container and waits for the API gateway and workers to reach healthy status.
 - **`dbvault status`** — Displays health metrics for the container, uptime, port bindings, and internal microservices.
 - **`dbvault stop`** — Gracefully terminates container execution while safely preserving all backup volumes and SQLite metadata.
@@ -690,7 +690,7 @@ npm run scan:secrets
 * **Continuous Integration ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))**:
   Executes on pull requests and pushes to `main` across a **Node.js 20 and 22 LTS** test matrix. Enforces strict lockfile installs (`npm ci`), high-severity audits, typechecking, full builds, unit tests, tarball validation, and secret scanning.
 * **Automated Release ([`.github/workflows/release.yaml`](.github/workflows/release.yaml))**:
-  Triggered on semantic Git tags (`v*.*.*`) or via manual `workflow_dispatch`. Validates release artifacts, builds multi-arch Docker images for Docker Hub (`rithish2006/db-backup`), publishes `dbvault` to the npm registry, and generates GitHub Releases with attached tarballs.
+  Triggered on semantic Git tags (`v*.*.*`) or via manual `workflow_dispatch`. Validates release artifacts, builds multi-arch Docker images for Docker Hub (`rithish2006/dbvault`), publishes `dbvault` to the npm registry, and generates GitHub Releases with attached tarballs.
 
 ---
 

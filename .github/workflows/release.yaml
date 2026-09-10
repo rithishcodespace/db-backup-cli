@@ -129,8 +129,8 @@ jobs:
           file: Dockerfile
           push: ${{ inputs.dry_run != true && env.DOCKERHUB_TOKEN != '' }}
           tags: |
-            rithish2006/db-backup:${{ needs.validate.outputs.version }}
-            rithish2006/db-backup:latest
+            rithish2006/dbvault:${{ needs.validate.outputs.version }}
+            rithish2006/dbvault:latest
 
   publish-npm:
     name: 3. Publish to npm

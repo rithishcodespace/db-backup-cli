@@ -55,7 +55,7 @@ export class DockerRuntime {
    * Resolves centralized Docker runtime configuration from environment, config, and defaults.
    */
   resolveConfig(): DockerRuntimeConfig {
-    const rawImage = process.env.DB_BACKUP_IMAGE || config.get('docker.image') || 'rithish2006/db-backup';
+    const rawImage = process.env.DB_BACKUP_IMAGE || config.get('docker.image') || 'rithish2006/dbvault';
     const rawVersion = process.env.DB_BACKUP_VERSION || config.get('docker.version') || config.get('version') || APP_VERSION;
     const containerName = process.env.DB_BACKUP_CONTAINER || config.get('docker.containerName') || 'db-backup';
     const hostPort = parseInt(process.env.DB_BACKUP_PORT || process.env.PORT || '3000', 10);
