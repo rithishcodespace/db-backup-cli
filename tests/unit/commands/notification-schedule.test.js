@@ -225,7 +225,7 @@ test('schedule command validates cron expressions and sends schedule payloads', 
   ]);
 
   assert.equal(payloads.length, 1);
-  assert.equal(payloads[0].url, 'http://localhost:3020/api/schedule');
+  assert.equal(payloads[0].url, 'http://localhost:3000/api/schedule');
   assert.equal(payloads[0].payload.notification.providers.length, 2);
 });
 

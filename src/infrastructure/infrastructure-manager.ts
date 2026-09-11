@@ -317,21 +317,17 @@ export class InfrastructureManager {
 
     try {
       if (engine === 'docker') {
-        const { dockerRuntime } = await import('./docker-runtime');
-        await dockerRuntime.start({
-          timeoutMs,
-          onProgress: (msg) => {
-            if (spinner) spinner.text = msg;
-          },
-        });
+        await this.dockerAdapter.validatePrerequisites();
+        if (spinner) spinner.text = 'Reconciling Docker Compose services...';
+        await this.dockerAdapter.up();
       } else {
         if (spinner) spinner.text = 'Starting local microservices...';
         await this.localRunner.start();
-
-        // Step 3: Wait for actual service readiness
-        if (spinner) spinner.text = 'Waiting for services to become ready...';
-        await this.waitForReady(requiredKeys, timeoutMs, 1000, spinner);
       }
+
+      // Step 3: Wait for actual service readiness
+      if (spinner) spinner.text = 'Waiting for services to become ready...';
+      await this.waitForReady(requiredKeys, timeoutMs, 1000, spinner);
 
       if (spinner) {
         spinner.succeed(chalk.green('Infrastructure ready'));

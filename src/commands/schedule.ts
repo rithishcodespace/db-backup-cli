@@ -272,17 +272,30 @@ export function registerScheduleListCommand(program: Command): void {
     .description('List all scheduled backups')
     .action(async () => {
       try {
-        const response = await httpClient.get(`${SCHEDULER_URL}/api/schedule`);
+        let schedules: any[] = [];
+        try {
+          const response = await httpClient.get(`${SCHEDULER_URL}/api/schedule`);
+          if (response.data && Array.isArray(response.data.schedules)) {
+            schedules = response.data.schedules;
+          }
+        } catch {
+          // Fallback to metadata service direct schedules endpoint
+          try {
+            schedules = await metadataClient.listSchedules();
+          } catch {
+            schedules = [];
+          }
+        }
         
-        if (!response.data.success || response.data.schedules.length === 0) {
+        if (!schedules || schedules.length === 0) {
           console.log(chalk.yellow('\n📭 No schedules found'));
           console.log(chalk.dim('\nCreate a schedule with: dbvault schedule --cron "0 2 * * *"'));
           return;
         }
         
-        console.log(chalk.bold.cyan(`\n📋 ${response.data.schedules.length} Schedule(s):\n`));
+        console.log(chalk.bold.cyan(`\n📋 ${schedules.length} Schedule(s):\n`));
         
-        response.data.schedules.forEach((schedule: any, index: number) => {
+        schedules.forEach((schedule: any, index: number) => {
           const statusColor = schedule.enabled ? chalk.green : chalk.red;
           const statusText = schedule.enabled ? 'Active' : 'Disabled';
           
@@ -334,7 +347,8 @@ export function registerScheduleListCommand(program: Command): void {
           console.log('');
         });
         
-        console.log(chalk.dim(`Active: ${response.data.activeCount} of ${response.data.schedules.length} schedules`));
+        const activeCount = schedules.filter((s: any) => s.enabled !== false).length;
+        console.log(chalk.dim(`Active: ${activeCount} of ${schedules.length} schedules`));
       } catch (error: any) {
         console.error(chalk.red('\n✗ Failed to list schedules:'), error.message);
       }

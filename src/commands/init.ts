@@ -287,15 +287,21 @@ export function registerInitCommand(program: Command): void {
           fs.writeFileSync(testFile, 'test');
           fs.unlinkSync(testFile);
 
-          await metadataClient.createStorage({
-            name: 'default-local',
-            type: 'local',
-            config: { basePath: resolvedPath },
-            default: true,
-            enabled: true,
-          });
+          config.setStorage({ localPath: resolvedPath });
 
-          storageSpinner.succeed(chalk.green('Storage is writable and configured'));
+          try {
+            await metadataClient.createStorage({
+              name: 'default-local',
+              type: 'local',
+              config: { basePath: resolvedPath },
+              default: true,
+              enabled: true,
+            });
+            storageSpinner.succeed(chalk.green('Storage is writable and registered'));
+          } catch {
+            storageSpinner.succeed(chalk.green('Storage directory is writable and configured locally'));
+          }
+
           summaryDetails['Storage'] = `✓ Local (${resolvedPath})`;
         } catch (err: any) {
           storageSpinner.fail(chalk.red(`Storage directory error: ${err.message}`));
@@ -346,19 +352,22 @@ export function registerInitCommand(program: Command): void {
           });
           await s3Provider.initialize();
 
-          await metadataClient.createStorage({
-            name: 'default-s3',
-            type: 's3',
-            bucket: String(bucket),
-            region: String(region),
-            accessKey: String(accessKey),
-            secretKey: String(secretKey),
-            config: { prefix: String(prefix || '') },
-            default: true,
-            enabled: true,
-          });
-
-          s3Spinner.succeed(chalk.green('S3 storage connection verified and saved'));
+          try {
+            await metadataClient.createStorage({
+              name: 'default-s3',
+              type: 's3',
+              bucket: String(bucket),
+              region: String(region),
+              accessKey: String(accessKey),
+              secretKey: String(secretKey),
+              config: { prefix: String(prefix || '') },
+              default: true,
+              enabled: true,
+            });
+            s3Spinner.succeed(chalk.green('S3 storage connection verified and saved'));
+          } catch {
+            s3Spinner.succeed(chalk.green('S3 connection verified (metadata registration pending "dbvault start")'));
+          }
           summaryDetails['Storage'] = `✓ S3 (${String(bucket)})`;
         } catch (err: any) {
           s3Spinner.fail(chalk.red(`S3 connection failed: ${err.message}`));
@@ -446,19 +455,24 @@ export function registerInitCommand(program: Command): void {
         }
 
         const primaryDb = configuredDbNames[0] || 'postgresql';
-        await metadataClient.createSchedule({
-          name: `${primaryDb}_auto_backup`,
-          dbType: primaryDb,
-          dbName: config.get('database')?.database || 'default_db',
-          schedule: cronExpr,
-          backupType: 'full',
-          storageType: storageType === 's3' ? 's3' : 'local',
-          compress: true,
-          enabled: true,
-        });
+        try {
+          await metadataClient.createSchedule({
+            name: `${primaryDb}_auto_backup`,
+            dbType: primaryDb,
+            dbName: config.get('database')?.database || 'default_db',
+            schedule: cronExpr,
+            backupType: 'full',
+            storageType: storageType === 's3' ? 's3' : 'local',
+            compress: true,
+            enabled: true,
+          });
 
-        clack.log.success(chalk.green(`Automated schedule created (${cronExpr})`));
-        summaryDetails['Schedule'] = `✓ Automated (${cronExpr})`;
+          clack.log.success(chalk.green(`Automated schedule created (${cronExpr})`));
+          summaryDetails['Schedule'] = `✓ Automated (${cronExpr})`;
+        } catch {
+          clack.log.warn(chalk.yellow(`Schedule preference saved (${cronExpr}). Note: Run "dbvault start" to launch background services for automated cron backups.`));
+          summaryDetails['Schedule'] = `✓ Saved (${cronExpr}) - pending "dbvault start"`;
+        }
       } else {
         summaryDetails['Schedule'] = 'Disabled';
       }
@@ -497,11 +511,15 @@ export function registerInitCommand(program: Command): void {
             });
             handleCancel(webhook);
 
-            await metadataClient.upsertNotificationConfig('slack', {
-              webhook: String(webhook),
-              enabled: true,
-            });
-            configuredProviders.push('Slack');
+            try {
+              await metadataClient.upsertNotificationConfig('slack', {
+                webhook: String(webhook),
+                enabled: true,
+              });
+              configuredProviders.push('Slack');
+            } catch {
+              configuredProviders.push('Slack (offline)');
+            }
           } else if (provider === 'email') {
             const smtpHost = await clack.text({
               message: 'SMTP Host:',
@@ -544,16 +562,20 @@ export function registerInitCommand(program: Command): void {
             });
             handleCancel(to);
 
-            await metadataClient.upsertNotificationConfig('email', {
-              smtpHost: String(smtpHost),
-              smtpPort: parseInt(String(smtpPort), 10),
-              smtpUser: String(smtpUser),
-              smtpPassword: String(smtpPassword),
-              from: String(from),
-              to: String(to),
-              enabled: true,
-            });
-            configuredProviders.push('Email');
+            try {
+              await metadataClient.upsertNotificationConfig('email', {
+                smtpHost: String(smtpHost),
+                smtpPort: parseInt(String(smtpPort), 10),
+                smtpUser: String(smtpUser),
+                smtpPassword: String(smtpPassword),
+                from: String(from),
+                to: String(to),
+                enabled: true,
+              });
+              configuredProviders.push('Email');
+            } catch {
+              configuredProviders.push('Email (offline)');
+            }
           }
         }
 

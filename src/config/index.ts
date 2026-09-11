@@ -154,6 +154,11 @@ class ConfigManager {
     this.saveConfig();
   }
 
+  setStorage(storage: Partial<StorageConfig>): void {
+    this.config.storage = { ...this.config.storage, ...storage };
+    this.saveConfig();
+  }
+
   private saveConfig(): void {
     try {
       // Remove version from saved config (it comes from package.json)
