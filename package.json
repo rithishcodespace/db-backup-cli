@@ -27,7 +27,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1071.0",
     "@clack/prompts": "^1.7.0",
     "@prisma/client": "^7.8.0",
-    "@slack/webhook": "^7.0.9",
+    "@slack/webhook": "^8.0.2",
     "axios": "^1.18.0",
     "bullmq": "^5.79.2",
     "chalk": "^4.1.2",
