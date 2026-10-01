@@ -52,7 +52,7 @@
   },
   "optionalDependencies": {
     "@prisma/adapter-better-sqlite3": "^7.8.0",
-    "better-sqlite3": "^12.10.1"
+    "better-sqlite3": "^13.0.3"
   },
   "overrides": {
     "js-yaml": "^4.3.2",
